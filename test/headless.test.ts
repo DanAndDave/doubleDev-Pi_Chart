@@ -8,6 +8,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { inspectConversation } from "../src/inspection.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import { journalText, runHeadless } from "./harness.ts";
 
@@ -114,6 +115,103 @@ describeStore("accounting against a live model and a real store", () => {
 					expect(turn.floorTokens).toBeGreaterThan(0);
 					expect(turn.packTokens).toBeLessThan(turn.floorTokens ?? 0);
 				}
+			} finally {
+				await store.close();
+			}
+		},
+		TIMEOUT,
+	);
+});
+
+/**
+ * A bundle holding one Concept with a fact no model can guess, written into
+ * a temporary directory so the test never touches the user's own bundle.
+ */
+async function secretBundle(secret: string): Promise<string> {
+	const root = await mkdtemp(join(tmpdir(), "cm-live-bundle-"));
+	await Bun.write(
+		join(root, "decisions", "0001-settlement-window.md"),
+		[
+			"---",
+			"type: Decision",
+			"title: When the settlement window closes",
+			"description: The nightly settlement cutoff.",
+			"status: stable",
+			"verified:",
+			"  - { by: human:test, at: 2026-09-16T00:00:00Z }",
+			"---",
+			"",
+			"# Decision",
+			"",
+			"The nightly settlement window closes at the value recorded in",
+			`configuration as SETTLEMENT_CLOSE = "${secret}".`,
+			"",
+			"# Rationale",
+			"",
+			"Card networks deliver their final files shortly after midnight, and",
+			"closing on the hour lost a day of settlements whenever one was late.",
+			"",
+		].join("\n"),
+	);
+	return root;
+}
+
+describeStore("curated knowledge against a live model", () => {
+	test(
+		"a concept answers a question in a codebase that has never seen it",
+		async () => {
+			const secret = `tapir-${Math.floor(Math.random() * 9000) + 1000}`;
+			const bundle = await secretBundle(secret);
+			const question =
+				`What is the value of SETTLEMENT_CLOSE? Answer with just the value, ` +
+				`or exactly UNKNOWN if you do not know.`;
+			const env: Record<string, string> = {
+				CM_DATABASE_URL: databaseUrl ?? "",
+				CM_DOC_BUNDLE: bundle,
+				CM_RECALL_TURNS: "0",
+			};
+			if (process.env.CM_BUN) env.CM_BUN = process.env.CM_BUN;
+
+			// Control first, in its own empty Codebase: without the Doc Store
+			// the fact is unreachable, so the answer below can only come from
+			// the bundle.
+			const withoutDocs = await runHeadless({
+				prompt: question,
+				extensions: [EXTENSION],
+				env: { ...env, CM_DOC_CONCEPTS: "0" },
+			});
+			expect(withoutDocs.stdout).not.toContain(secret);
+
+			const withDocs = await runHeadless({
+				prompt: question,
+				extensions: [EXTENSION],
+				env,
+			});
+
+			expect(withDocs.stdout).toContain(secret);
+
+			// And the Call says where it came from: the curated part, named,
+			// inside its Budget.
+			const conversationId = withDocs.journalPath
+				.split("/")
+				.pop()
+				?.replace(/\.jsonl$/, "")
+				.split("_")
+				.pop();
+			const store = PostgresStore.connect(databaseUrl ?? "");
+			try {
+				const calls = inspectConversation(
+					await store.readAccounting(conversationId ?? ""),
+				);
+				const curated = calls
+					.flatMap((call) => call.parts)
+					.filter((part) => part.source === "curated");
+
+				expect(curated.length).toBeGreaterThan(0);
+				expect(curated[0]?.conceptIds).toContain(
+					"decisions/0001-settlement-window",
+				);
+				expect(curated[0]?.carried).toBeLessThanOrEqual(curated[0]?.budget ?? 0);
 			} finally {
 				await store.close();
 			}

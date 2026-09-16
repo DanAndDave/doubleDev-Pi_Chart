@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { DEFAULT_RECALL_MAX_DISTANCE } from "../src/config.ts";
+import { DEFAULT_DOC_MAX_DISTANCE, DEFAULT_RECALL_MAX_DISTANCE } from "../src/config.ts";
 import {
 	LocalEmbedder,
 	PINNED_DIMENSIONS,
@@ -122,6 +122,35 @@ describeModel("the default relevance threshold", () => {
 
 			expect(near).toBeLessThan(DEFAULT_RECALL_MAX_DISTANCE);
 			expect(far).toBeGreaterThan(DEFAULT_RECALL_MAX_DISTANCE);
+		},
+		300_000,
+	);
+});
+
+// Curated prose is longer and more formal than a prompt, so the Doc Store's
+// threshold was measured separately even though it landed on the same value.
+// This is where that measurement is checked rather than assumed.
+describeModel("the default doc relevance threshold", () => {
+	test(
+		"keeps a concept the query is about and rejects one it is not",
+		async () => {
+			const embedder = new LocalEmbedder(BUN);
+			const concept =
+				"Run as an extension, not our own loop\n\n" +
+				"## Decision\n\nThe context manager runs inside the existing agent " +
+				"harness as an extension, replacing the message array it sends, " +
+				"rather than reimplementing the agent loop.";
+			const [about, unrelated, section] = await embedder.embed([
+				"why do we run as an extension instead of owning the agent loop",
+				"how do I bake sourdough bread at home",
+				concept,
+			]);
+
+			const near = 1 - cosine(about ?? [], section ?? []);
+			const far = 1 - cosine(unrelated ?? [], section ?? []);
+
+			expect(near).toBeLessThan(DEFAULT_DOC_MAX_DISTANCE);
+			expect(far).toBeGreaterThan(DEFAULT_DOC_MAX_DISTANCE);
 		},
 		300_000,
 	);

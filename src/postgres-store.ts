@@ -30,6 +30,21 @@ import type {
 } from "./thread-store.ts";
 
 /**
+ * How many sections the nearest-neighbour stage fetches per Concept asked
+ * for. Comfortably above the Budget so deduplication by Concept and the
+ * lifecycle filter still leave enough to rank.
+ */
+const CANDIDATE_FACTOR = 10;
+
+/**
+ * How much further than the best match still counts as comparable, and so
+ * lets trust and freshness decide the order. Relative to the best distance,
+ * not an absolute bucket: a fixed bucket puts 0.249 and 0.251 in different
+ * bands while 0.151 and 0.249 share one.
+ */
+const BAND = 0.05;
+
+/**
  * Forward-only schema. Each entry runs once, in order, recorded by version;
  * a store created by an older build becomes usable without intervention.
  */
@@ -105,7 +120,6 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 				identity      TEXT NOT NULL,
 				section_index INTEGER NOT NULL,
 				concept_id    TEXT NOT NULL,
-				title         TEXT,
 				status        TEXT NOT NULL DEFAULT 'stable',
 				trust         TEXT NOT NULL DEFAULT 'unverified',
 				stale         BOOLEAN NOT NULL DEFAULT FALSE,
@@ -499,7 +513,7 @@ export class PostgresStore implements
 			floorTokens: row.floor_tokens ?? undefined,
 			unassembled: row.unassembled || undefined,
 			tailSource: row.tail_source ?? undefined,
-			budgets: decode<{ tail: number; recall: number } | undefined>(
+			budgets: decode<{ tail: number; recall: number; docs: number } | undefined>(
 				row.budgets,
 				undefined,
 			),
@@ -553,92 +567,119 @@ export class PostgresStore implements
 	/**
 	 * Brings the index in line with the bundle.
 	 *
-	 * Only sections whose text changed are re-embedded, and Concepts no
-	 * longer in the bundle leave — so keeping the index current costs about
-	 * as much as the edit that prompted it. Returns what it embedded.
+	 * Only sections whose text changed are embedded, and Concepts no longer
+	 * in the bundle leave — so keeping the index current costs about as much
+	 * as the edit that prompted it. Returns how many sections it embedded.
+	 *
+	 * A section's vector is written in the same statement as its new text,
+	 * so a failed embed leaves the previous vector in place: a Concept is
+	 * never made less retrievable by an interrupted re-index.
 	 */
-	async indexConcepts(concepts: Concept[]): Promise<number> {
+	async indexConcepts(concepts: Concept[], batch = 32): Promise<number> {
 		if (!this.embedder) return 0;
-
-		const sections = concepts.flatMap(splitConcept);
-		const byConcept = new Map<string, Concept>();
-		for (const concept of concepts) {
-			if (concept.identity) byConcept.set(concept.identity, concept);
+		if (this.embedder.dimensions !== PINNED_DIMENSIONS) {
+			throw new Error(
+				`embedder produces ${this.embedder.dimensions} dimensions, ` +
+					`but the schema stores ${PINNED_DIMENSIONS}`,
+			);
 		}
 
-		// Concepts the bundle no longer has, or sections an edit removed.
+		const byIdentity = new Map<string, Concept>();
+		for (const concept of concepts) {
+			// First file wins a contested identity — the usual cause is a
+			// Concept copied to start another — so one Concept's sections
+			// can never be interleaved with another's under one key.
+			if (concept.identity && !byIdentity.has(concept.identity)) {
+				byIdentity.set(concept.identity, concept);
+			}
+		}
+		const sections = [...byIdentity.values()].flatMap(splitConcept);
+
+		await this.pruneConcepts(byIdentity, sections);
+
+		const known = new Map<string, string>();
+		const rows = (await this.sql`
+			SELECT identity, section_index, hash FROM concept_sections`) as {
+			identity: string;
+			section_index: number;
+			hash: string;
+		}[];
+		for (const row of rows) {
+			known.set(`${row.identity}:${row.section_index}`, row.hash);
+		}
+
+		// Frontmatter can change without the body changing — deprecating a
+		// Concept is exactly that — so metadata is refreshed regardless.
+		for (const [identity, concept] of byIdentity) {
+			await this.sql`
+				UPDATE concept_sections
+				SET concept_id = ${concept.id}, status = ${concept.status},
+					trust = ${concept.trust}, stale = ${concept.stale}
+				WHERE identity = ${identity}`;
+		}
+
+		const changed = sections.filter(
+			(section) =>
+				known.get(`${section.identity}:${section.index}`) !== section.hash,
+		);
+
+		let embedded = 0;
+		for (let start = 0; start < changed.length; start += batch) {
+			// In batches: the embedder is one process shared with recall, and
+			// a whole bundle in one call would hold it for the length of the
+			// corpus rather than the length of a batch.
+			const slice = changed.slice(start, start + batch);
+			const vectors = await this.embedder.embed(slice.map((each) => each.text));
+			for (const [index, section] of slice.entries()) {
+				const vector = vectors[index];
+				const concept = byIdentity.get(section.identity);
+				if (!vector || !concept) continue;
+				await this.sql`
+					INSERT INTO concept_sections
+						(identity, section_index, concept_id, status, trust, stale,
+						 hash, text, embedding)
+					VALUES (
+						${section.identity}, ${section.index}, ${section.conceptId},
+						${concept.status}, ${concept.trust}, ${concept.stale},
+						${section.hash}, ${section.text},
+						${JSON.stringify(vector)}::vector
+					)
+					ON CONFLICT (identity, section_index) DO UPDATE SET
+						concept_id = EXCLUDED.concept_id,
+						status = EXCLUDED.status,
+						trust = EXCLUDED.trust,
+						stale = EXCLUDED.stale,
+						text = EXCLUDED.text,
+						hash = EXCLUDED.hash,
+						embedding = EXCLUDED.embedding`;
+				embedded++;
+			}
+		}
+		return embedded;
+	}
+
+	/** Drops Concepts the bundle no longer has, and sections an edit removed. */
+	private async pruneConcepts(
+		byIdentity: Map<string, Concept>,
+		sections: Section[],
+	): Promise<void> {
+		const kept = new Map<string, number>();
+		for (const section of sections) {
+			kept.set(section.identity, (kept.get(section.identity) ?? 0) + 1);
+		}
+
 		const indexed = (await this.sql`
 			SELECT DISTINCT identity FROM concept_sections`) as { identity: string }[];
 		for (const row of indexed) {
-			if (byConcept.has(row.identity)) continue;
+			if (byIdentity.has(row.identity)) continue;
 			await this.sql`
 				DELETE FROM concept_sections WHERE identity = ${row.identity}`;
 		}
-		for (const [identity, concept] of byConcept) {
-			const kept = sections.filter(
-				(section) => section.identity === identity,
-			).length;
-			void concept;
+		for (const [identity, count] of kept) {
 			await this.sql`
 				DELETE FROM concept_sections
-				WHERE identity = ${identity} AND section_index >= ${kept}`;
+				WHERE identity = ${identity} AND section_index >= ${count}`;
 		}
-
-		const stale: Section[] = [];
-		for (const section of sections) {
-			const concept = byConcept.get(section.identity);
-			if (!concept) continue;
-			const [existing] = (await this.sql`
-				SELECT hash FROM concept_sections
-				WHERE identity = ${section.identity}
-					AND section_index = ${section.index}`) as { hash: string }[];
-
-			await this.sql`
-				INSERT INTO concept_sections
-					(identity, section_index, concept_id, title, status, trust, stale,
-					 hash, text, embedding)
-				VALUES (
-					${section.identity}, ${section.index}, ${section.conceptId},
-					${concept.title ?? null}, ${concept.status}, ${concept.trust},
-					${concept.stale}, ${section.hash}, ${section.text}, NULL
-				)
-				ON CONFLICT (identity, section_index) DO UPDATE SET
-					concept_id = EXCLUDED.concept_id,
-					title = EXCLUDED.title,
-					status = EXCLUDED.status,
-					trust = EXCLUDED.trust,
-					stale = EXCLUDED.stale,
-					text = EXCLUDED.text,
-					hash = EXCLUDED.hash,
-					-- Unchanged text keeps its vector; changed text loses it and
-					-- is embedded below.
-					embedding = CASE
-						WHEN concept_sections.hash = EXCLUDED.hash
-						THEN concept_sections.embedding ELSE NULL END`;
-
-			if (existing?.hash !== section.hash) stale.push(section);
-		}
-
-		const pending = (await this.sql`
-			SELECT identity, section_index, text FROM concept_sections
-			WHERE embedding IS NULL`) as {
-			identity: string;
-			section_index: number;
-			text: string;
-		}[];
-		if (pending.length === 0) return 0;
-
-		const vectors = await this.embedder.embed(pending.map((row) => row.text));
-		let embedded = 0;
-		for (const [index, row] of pending.entries()) {
-			const vector = vectors[index];
-			if (!vector) continue;
-			await this.sql`
-				UPDATE concept_sections SET embedding = ${JSON.stringify(vector)}::vector
-				WHERE identity = ${row.identity} AND section_index = ${row.section_index}`;
-			embedded++;
-		}
-		return embedded;
 	}
 
 	/**
@@ -646,8 +687,9 @@ export class PostgresStore implements
 	 *
 	 * Deprecated Concepts are withheld rather than down-weighted: a
 	 * superseded decision presented as current is the failure this Store
-	 * must not have. Among comparable matches, current and human-reviewed
-	 * Concepts come first — a tie-break, not a number mixed into a distance.
+	 * must not have. Among comparable matches — within `BAND` of the best
+	 * one — current and human-reviewed Concepts come first: a tie-break,
+	 * not a number mixed into a distance.
 	 */
 	async searchConcepts(
 		query: string,
@@ -659,33 +701,36 @@ export class PostgresStore implements
 		if (!vector) return [];
 
 		const embedding = JSON.stringify(vector);
+		// The nearest-neighbour stage is shaped so the hnsw index can serve
+		// it: the distance in ORDER BY, at the same level as LIMIT.
+		// Lifecycle and deduplication then narrow that candidate set.
+		const candidates = limit * CANDIDATE_FACTOR;
 		const rows = (await this.sql`
-			WITH scored AS (
-				SELECT identity, concept_id, title, text, status, trust, stale,
+			WITH nearest AS (
+				SELECT identity, concept_id, text, status, trust, stale,
 					embedding <=> ${embedding}::vector AS distance
 				FROM concept_sections
-				WHERE embedding IS NOT NULL AND status <> 'deprecated'
+				WHERE embedding IS NOT NULL
+				ORDER BY embedding <=> ${embedding}::vector
+				LIMIT ${candidates}
 			),
 			best AS (
 				SELECT DISTINCT ON (identity)
-					identity, concept_id, title, text, trust, stale, distance
-				FROM scored
-				WHERE distance <= ${maxDistance}
+					identity, concept_id, text, trust, stale, distance
+				FROM nearest
+				WHERE distance <= ${maxDistance} AND status <> 'deprecated'
 				ORDER BY identity, distance ASC
 			)
-			SELECT concept_id, title, text, trust, stale, distance
+			SELECT concept_id, text, trust, stale, distance
 			FROM best
 			ORDER BY
-				-- Relevance first, in bands: within a band, current and
-				-- human-reviewed knowledge wins.
-				round(distance::numeric, 1) ASC,
+				(distance > (SELECT min(distance) FROM best) + ${BAND}) ASC,
 				stale ASC,
 				(trust = 'human-reviewed') DESC,
 				distance ASC,
 				concept_id ASC
 			LIMIT ${limit}`) as {
 			concept_id: string;
-			title: string | null;
 			text: string;
 			trust: TrustTier;
 			stale: boolean;
@@ -694,7 +739,6 @@ export class PostgresStore implements
 
 		return rows.map((row) => ({
 			conceptId: row.concept_id,
-			title: row.title ?? undefined,
 			text: row.text,
 			trust: row.trust,
 			stale: row.stale,

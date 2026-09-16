@@ -384,7 +384,7 @@ describe("parts whose turns have no recorded position", () => {
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
 		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
-		expect(view.budgets).toEqual({ tail: 5, recall: 3 });
+		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0 });
 	});
 });
 
@@ -419,7 +419,7 @@ describe("relevance against budget", () => {
 		);
 
 		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
-		expect(view.budgets).toEqual({ tail: 2, recall: 3 });
+		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0 });
 	});
 
 	test("trimming still outranks irrelevance when both happened", async () => {
@@ -491,8 +491,14 @@ describe("the curated part in accounting", () => {
 		const tail = view.parts.find((part) => part.source === "verbatim-tail");
 		expect(curated?.carried).toBe(1);
 		expect(curated?.conceptIds).toEqual(["decisions/caching"]);
-		// Separately: the tail's tokens are its own, not the pack's.
-		expect(tail?.approximateTokens).not.toBe(curated?.approximateTokens);
+		// Separately: each part is charged its own tokens, and together they
+		// account for the pack.
+		const total = view.parts.reduce(
+			(sum, part) => sum + part.approximateTokens,
+			0,
+		);
+		expect(total).toBe(pack.approximateTokens);
+		expect(tail?.approximateTokens).toBeGreaterThan(0);
 	});
 
 	test("the report names the concepts a call carried", () => {
@@ -512,5 +518,66 @@ describe("the curated part in accounting", () => {
 		});
 
 		expect(renderCall(view)).toContain("decisions/caching");
+	});
+});
+
+describe("comparing packs that carried concepts", () => {
+	const callWith = (conceptIds: string[]) =>
+		inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: [
+				recordPart({
+					source: "curated",
+					approximateTokens: 40,
+					carried: conceptIds.length,
+					conceptIds,
+					budget: 2,
+				}),
+			],
+		});
+
+	test("a concept that entered and one that left are both visible", () => {
+		const diff = comparePacks(
+			callWith(["decisions/caching"]),
+			callWith(["decisions/sharding"]),
+		);
+
+		expect(diff.entered.map((item) => item.conceptId)).toEqual([
+			"decisions/sharding",
+		]);
+		expect(diff.left.map((item) => item.conceptId)).toEqual([
+			"decisions/caching",
+		]);
+	});
+
+	test("a concept carried by both calls is unchanged", () => {
+		const diff = comparePacks(
+			callWith(["decisions/caching"]),
+			callWith(["decisions/caching"]),
+		);
+
+		expect(diff.entered).toEqual([]);
+		expect(diff.unchanged.map((item) => item.conceptId)).toEqual([
+			"decisions/caching",
+		]);
+	});
+});
+
+describe("the doc budget in accounting", () => {
+	test("is recorded even when nothing relevant was found", () => {
+		const pack = assemble(
+			{
+				turns: reconstructTurns([{ role: "user", content: "now" }]),
+				concepts: [],
+			},
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 3 },
+		);
+
+		// The Budget is the evidence that the Doc Store was consulted at
+		// all; without it a Call that found nothing is indistinguishable
+		// from one where the Store was switched off.
+		expect(pack.parts.some((part) => part.source === "curated")).toBe(false);
+		expect(pack.budgets.docs).toBe(3);
 	});
 });

@@ -9,11 +9,15 @@ import { join } from "node:path";
 
 import { parseConcept, type Concept } from "../src/concept.ts";
 import { DocStore } from "../src/doc-store.ts";
-import { StubEmbedder } from "../src/embedder.ts";
+import { LocalEmbedder, StubEmbedder } from "../src/embedder.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
 const databaseUrl = process.env.CM_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
+// The stub embedder shares tokens, so under it "by meaning" and "by wording"
+// are the same claim. Only the real model can tell them apart.
+const describeModel =
+	databaseUrl && process.env.CM_EMBED === "1" ? describe : describe.skip;
 const AT = new Date("2026-09-16T00:00:00Z");
 
 function concept(
@@ -59,12 +63,14 @@ describeStore("the concept index", () => {
 		await store.truncate();
 	});
 
-	test("an indexed concept is findable by meaning", async () => {
+	test("an indexed concept is findable, and an unrelated one is not", async () => {
 		await store.indexConcepts([CACHING, BANNER]);
 
-		const found = await store.searchConcepts("parsed configuration memory", 5, 2);
+		// The threshold the product ships with: a wider one would return the
+		// whole corpus and prove only that rows exist.
+		const found = await store.searchConcepts("parsed configuration memory", 5, 0.5);
 
-		expect(found.map((hit) => hit.conceptId)).toContain("decisions/caching");
+		expect(found.map((hit) => hit.conceptId)).toEqual(["decisions/caching"]);
 	});
 
 	test("a query matching one section retrieves its concept", async () => {
@@ -89,6 +95,7 @@ describeStore("the concept index", () => {
 	test("emptying the index and indexing again finds the same concepts", async () => {
 		await store.indexConcepts([CACHING, BANNER]);
 		const before = await store.searchConcepts("parsed configuration", 5, 2);
+		expect(before.length).toBeGreaterThan(0);
 
 		await store.truncate();
 		await store.indexConcepts([CACHING, BANNER]);
@@ -148,11 +155,14 @@ describeStore("the concept index", () => {
 			"type: Decision\ntitle: Caching parsed configuration",
 		);
 
+		// The section is retrievable before the edit, so its absence after
+		// can only be the deletion.
+		const query = "rolling restarts drain connections";
+		expect(await store.searchConcepts(query, 5, 0.6)).not.toEqual([]);
+
 		await store.indexConcepts([shortened]);
 
-		// Tight enough that only a section genuinely about deployment matches.
-		const found = await store.searchConcepts("rolling restarts drain", 5, 0.5);
-		expect(found).toEqual([]);
+		expect(await store.searchConcepts(query, 5, 0.6)).toEqual([]);
 	});
 });
 
@@ -238,6 +248,35 @@ describeStore("lifecycle and trust in retrieval", () => {
 		expect(found[0]?.trust).toBe("human-reviewed");
 	});
 
+	test("a nearer but stale concept still loses to a comparable current one", async () => {
+		// Near but not equal — 0.047 apart, inside the band — so only a band
+		// of comparable relevance, not an exact tie, can let trust decide.
+		const LONG =
+			"Retries use exponential backoff capped at thirty seconds, jittered " +
+			"to avoid a thundering herd.";
+		const stale = concept(
+			"decisions/a-retries",
+			"id-stale",
+			`${LONG} Jitter is uniform.`,
+			"type: Decision\ntitle: Retries\nstale_after: 2020-01-01T00:00:00Z",
+		);
+		const current = concept(
+			"decisions/z-retries",
+			"id-current",
+			`${LONG} Jitter is uniform and bounded.`,
+			"type: Decision\ntitle: Retries",
+		);
+		await store.indexConcepts([stale, current]);
+
+		const found = await store.searchConcepts(
+			`Retries\n\n${LONG} Jitter is uniform.`,
+			5,
+			2,
+		);
+
+		expect(found[0]?.conceptId).toBe("decisions/z-retries");
+	});
+
 	test("relevance still outranks trust", async () => {
 		// A reviewed Concept about something else must not displace an
 		// unverified Concept that actually answers the question.
@@ -299,4 +338,45 @@ describeStore("indexing a bundle from disk", () => {
 
 		expect(embedded).toBeGreaterThan(0);
 	});
+});
+
+describeModel("retrieval under the real model", () => {
+	test(
+		"a concept is found by a query that shares its meaning, not its words",
+		async () => {
+			const embedder = new LocalEmbedder(process.env.CM_BUN ?? "bun");
+			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
+			try {
+				await store.migrate();
+				await store.truncate();
+				await store.indexConcepts([
+					concept(
+						"decisions/sharding",
+						"id-sharding",
+						"## Decision\n\nThe payments ledger is split across shards by " +
+							"merchant identifier, so one merchant's history stays on one " +
+							"shard and reconciliation is a local scan.",
+						"type: Decision\ntitle: Ledger sharding",
+					),
+					BANNER,
+				]);
+
+				// No content word in common with the Concept: not "shard",
+				// "merchant", "ledger" or "reconciliation".
+				const found = await store.searchConcepts(
+					"how is the payments table partitioned across servers",
+					2,
+					0.5,
+				);
+
+				expect(found.map((hit) => hit.conceptId)).toEqual([
+					"decisions/sharding",
+				]);
+			} finally {
+				await store.close();
+				await embedder.close();
+			}
+		},
+		300_000,
+	);
 });

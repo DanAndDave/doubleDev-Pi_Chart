@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+
 import {
 	MemoryAccounting,
 	type AccountingStore,
@@ -65,6 +67,8 @@ export interface Dependencies {
 	docs?: ConceptSearch;
 	/** Reads the bundle the index is derived from. */
 	bundle?: () => Promise<Concept[]>;
+	/** Settles when the schema is ready. Indexing at session start awaits it. */
+	ready?: Promise<unknown>;
 	/** The Codebase this session is working in. */
 	codebase?: string;
 	accounting: AccountingStore;
@@ -110,13 +114,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		if (deps.docs && deps.bundle) {
 			const docs = deps.docs;
 			const bundle = deps.bundle;
+			const ready = deps.ready;
 			// Indexing is background work: a session must not wait on the
-			// bundle to send its first prompt.
+			// bundle to send its first prompt. It does have to wait for the
+			// schema, which is migrated concurrently at startup.
 			inBackground(
 				"Doc Store indexing",
-				bundle().then(async (concepts) => {
-					await docs.indexConcepts(concepts);
-				}),
+				(async () => {
+					await ready;
+					await docs.indexConcepts(await bundle());
+				})(),
 			);
 		}
 
@@ -321,7 +328,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		pi.registerCommand("pack", {
 			description:
 				"Inspect the context pack: `pack` for the last call, `pack diff`, " +
-				"`pack summary`, `pack budget <tail|recall> <n>`",
+				"`pack summary`, `pack budget <tail|recall|docs> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
 				// One channel: the harness owns the screen when it offers one.
@@ -403,9 +410,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function conceptsFor(current: Turn | undefined): Promise<ConceptHit[]> {
 		if (!deps.docs || !current || deps.config.docConcepts <= 0) return [];
 		try {
+			// Over-fetch, as recall does: the Assembler applies the Budget,
+			// so what the Budget excluded is visible rather than invisible.
 			return await deps.docs.searchConcepts(
 				current.prompt,
-				deps.config.docConcepts,
+				deps.config.docConcepts * 2,
 				deps.config.docMaxDistance,
 			);
 		} catch (error) {
@@ -536,7 +545,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 
 	const embedder = new LocalEmbedder();
 	const store = PostgresStore.connect(config.databaseUrl, embedder);
-	void store.migrate().catch((error: unknown) => {
+	const ready = store.migrate().catch((error: unknown) => {
 		reportToStderr(`Thread Store migration failed: ${describe(error)}`);
 	});
 
@@ -548,12 +557,17 @@ export default function contextManager(pi: ExtensionAPI): void {
 		recall: store,
 		search: store,
 		docs: store,
+		ready,
 		bundle: async () => {
+			// A missing bundle is not an empty one. Reading on would hand
+			// the index an empty corpus, and indexing would then prune every
+			// Concept a working bundle had put there.
+			await stat(config.docBundle);
 			// Identity first: the index keys on it, and a Concept that has
 			// never been given one is not indexable.
-			const store = new DocStore(config.docBundle);
-			await store.ensureIdentities();
-			return store.concepts();
+			const docs = new DocStore(config.docBundle);
+			await docs.ensureIdentities();
+			return docs.concepts();
 		},
 		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),

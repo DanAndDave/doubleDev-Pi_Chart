@@ -13,7 +13,13 @@ export interface Section {
 	hash: string;
 }
 
-const HEADING = /^##\s+/m;
+/**
+ * Top-level body headings. OKF's convention is level one — `# Definition`,
+ * `# Examples` — and hand-written Concepts often use level two instead, so
+ * both count as a top-level division.
+ */
+const HEADING = /^#{1,2}\s+\S/;
+/** Shorter than this, a piece is a label rather than a subject of its own. */
 const MINIMUM = 40;
 
 /**
@@ -30,18 +36,18 @@ export function splitConcept(concept: Concept): Section[] {
 	const body = concept.body.trim();
 	if (body.length === 0) return [];
 
-	const pieces = body
-		.split(HEADING)
-		.map((piece, index) => (index === 0 ? piece : `## ${piece}`))
-		.map((piece) => piece.trim())
-		.filter((piece) => piece.length > 0);
-
 	const sections: Section[] = [];
-	for (const piece of pieces) {
+	for (const piece of divide(body)) {
+		// A short piece — `# Status`, `# Supersedes` — is joined to what
+		// precedes it rather than dropped: a section nothing embeds is a
+		// section nothing can retrieve.
+		const previous = sections.at(-1);
+		if (piece.length < MINIMUM && previous) {
+			previous.text = `${previous.text}\n\n${piece}`;
+			previous.hash = fingerprint(previous.text);
+			continue;
+		}
 		const text = `${title}\n\n${piece}`;
-		// Fragments shorter than a sentence carry no retrievable meaning and
-		// would only dilute the index.
-		if (piece.length < MINIMUM && sections.length > 0) continue;
 		sections.push({
 			identity: concept.identity,
 			conceptId: concept.id,
@@ -52,6 +58,23 @@ export function splitConcept(concept: Concept): Section[] {
 	}
 
 	return sections;
+}
+
+/** The body's pieces: any preamble, then one per top-level heading. */
+function divide(body: string): string[] {
+	const pieces: string[] = [];
+	let current: string[] = [];
+
+	for (const line of body.split("\n")) {
+		if (HEADING.test(line) && current.length > 0) {
+			pieces.push(current.join("\n").trim());
+			current = [];
+		}
+		current.push(line);
+	}
+	pieces.push(current.join("\n").trim());
+
+	return pieces.filter((piece) => piece.length > 0);
 }
 
 function fingerprint(text: string): string {

@@ -38,7 +38,7 @@ export interface CallView {
 	floorShare?: number;
 	unassembled: boolean;
 	/** The Budgets in force, recorded even where a part carried nothing. */
-	budgets?: { tail: number; recall: number };
+	budgets?: { tail: number; recall: number; docs: number };
 	/**
 	 * Candidates refused as not relevant enough. Reported on the Call, so it
 	 * survives the case where nothing was relevant and there is no recalled
@@ -49,9 +49,16 @@ export interface CallView {
 
 /** What changed between two Calls' packs. */
 export interface PackDiff {
-	entered: { source: PackSource; turnIndex: number }[];
-	left: { source: PackSource; turnIndex: number }[];
-	unchanged: { source: PackSource; turnIndex: number }[];
+	entered: PackItem[];
+	left: PackItem[];
+	unchanged: PackItem[];
+}
+
+/** One thing a pack carried: a Turn by position, or a Concept by id. */
+export interface PackItem {
+	source: PackSource;
+	turnIndex?: number;
+	conceptId?: string;
 }
 
 /** What a whole Conversation's windows cost. */
@@ -104,7 +111,7 @@ function viewPart(part: RecordedPart): PartView {
 	const conceptIds = part.conceptIds ?? [];
 	// Count first, positions second: a part whose Turns have no position yet
 	// still carried them, and reporting nothing would understate the pack.
-	const carried = part.carried ?? turnIndices.length + conceptIds.length;
+	const carried = part.carried ?? turnIndices.length;
 	const candidates = part.candidates;
 	const dropped =
 		candidates === undefined ? 0 : Math.max(candidates - carried, 0);
@@ -152,17 +159,17 @@ export function comparePacks(before: CallView, after: CallView): PackDiff {
 	};
 }
 
-interface Item {
-	source: PackSource;
-	turnIndex: number;
-}
-
 /** A pack's contents keyed by identity, so two packs can be compared. */
-function itemsOf(view: CallView): Map<string, Item> {
-	const items = new Map<string, Item>();
+function itemsOf(view: CallView): Map<string, PackItem> {
+	const items = new Map<string, PackItem>();
 	for (const part of view.parts) {
 		for (const turnIndex of part.turnIndices) {
 			items.set(`${part.source}:${turnIndex}`, { source: part.source, turnIndex });
+		}
+		// Concepts flicker more than recollections, because the query
+		// changes every prompt — so the diff has to see them too.
+		for (const conceptId of part.conceptIds) {
+			items.set(`${part.source}:${conceptId}`, { source: part.source, conceptId });
 		}
 	}
 	return items;

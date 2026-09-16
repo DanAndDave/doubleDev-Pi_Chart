@@ -23,7 +23,9 @@ export function renderCall(view: CallView): string {
 		const turns =
 			part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
 		const concepts =
-			part.conceptIds.length > 0 ? ` ${part.conceptIds.join(", ")}` : "";
+			part.conceptIds.length > 0
+				? ` concepts ${part.conceptIds.join(", ")}`
+				: "";
 		lines.push(
 			`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
 				`${budget ? ` (${part.carried}${budget})` : ""}${turns}${concepts}`,
@@ -56,10 +58,17 @@ export function renderDiff(diff: PackDiff): string {
 		return "No change between these packs.";
 	}
 	const lines: string[] = [];
-	for (const item of diff.entered) lines.push(`  + ${item.source} turn ${item.turnIndex}`);
-	for (const item of diff.left) lines.push(`  - ${item.source} turn ${item.turnIndex}`);
+	for (const item of diff.entered) lines.push(`  + ${describeItem(item)}`);
+	for (const item of diff.left) lines.push(`  - ${describeItem(item)}`);
 	lines.push(`  = ${diff.unchanged.length} unchanged`);
 	return lines.join("\n");
+}
+
+/** A diffed item: a Turn by position, or a Concept by id. */
+function describeItem(item: PackDiff["entered"][number]): string {
+	const what =
+		item.conceptId === undefined ? `turn ${item.turnIndex}` : item.conceptId;
+	return `${item.source} ${what}`;
 }
 
 export function renderSummary(summary: ConversationSummary): string {

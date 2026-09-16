@@ -142,6 +142,6 @@ Turn 6, call 0
 - `/pack` — the last Call
 - `/pack diff` — what entered and left since the Call before it
 - `/pack summary` — the whole Conversation, with average Budget spend
-- `/pack budget <tail|recall> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session
+- `/pack budget <tail|recall|docs> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session
 
 Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides.

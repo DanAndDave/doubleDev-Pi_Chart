@@ -62,7 +62,7 @@ export interface Pack {
 	messages: HarnessMessage[];
 	parts: PackPart[];
 	/** The Budgets in force for this Call, whether or not a part used them. */
-	budgets: { tail: number; recall: number };
+	budgets: { tail: number; recall: number; docs: number };
 	/**
 	 * Candidates retrieval refused as not relevant enough. A Call-level fact,
 	 * not a part's: when everything is refused there is no recalled part to
@@ -167,7 +167,11 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	return {
 		messages,
 		parts,
-		budgets: { tail: config.tailTurns, recall: config.recallTurns },
+		budgets: {
+			tail: config.tailTurns,
+			recall: config.recallTurns,
+			docs: config.docConcepts,
+		},
 		rejected,
 		approximateTokens: total,
 	};

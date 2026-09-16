@@ -73,7 +73,14 @@ export function setBudget(
 		config.recallTurns = parsed;
 		return { ok: true, budget: parsed };
 	}
-	return { ok: false, reason: `unknown budget "${name}"; expected tail or recall` };
+	if (name === "docs") {
+		config.docConcepts = parsed;
+		return { ok: true, budget: parsed };
+	}
+	return {
+		ok: false,
+		reason: `unknown budget "${name}"; expected tail, recall or docs`,
+	};
 }
 
 /** A cosine distance in [0, 2], or the default when unset or unusable. */

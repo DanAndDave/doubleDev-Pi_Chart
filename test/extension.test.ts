@@ -739,3 +739,30 @@ describe("the doc store in a session", () => {
 		expect(cm.reported.join("\n")).toContain("Doc Store indexing");
 	});
 });
+
+describe("a bundle that is not there", () => {
+	test("is reported, and nothing is indexed over it", async () => {
+		let indexed: number | undefined;
+		const cm = harness({
+			docs: {
+				indexConcepts: async (concepts) => {
+					indexed = concepts.length;
+					return 0;
+				},
+				searchConcepts: async () => [],
+			},
+			bundle: async () => {
+				// What the real reader does when the configured path does not
+				// exist: an empty list here would index nothing over a
+				// working index and prune every Concept in it.
+				throw new Error("ENOENT: no such file or directory");
+			},
+		});
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(indexed).toBeUndefined();
+		expect(cm.reported.join("\n")).toContain("Doc Store indexing");
+	});
+});

@@ -28,7 +28,7 @@ export interface CallAccounting extends CallAddress {
 	/** Whether the tail came from the store or from the harness's own history. */
 	tailSource?: TailSource;
 	/** The Budgets in force for this Call, recorded even when unused. */
-	budgets?: { tail: number; recall: number };
+	budgets?: { tail: number; recall: number; docs: number };
 	/** Candidates refused as not relevant enough, even when none survived. */
 	rejected?: number;
 }

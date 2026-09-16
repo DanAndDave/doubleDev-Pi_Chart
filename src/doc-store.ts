@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -207,7 +207,13 @@ export class DocStore {
 			const rewritten = withIdentity(text, identity);
 			if (!rewritten) continue;
 
-			await writeFile(join(this.root, path), rewritten);
+			// Through a temporary file: the bundle is the user's own curated
+			// prose, and two sessions starting together must not be able to
+			// leave a half-written Concept behind.
+			const destination = join(this.root, path);
+			const temporary = `${destination}.${randomUUID()}.tmp`;
+			await writeFile(temporary, rewritten);
+			await rename(temporary, destination);
 			assigned.push({ ...concept, identity });
 		}
 

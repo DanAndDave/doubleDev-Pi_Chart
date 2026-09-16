@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { parseConcept, type Concept } from "../src/concept.ts";
+import { DocStore } from "../src/doc-store.ts";
 import { splitConcept } from "../src/sections.ts";
 
 const AT = new Date("2026-09-16T00:00:00Z");
@@ -46,6 +47,40 @@ describe("splitConcept", () => {
 
 		expect(sections).toHaveLength(1);
 		expect(sections[0]?.index).toBe(0);
+	});
+
+	test("splits a real OKF concept, whose headings are level one", async () => {
+		// The vendored reference bundle uses `# Definition`, `# What changed
+		// in FY2026`, `# Trust and freshness` — the convention the format
+		// itself documents.
+		const bundle = new DocStore(
+			new URL("./fixtures/okf-acme-retail", import.meta.url).pathname,
+		);
+		await bundle.ensureIdentities();
+		const concepts = await bundle.concepts();
+		const margin = concepts.find((each) => each.id.endsWith("gross-margin"));
+		if (!margin) throw new Error("fixture concept missing");
+
+		const sections = splitConcept(margin);
+
+		expect(sections.length).toBeGreaterThan(2);
+		expect(sections.map((section) => section.text).join("\n")).toContain(
+			"Trust and freshness",
+		);
+	});
+
+	test("a short section is kept, joined to what precedes it", () => {
+		const sections = splitConcept(
+			concept(
+				"## Decision\n\nWe keep parsed configuration in memory for the process.\n\n" +
+					"## Status\n\nAccepted.",
+			),
+		);
+
+		// Dropped short sections are text nothing can ever retrieve.
+		expect(sections.map((section) => section.text).join("\n")).toContain(
+			"Accepted.",
+		);
 	});
 
 	test("a non-conformant concept yields nothing", () => {
