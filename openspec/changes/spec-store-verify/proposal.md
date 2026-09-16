@@ -1,7 +1,13 @@
 # Proposal: Spec Store verification
 
-Triage: needs-triage
+Triage: ready-for-agent
 Blocked by: assembler-owns-window
+
+## Why
+
+Three Stores now feed the pack and one does not exist yet. The Spec Store is the odd one: the project does not own it, it holds a Codebase's stated intent rather than its history, and it contributes nothing to a Context Pack.
+
+What it does is make the other work possible. Every workflow this project runs — propose, apply, archive — assumes a conforming `openspec/` tree, and a Codebase that half has one fails in ways that look like tool bugs rather than missing structure.
 
 ## What to build
 
@@ -16,4 +22,4 @@ A Codebase's stated intent is available and correctly structured. The tool verif
 
 ## Non-goals
 
-Planning artifacts for this change — delta specs, design, and tasks — are written by `/opsx-propose`. This file is the slice statement and its blocking edges only.
+Reading specs into a Context Pack, authoring or editing specs and changes, running the propose/apply/archive workflows, and replacing anything `openspec validate` already checks.
