@@ -50,12 +50,28 @@ The extension checks this at session start and reports loudly if it is still act
 | `CM_RECALL_MAX_DISTANCE` | `0.5` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: genuine hits land at 0.30–0.39 and unrelated prompts at 0.51+ on the pinned model. |
 | `CM_DATABASE_URL` | unset | Thread Store connection. Unset means run with no store: the tail falls back to the harness's own history. |
 | `CM_BUN` | `bun` | The Bun used to run the embedding worker. Set it to an absolute path when `bun` is not on the harness's `PATH`. |
+| `CM_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
+| `CM_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
+| `CM_DOC_BUNDLE` | `~/.context-manager/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
 
 ## Recall
 
 Ingested Turns are embedded with a pinned local model, so a decision made far outside the verbatim tail can still reach the model. A Turn is recalled only when it is similar enough to be worth carrying, so a Conversation with nothing relevant to say contributes nothing rather than its least-irrelevant Turns. Recalled Turns arrive as an attributed recollection — `[recalled from turn N of this conversation]` — under their own Budget, and can never displace the verbatim tail or the current prompt.
 
 The model runs **out of process**, under the project's own Bun. The harness's bundled runtime cannot load the model's native dependencies (`Could not load the "sharp" module`), so the worker is spawned on first use and reused for the session. Nothing leaves the machine and no API key is needed; the first run downloads the model and caches it.
+
+## Curated knowledge
+
+The Doc Store is an [OKF](https://github.com/google/okf) bundle of Concepts — decisions, standards, guides — that outlive any one Conversation. It is machine-wide, so a decision written once is available in every Codebase.
+
+Concepts are indexed by **section** rather than whole. A Concept that covers a decision, its rationale and its consequences has three subjects, and one vector for all three matches none of them well; sections are how a Concept is found, and the Concept is what is returned. The index is derived from the bundle exactly as the Thread Store is derived from the Journal: re-indexing embeds only sections whose text changed, Concepts removed from the bundle leave, and dropping the index loses nothing.
+
+Two lifecycle rules keep curated knowledge honest:
+
+- **Deprecated Concepts are withheld**, never merely ranked lower. A superseded decision presented as current is the one failure this Store must not have.
+- **Current and human-reviewed Concepts win ties.** Among matches of comparable relevance, fresher and reviewed knowledge comes first — a tie-break, not a trust score mixed into a distance, so it stays possible to say why a Concept was chosen.
+
+Concepts arrive attributed — `[curated knowledge: decisions/0007-ledger-sharding]` — under their own Budget, and exhausting it never touches the verbatim tail or recalled Turns. `/pack` names the Concepts a Call carried.
 
 ## Start the Thread Store
 

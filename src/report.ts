@@ -22,9 +22,11 @@ export function renderCall(view: CallView): string {
 			part.budget === undefined ? "" : ` of ${part.budget}${excluded}`;
 		const turns =
 			part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
+		const concepts =
+			part.conceptIds.length > 0 ? ` ${part.conceptIds.join(", ")}` : "";
 		lines.push(
 			`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
-				`${budget ? ` (${part.carried}${budget})` : ""}${turns}`,
+				`${budget ? ` (${part.carried}${budget})` : ""}${turns}${concepts}`,
 		);
 	}
 

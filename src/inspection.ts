@@ -14,6 +14,8 @@ export interface PartView {
 	carried: number;
 	/** Their positions, where those are known. Identity, not count. */
 	turnIndices: number[];
+	/** Which Concepts it carried, by id, where it carried any. */
+	conceptIds: string[];
 	budget?: number;
 	candidates?: number;
 	/** True when the Budget, not the supply, decided what it carried. */
@@ -99,9 +101,10 @@ export function inspectCall(call: CallAccounting): CallView {
 
 function viewPart(part: RecordedPart): PartView {
 	const turnIndices = part.turnIndices ?? [];
+	const conceptIds = part.conceptIds ?? [];
 	// Count first, positions second: a part whose Turns have no position yet
 	// still carried them, and reporting nothing would understate the pack.
-	const carried = part.carried ?? turnIndices.length;
+	const carried = part.carried ?? turnIndices.length + conceptIds.length;
 	const candidates = part.candidates;
 	const dropped =
 		candidates === undefined ? 0 : Math.max(candidates - carried, 0);
@@ -111,6 +114,7 @@ function viewPart(part: RecordedPart): PartView {
 		approximateTokens: part.approximateTokens,
 		carried,
 		turnIndices,
+		conceptIds,
 		budget: part.budget,
 		candidates,
 		// Trimmed means the Budget bound it, not merely that supply ran out

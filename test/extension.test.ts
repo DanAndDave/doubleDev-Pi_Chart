@@ -97,6 +97,8 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 			tailTurns: DEFAULT_TAIL_TURNS,
 			recallTurns: 0,
 			recallMaxDistance: 1,
+			docConcepts: 0,
+			docMaxDistance: 0.5,
 			docBundle: "/unused",
 		},
 		assemble,
@@ -435,7 +437,7 @@ describe("recall wiring", () => {
 
 	test("a pack draws recall from the store, attributed as its own part", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docBundle: "/unused" },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" },
 			recall: {
 				similarTurns: async () => ({
 					turns: [
@@ -462,7 +464,7 @@ describe("recall wiring", () => {
 
 	test("a retrieval failure costs the recollections, not the turn", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docBundle: "/unused" },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" },
 			recall: {
 				similarTurns: () => Promise.reject(new Error("index offline")),
 			},
@@ -497,7 +499,7 @@ describe("the pack command", () => {
 	const prompt = [{ role: "user", content: "current" }];
 
 	test("changing a budget applies to the next call", async () => {
-		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docBundle: "/unused" };
+		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" };
 		const cm = harness({
 			config,
 			recall: {
@@ -534,7 +536,7 @@ describe("the pack command", () => {
 	});
 
 	test("an invalid budget is reported and nothing changes", async () => {
-		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docBundle: "/unused" };
+		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" };
 		const cm = harness({ config });
 
 		await cm.commands.pack?.handler("budget recall plenty", {});
@@ -627,5 +629,113 @@ describe("searching across conversations", () => {
 		expect(result?.content[0]?.text).toContain("store unreachable");
 		expect(result?.details?.failed).toBe(true);
 		expect(cm.reported.join()).toContain("store unreachable");
+	});
+});
+
+describe("the doc store in a session", () => {
+	const hit = {
+		conceptId: "decisions/caching",
+		text: "Caching\n\nWe cache parsed configuration.",
+		trust: "human-reviewed" as const,
+		stale: false,
+	};
+
+	test("concepts reach the pack", async () => {
+		const cm = harness({
+			config: {
+				tailTurns: DEFAULT_TAIL_TURNS,
+				recallTurns: 0,
+				recallMaxDistance: 1,
+				docConcepts: 2,
+				docMaxDistance: 0.5,
+				docBundle: "/unused",
+			},
+			docs: {
+				indexConcepts: async () => 0,
+				searchConcepts: async () => [hit],
+			},
+		});
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "how do we handle config?" }] },
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain(
+			"[curated knowledge: decisions/caching]",
+		);
+	});
+
+	test("a doc store failure costs the concepts, not the turn", async () => {
+		const cm = harness({
+			config: {
+				tailTurns: DEFAULT_TAIL_TURNS,
+				recallTurns: 0,
+				recallMaxDistance: 1,
+				docConcepts: 2,
+				docMaxDistance: 0.5,
+				docBundle: "/unused",
+			},
+			docs: {
+				indexConcepts: async () => 0,
+				searchConcepts: async () => {
+					throw new Error("index offline");
+				},
+			},
+		});
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "how do we handle config?" }] },
+			ctx(),
+		);
+
+		expect(result?.messages).toHaveLength(1);
+		expect(cm.reported.join("\n")).toContain("Doc Store unavailable");
+	});
+
+	test("the bundle is indexed at session start, off the request path", async () => {
+		const indexing = Promise.withResolvers<void>();
+		let indexed = 0;
+		const cm = harness({
+			docs: {
+				indexConcepts: async () => {
+					await indexing.promise;
+					indexed++;
+					return 1;
+				},
+				searchConcepts: async () => [],
+			},
+			bundle: async () => [],
+		});
+
+		await cm.sessionStart({}, ctx());
+		// Indexing has not finished, and the first Call does not wait for it.
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "hello" }] },
+			ctx(),
+		);
+		expect(indexed).toBe(0);
+		expect(result?.messages).toHaveLength(1);
+
+		indexing.resolve();
+		await cm.settle();
+		expect(indexed).toBe(1);
+	});
+
+	test("a bundle that cannot be read is reported, not thrown", async () => {
+		const cm = harness({
+			docs: {
+				indexConcepts: async () => 0,
+				searchConcepts: async () => [],
+			},
+			bundle: async () => {
+				throw new Error("no bundle there");
+			},
+		});
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).toContain("Doc Store indexing");
 	});
 });

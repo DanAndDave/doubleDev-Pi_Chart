@@ -43,6 +43,8 @@ export interface RecordedPart {
 	carried?: number;
 	/** Turns this part carried, by position. Absent on older records. */
 	turnIndices?: number[];
+	/** Concepts this part carried, by id — identity, not count. */
+	conceptIds?: string[];
 	/** The Budget that bounded it, where one did. */
 	budget?: number;
 	/** How many candidates it chose from. */
@@ -94,6 +96,7 @@ export function recordPart(part: {
 	approximateTokens: number;
 	carried?: number;
 	turnIndices?: number[];
+	conceptIds?: string[];
 	budget?: number;
 	candidates?: number;
 	irrelevant?: number;
@@ -104,6 +107,7 @@ export function recordPart(part: {
 		approximate: true,
 		carried: part.carried,
 		turnIndices: part.turnIndices,
+		conceptIds: part.conceptIds,
 		budget: part.budget,
 		candidates: part.candidates,
 		irrelevant: part.irrelevant,

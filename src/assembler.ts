@@ -1,4 +1,5 @@
 import { messageText, type HarnessMessage, type Turn } from "./messages.ts";
+import type { ConceptHit } from "./doc-index.ts";
 import type { RecalledTurn } from "./thread-store.ts";
 
 export interface AssemblerConfig {
@@ -11,10 +12,16 @@ export interface AssemblerConfig {
 	 * honestly named. `pack-inspector` makes tokens the unit.
 	 */
 	recallTurns: number;
+	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
+	docConcepts: number;
 }
 
 /** Where a slice of a Context Pack came from. */
-export type PackSource = "verbatim-tail" | "current-turn" | "recalled";
+export type PackSource =
+	| "verbatim-tail"
+	| "current-turn"
+	| "recalled"
+	| "curated";
 
 export interface PackPart {
 	source: PackSource;
@@ -33,6 +40,8 @@ export interface PackPart {
 	 * because its Turns have no position yet.
 	 */
 	turnIndices?: number[];
+	/** Which Concepts this part carried, by id. Identity, not count. */
+	conceptIds?: string[];
 	/** The Budget that bounded this part, where one did. */
 	budget?: number;
 	/**
@@ -71,6 +80,8 @@ export interface AssembleInput {
 	recalled?: RecalledTurn[];
 	/** How many candidates retrieval refused as not relevant enough. */
 	rejected?: number;
+	/** Concepts found in the Doc Store, most relevant first. */
+	concepts?: ConceptHit[];
 }
 
 /**
@@ -79,7 +90,7 @@ export interface AssembleInput {
  * so the same inputs always produce the same pack.
  */
 export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
-	const { turns, recalled = [], rejected = 0 } = input;
+	const { turns, recalled = [], rejected = 0, concepts = [] } = input;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
@@ -103,6 +114,22 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			budget: config.recallTurns,
 			candidates: eligible.length,
 			irrelevant: rejected,
+		});
+	}
+
+	// Curated knowledge sits ahead of the exchange, like recall: it is
+	// background the agent is being given, not something it just said.
+	const carriedConcepts = concepts.slice(0, Math.max(config.docConcepts, 0));
+	if (carriedConcepts.length > 0) {
+		const messages = carriedConcepts.map(asCuratedKnowledge);
+		parts.push({
+			source: "curated",
+			messages,
+			approximateTokens: approximateTokens(messages),
+			carried: carriedConcepts.length,
+			conceptIds: carriedConcepts.map((hit) => hit.conceptId),
+			budget: config.docConcepts,
+			candidates: concepts.length,
 		});
 	}
 
@@ -164,6 +191,20 @@ function eligibleRecollections(
 	return recalled.filter(
 		(candidate) => !alreadyCarried.has(candidate.turnIndex),
 	);
+}
+
+/**
+ * A Concept enters the window as knowledge with a source. Curated knowledge
+ * the agent did not derive must be visibly borrowed, or it cannot be
+ * questioned.
+ */
+function asCuratedKnowledge(hit: ConceptHit): HarnessMessage {
+	const caveat = hit.stale ? " (stale)" : "";
+	return {
+		role: "user",
+		content: `[curated knowledge: ${hit.conceptId}${caveat}]\n${hit.text}`,
+		cmCurated: true,
+	};
 }
 
 /**

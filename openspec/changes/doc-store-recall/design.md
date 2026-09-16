@@ -44,9 +44,21 @@ Each indexed section records a hash of its text. Re-indexing embeds only section
 
 Keyed by the Concept's rename-stable identity rather than its path, which is exactly why `doc-store-bundle` assigned one: a `git mv` must not orphan an index entry.
 
-### The threshold is measured for prose, not inherited
+### The threshold is measured for prose, and lands in the same place
 
-0.50 was measured on conversational Turns twice. Curated prose is longer, more formal, and more uniform in register, so its distance distribution is a different shape. Task 1 measures against real Concepts — this repo's own ADRs and `CONTEXT.md` make a corpus that exists — and the Doc Store ships with whatever that says, even if it matches.
+0.50 was measured on conversational Turns twice. Curated prose is longer, more formal, and more uniform in register, so there was no reason to assume the number transfers. Measured against a corpus built from this repo's own ADRs and glossary:
+
+| query | best section | best whole Concept |
+| --- | --- | --- |
+| "why do we run as an extension instead of owning the agent loop" | **0.255** | 0.280 |
+| "is the thread store the source of truth or derived" | **0.244** | 0.258 |
+| "what does the term Floor mean in this project" | 0.419 | **0.405** |
+| "how do I bake sourdough bread at home" | 0.610 | 0.632 |
+| "what is the capital of Peru" | 0.651 | 0.653 |
+
+Genuine 0.244–0.419, unrelated 0.610–0.653 — a wider gap than conversation gave (0.399 to 0.549), because prose says more per document. **0.50** again, measured separately and kept, with its own setting so the two Stores can diverge when evidence says they should.
+
+The same measurement undercuts half the case for sections: they win on focused documents (0.255 against 0.280) and lose slightly on list-shaped ones like the glossary (0.419 against 0.405). Sections stay, but on the functional argument alone — a query matching one section must retrieve its Concept — not on a distance improvement that does not reliably exist.
 
 ### Concepts enter the pack as attributed knowledge
 

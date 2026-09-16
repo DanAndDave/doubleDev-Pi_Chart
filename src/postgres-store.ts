@@ -13,7 +13,10 @@ import {
 } from "./accounting.ts";
 import type { Pack, PackSource } from "./assembler.ts";
 import { PINNED_DIMENSIONS, type Embedder } from "./embedder.ts";
+import type { Concept, TrustTier } from "./concept.ts";
+import type { ConceptHit, ConceptSearch } from "./doc-index.ts";
 import type { JournalTurn } from "./journal.ts";
+import { splitConcept, type Section } from "./sections.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
 import { messageText } from "./messages.ts";
 import type {
@@ -95,6 +98,26 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 		version: 5,
 		statements: [`ALTER TABLE turns ADD COLUMN IF NOT EXISTS codebase TEXT`],
 	},
+	{
+		version: 6,
+		statements: [
+			`CREATE TABLE IF NOT EXISTS concept_sections (
+				identity      TEXT NOT NULL,
+				section_index INTEGER NOT NULL,
+				concept_id    TEXT NOT NULL,
+				title         TEXT,
+				status        TEXT NOT NULL DEFAULT 'stable',
+				trust         TEXT NOT NULL DEFAULT 'unverified',
+				stale         BOOLEAN NOT NULL DEFAULT FALSE,
+				hash          TEXT NOT NULL,
+				text          TEXT NOT NULL,
+				embedding     vector(${PINNED_DIMENSIONS}),
+				PRIMARY KEY (identity, section_index)
+			)`,
+			`CREATE INDEX IF NOT EXISTS concept_sections_embedding_idx
+				ON concept_sections USING hnsw (embedding vector_cosine_ops)`,
+		],
+	},
 ];
 
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
@@ -134,7 +157,13 @@ function decode<T>(value: JsonColumn, fallback: T): T {
  * (ADR-0002). Holds the Turns the Assembler reads its verbatim tail from, and
  * the accounting that describes each Context Window.
  */
-export class PostgresStore implements TurnSource, TurnSink, TurnRecall, CorpusSearch, AccountingStore {
+export class PostgresStore implements
+		TurnSource,
+		TurnSink,
+		TurnRecall,
+		CorpusSearch,
+		ConceptSearch,
+		AccountingStore {
 	constructor(
 		private readonly sql: SQL,
 		private readonly embedder?: Embedder,
@@ -521,8 +550,159 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, CorpusSe
 		return found;
 	}
 
+	/**
+	 * Brings the index in line with the bundle.
+	 *
+	 * Only sections whose text changed are re-embedded, and Concepts no
+	 * longer in the bundle leave — so keeping the index current costs about
+	 * as much as the edit that prompted it. Returns what it embedded.
+	 */
+	async indexConcepts(concepts: Concept[]): Promise<number> {
+		if (!this.embedder) return 0;
+
+		const sections = concepts.flatMap(splitConcept);
+		const byConcept = new Map<string, Concept>();
+		for (const concept of concepts) {
+			if (concept.identity) byConcept.set(concept.identity, concept);
+		}
+
+		// Concepts the bundle no longer has, or sections an edit removed.
+		const indexed = (await this.sql`
+			SELECT DISTINCT identity FROM concept_sections`) as { identity: string }[];
+		for (const row of indexed) {
+			if (byConcept.has(row.identity)) continue;
+			await this.sql`
+				DELETE FROM concept_sections WHERE identity = ${row.identity}`;
+		}
+		for (const [identity, concept] of byConcept) {
+			const kept = sections.filter(
+				(section) => section.identity === identity,
+			).length;
+			void concept;
+			await this.sql`
+				DELETE FROM concept_sections
+				WHERE identity = ${identity} AND section_index >= ${kept}`;
+		}
+
+		const stale: Section[] = [];
+		for (const section of sections) {
+			const concept = byConcept.get(section.identity);
+			if (!concept) continue;
+			const [existing] = (await this.sql`
+				SELECT hash FROM concept_sections
+				WHERE identity = ${section.identity}
+					AND section_index = ${section.index}`) as { hash: string }[];
+
+			await this.sql`
+				INSERT INTO concept_sections
+					(identity, section_index, concept_id, title, status, trust, stale,
+					 hash, text, embedding)
+				VALUES (
+					${section.identity}, ${section.index}, ${section.conceptId},
+					${concept.title ?? null}, ${concept.status}, ${concept.trust},
+					${concept.stale}, ${section.hash}, ${section.text}, NULL
+				)
+				ON CONFLICT (identity, section_index) DO UPDATE SET
+					concept_id = EXCLUDED.concept_id,
+					title = EXCLUDED.title,
+					status = EXCLUDED.status,
+					trust = EXCLUDED.trust,
+					stale = EXCLUDED.stale,
+					text = EXCLUDED.text,
+					hash = EXCLUDED.hash,
+					-- Unchanged text keeps its vector; changed text loses it and
+					-- is embedded below.
+					embedding = CASE
+						WHEN concept_sections.hash = EXCLUDED.hash
+						THEN concept_sections.embedding ELSE NULL END`;
+
+			if (existing?.hash !== section.hash) stale.push(section);
+		}
+
+		const pending = (await this.sql`
+			SELECT identity, section_index, text FROM concept_sections
+			WHERE embedding IS NULL`) as {
+			identity: string;
+			section_index: number;
+			text: string;
+		}[];
+		if (pending.length === 0) return 0;
+
+		const vectors = await this.embedder.embed(pending.map((row) => row.text));
+		let embedded = 0;
+		for (const [index, row] of pending.entries()) {
+			const vector = vectors[index];
+			if (!vector) continue;
+			await this.sql`
+				UPDATE concept_sections SET embedding = ${JSON.stringify(vector)}::vector
+				WHERE identity = ${row.identity} AND section_index = ${row.section_index}`;
+			embedded++;
+		}
+		return embedded;
+	}
+
+	/**
+	 * Concepts relevant to a query, best section first, deduplicated.
+	 *
+	 * Deprecated Concepts are withheld rather than down-weighted: a
+	 * superseded decision presented as current is the failure this Store
+	 * must not have. Among comparable matches, current and human-reviewed
+	 * Concepts come first — a tie-break, not a number mixed into a distance.
+	 */
+	async searchConcepts(
+		query: string,
+		limit: number,
+		maxDistance: number,
+	): Promise<ConceptHit[]> {
+		if (!this.embedder || limit <= 0) return [];
+		const [vector] = await this.embedder.embed([query]);
+		if (!vector) return [];
+
+		const embedding = JSON.stringify(vector);
+		const rows = (await this.sql`
+			WITH scored AS (
+				SELECT identity, concept_id, title, text, status, trust, stale,
+					embedding <=> ${embedding}::vector AS distance
+				FROM concept_sections
+				WHERE embedding IS NOT NULL AND status <> 'deprecated'
+			),
+			best AS (
+				SELECT DISTINCT ON (identity)
+					identity, concept_id, title, text, trust, stale, distance
+				FROM scored
+				WHERE distance <= ${maxDistance}
+				ORDER BY identity, distance ASC
+			)
+			SELECT concept_id, title, text, trust, stale, distance
+			FROM best
+			ORDER BY
+				-- Relevance first, in bands: within a band, current and
+				-- human-reviewed knowledge wins.
+				round(distance::numeric, 1) ASC,
+				stale ASC,
+				(trust = 'human-reviewed') DESC,
+				distance ASC,
+				concept_id ASC
+			LIMIT ${limit}`) as {
+			concept_id: string;
+			title: string | null;
+			text: string;
+			trust: TrustTier;
+			stale: boolean;
+			distance: number;
+		}[];
+
+		return rows.map((row) => ({
+			conceptId: row.concept_id,
+			title: row.title ?? undefined,
+			text: row.text,
+			trust: row.trust,
+			stale: row.stale,
+		}));
+	}
+
 	/** Empties the store. The Journal remains the record it is rebuilt from. */
 	async truncate(): Promise<void> {
-		await this.sql`TRUNCATE turns, turn_messages, call_accounting`;
+		await this.sql`TRUNCATE turns, turn_messages, call_accounting, concept_sections`;
 	}
 }

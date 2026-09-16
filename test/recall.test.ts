@@ -37,7 +37,7 @@ describe("recall in a pack", () => {
 	test("a turn outside the tail reaches the model", () => {
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled("the caching decision") },
-			{ tailTurns: 1, recallTurns: 2 },
+			{ tailTurns: 1, recallTurns: 2, docConcepts: 0 },
 		);
 
 		expect(pack.messages.map((message) => textOf(message.content)).join("\n")).toContain(
@@ -48,7 +48,7 @@ describe("recall in a pack", () => {
 	test("recalled content is attributed with its position", () => {
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: [{ turnIndex: 7, turn: turn("old decision") }] },
-			{ tailTurns: 1, recallTurns: 2 },
+			{ tailTurns: 1, recallTurns: 2, docConcepts: 0 },
 		);
 
 		const recollection = pack.parts.find((part) => part.source === "recalled");
@@ -58,7 +58,7 @@ describe("recall in a pack", () => {
 	test("recall is its own part, accounted separately from the tail", () => {
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled("something older") },
-			{ tailTurns: 2, recallTurns: 2 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
 		);
 
 		expect(pack.parts.map((part) => part.source)).toEqual([
@@ -75,7 +75,7 @@ describe("recall in a pack", () => {
 				// Retrieval returns these strongest-first.
 				recalled: recalled("best match", "second match", "third match"),
 			},
-			{ tailTurns: 1, recallTurns: 2 },
+			{ tailTurns: 1, recallTurns: 2, docConcepts: 0 },
 		);
 
 		const text = textOf(
@@ -94,7 +94,7 @@ describe("recall in a pack", () => {
 				turns: CONVERSATION,
 				recalled: recalled("a", "b", "c", "d", "e", "f"),
 			},
-			{ tailTurns: 2, recallTurns: 6 },
+			{ tailTurns: 2, recallTurns: 6, docConcepts: 0 },
 		);
 
 		const text = pack.messages.map((message) => textOf(message.content)).join("\n");
@@ -106,11 +106,11 @@ describe("recall in a pack", () => {
 	test("a recall budget of zero leaves the pack otherwise unchanged", () => {
 		const withRecall = assemble(
 			{ turns: CONVERSATION, recalled: recalled("something older") },
-			{ tailTurns: 2, recallTurns: 0 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0 },
 		);
 		const without = assemble(
 			{ turns: CONVERSATION },
-			{ tailTurns: 2, recallTurns: 0 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0 },
 		);
 
 		expect(withRecall).toEqual(without);
@@ -122,7 +122,7 @@ describe("recall in a pack", () => {
 				turns: CONVERSATION,
 				recalled: [{ turnIndex: 10, turn: turn("recent one", undefined, 10) }],
 			},
-			{ tailTurns: 2, recallTurns: 2 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
 		);
 
 		expect(pack.parts.map((part) => part.source)).not.toContain("recalled");
@@ -136,7 +136,7 @@ describe("recall in a pack", () => {
 				turns: [turn("continue", "did the first thing", 10), turn("current")],
 				recalled: [{ turnIndex: 3, turn: turn("continue", "did the older thing", 3) }],
 			},
-			{ tailTurns: 2, recallTurns: 2 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
 		);
 
 		const recollection = pack.parts.find((part) => part.source === "recalled");
@@ -150,8 +150,8 @@ describe("recall in a pack", () => {
 			recalled: recalled("first older", "second older"),
 		};
 
-		expect(assemble(input, { tailTurns: 2, recallTurns: 2 })).toEqual(
-			assemble(input, { tailTurns: 2, recallTurns: 2 }),
+		expect(assemble(input, { tailTurns: 2, recallTurns: 2, docConcepts: 0 })).toEqual(
+			assemble(input, { tailTurns: 2, recallTurns: 2, docConcepts: 0 }),
 		);
 	});
 });

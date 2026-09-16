@@ -11,7 +11,10 @@ import {
 	type AssemblerConfig,
 	type Pack,
 } from "./assembler.ts";
+import type { Concept } from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
+import { DocStore } from "./doc-store.ts";
+import type { ConceptHit, ConceptSearch } from "./doc-index.ts";
 import {
 	comparePacks,
 	inspectConversation,
@@ -58,6 +61,10 @@ export interface Dependencies {
 	show?: (text: string) => void;
 	/** Searches every Conversation, when the agent asks. */
 	search?: CorpusSearch;
+	/** The Doc Store's index, searched during assembly. */
+	docs?: ConceptSearch;
+	/** Reads the bundle the index is derived from. */
+	bundle?: () => Promise<Concept[]>;
 	/** The Codebase this session is working in. */
 	codebase?: string;
 	accounting: AccountingStore;
@@ -100,6 +107,19 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (deps.docs && deps.bundle) {
+			const docs = deps.docs;
+			const bundle = deps.bundle;
+			// Indexing is background work: a session must not wait on the
+			// bundle to send its first prompt.
+			inBackground(
+				"Doc Store indexing",
+				bundle().then(async (concepts) => {
+					await docs.indexConcepts(concepts);
+				}),
+			);
+		}
+
 		const status = await ctx.memory?.status?.();
 		if (!status) return;
 		if (status.active === true || (status.backend && status.backend !== "off")) {
@@ -132,17 +152,24 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.config.tailTurns,
 			);
 
-			const recalled = await recallFor(conversationId, current);
+			// Both retrievals at once: neither depends on the other, and a
+			// Call should not pay for them in series.
+			const [recalled, concepts] = await Promise.all([
+				recallFor(conversationId, current),
+				conceptsFor(current),
+			]);
 
 			const pack = deps.assemble(
 				{
 					turns: current ? [...tail, current] : tail,
 					recalled: recalled.turns,
 					rejected: recalled.rejected,
+					concepts,
 				},
 				{
 					tailTurns: deps.config.tailTurns,
 					recallTurns: deps.config.recallTurns,
+					docConcepts: deps.config.docConcepts,
 				},
 			);
 
@@ -369,6 +396,24 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		await sink.ingest(conversationId, await readJournal(path), codebase);
 	}
 
+	/**
+	 * Curated knowledge for this prompt. A retrieval failure costs the
+	 * Concepts, never the Turn.
+	 */
+	async function conceptsFor(current: Turn | undefined): Promise<ConceptHit[]> {
+		if (!deps.docs || !current || deps.config.docConcepts <= 0) return [];
+		try {
+			return await deps.docs.searchConcepts(
+				current.prompt,
+				deps.config.docConcepts,
+				deps.config.docMaxDistance,
+			);
+		} catch (error) {
+			deps.report(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
+			return [];
+		}
+	}
+
 	/** Writes any reported window size this process has not written yet. */
 	function reconcile(conversationId: string, branch: BranchEntry[]): void {
 		const measurements = measurementsOf(branch);
@@ -502,6 +547,14 @@ export default function contextManager(pi: ExtensionAPI): void {
 		ingest: store,
 		recall: store,
 		search: store,
+		docs: store,
+		bundle: async () => {
+			// Identity first: the index keys on it, and a Concept that has
+			// never been given one is not indexable.
+			const store = new DocStore(config.docBundle);
+			await store.ensureIdentities();
+			return store.concepts();
+		},
 		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),
 		close: () => {

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { MemoryAccounting, type TurnAccounting } from "../src/accounting.ts";
+import {
+	MemoryAccounting,
+	recordPart,
+	type TurnAccounting,
+} from "../src/accounting.ts";
 import {
 	DEFAULT_RECALL_MAX_DISTANCE,
 	DEFAULT_TAIL_TURNS,
@@ -16,6 +20,8 @@ import {
 	summarise,
 } from "../src/inspection.ts";
 import type { Turn } from "../src/messages.ts";
+import { reconstructTurns } from "../src/turns.ts";
+import { renderCall } from "../src/report.ts";
 import type { RecalledTurn } from "../src/thread-store.ts";
 
 function turn(prompt: string, index?: number): Turn {
@@ -49,7 +55,11 @@ async function record(options: {
 	const address = { turnIndex: 0, callIndex: options.callIndex ?? 0 };
 	const pack = assemble(
 		{ turns: options.turns, recalled: options.recalled },
-		{ tailTurns: options.tailTurns, recallTurns: options.recallTurns },
+		{
+			tailTurns: options.tailTurns,
+			recallTurns: options.recallTurns,
+			docConcepts: 0,
+		},
 	);
 	await store.recordPack("conv-1", address, pack, "thread-store");
 	if (options.measured) {
@@ -207,7 +217,7 @@ describe("summarising a conversation", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled(7) },
-			{ tailTurns: 2, recallTurns: 2 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
 		);
 		for (const callIndex of [0, 1]) {
 			const address = { turnIndex: callIndex, callIndex: 0 };
@@ -280,6 +290,8 @@ describe("changing a budget", () => {
 			tailTurns: DEFAULT_TAIL_TURNS,
 			recallTurns: 4,
 			recallMaxDistance: 0.5,
+			docConcepts: 0,
+			docMaxDistance: 0.5,
 			docBundle: "/unused",
 		};
 	}
@@ -381,7 +393,7 @@ describe("relevance against budget", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled(7), rejected: 4 },
-			{ tailTurns: 2, recallTurns: 3 },
+			{ tailTurns: 2, recallTurns: 3, docConcepts: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
@@ -398,7 +410,7 @@ describe("relevance against budget", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: [], rejected: 6 },
-			{ tailTurns: 2, recallTurns: 3 },
+			{ tailTurns: 2, recallTurns: 3, docConcepts: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
@@ -414,7 +426,7 @@ describe("relevance against budget", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 },
-			{ tailTurns: 2, recallTurns: 2 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
@@ -445,5 +457,60 @@ describe("configuration of the threshold", () => {
 				DEFAULT_RECALL_MAX_DISTANCE,
 			);
 		}
+	});
+});
+
+describe("the curated part in accounting", () => {
+	test("a call's parts are attributed separately, concepts included", () => {
+		const pack = assemble(
+			{
+				turns: reconstructTurns([
+					{ role: "user", content: "prompt 1" },
+					{ role: "assistant", content: "answer 1" },
+					{ role: "user", content: "now" },
+				]),
+				concepts: [
+					{
+						conceptId: "decisions/caching",
+						text: "We cache.",
+						trust: "unverified",
+						stale: false,
+					},
+				],
+			},
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 2 },
+		);
+
+		const view = inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: pack.parts.map(recordPart),
+		});
+
+		const curated = view.parts.find((part) => part.source === "curated");
+		const tail = view.parts.find((part) => part.source === "verbatim-tail");
+		expect(curated?.carried).toBe(1);
+		expect(curated?.conceptIds).toEqual(["decisions/caching"]);
+		// Separately: the tail's tokens are its own, not the pack's.
+		expect(tail?.approximateTokens).not.toBe(curated?.approximateTokens);
+	});
+
+	test("the report names the concepts a call carried", () => {
+		const view = inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: [
+				recordPart({
+					source: "curated",
+					approximateTokens: 40,
+					carried: 1,
+					conceptIds: ["decisions/caching"],
+					budget: 2,
+					candidates: 1,
+				}),
+			],
+		});
+
+		expect(renderCall(view)).toContain("decisions/caching");
 	});
 });

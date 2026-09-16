@@ -12,6 +12,14 @@ export interface Config {
 	 * unrelated prompts at 0.51 and above on the pinned model.
 	 */
 	recallMaxDistance: number;
+	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
+	docConcepts: number;
+	/**
+	 * How distant a Concept may be and still be carried. Measured separately
+	 * from recall on curated prose: genuine matches land at 0.24-0.42 and
+	 * unrelated queries at 0.61 and above.
+	 */
+	docMaxDistance: number;
 	/** Thread Store connection. Absent means run without a store. */
 	databaseUrl?: string;
 	/** Where the machine-wide Doc Store bundle lives. */
@@ -21,6 +29,8 @@ export interface Config {
 export const DEFAULT_TAIL_TURNS = 8;
 export const DEFAULT_RECALL_TURNS = 4;
 export const DEFAULT_RECALL_MAX_DISTANCE = 0.5;
+export const DEFAULT_DOC_CONCEPTS = 2;
+export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
 	return {
@@ -30,6 +40,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 			env.CM_RECALL_MAX_DISTANCE,
 			DEFAULT_RECALL_MAX_DISTANCE,
 		),
+		docConcepts: count(env.CM_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
+		docMaxDistance: distance(env.CM_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl: env.CM_DATABASE_URL,
 		docBundle:
 			env.CM_DOC_BUNDLE ?? join(homedir(), ".context-manager", "bundle"),
