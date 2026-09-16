@@ -63,6 +63,8 @@ Identifiers in the prompt are matched against node labels after both are reduced
 | "where is embedPending used?" | `.embedPending()` |
 | "what is the capital of Peru" | none |
 
+Running it against a live agent changed the rule once more. Asked "which functions call parseConcept ... do not read, grep, or list any files", the pack carried `parseConcept()`, `.read()` and `.list()` — 457 tokens, two thirds of it spent on English words that happen to name methods. So only the strongest evidence in a prompt counts: an unmistakable name (`parseConcept`, `record_pack`, `.read`, `read()`) outranks a capitalised one (`Pack`), which outranks a plain word (`read`), and weaker tiers are dropped rather than merely ordered behind. The same question then carried one symbol and 220 tokens, with the same answer.
+
 No embedding is involved. A name is exact, and the Thread Store already owns the case where the agent does not know what something is called.
 
 ### Refreshing happens on session start, in the background

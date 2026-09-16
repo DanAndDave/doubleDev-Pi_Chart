@@ -184,6 +184,34 @@ describe("finding the symbols in play", () => {
 		expect(found.map((symbol) => symbol.label)).toEqual(["parseConcept()"]);
 	});
 
+	test("a type named by its capitalised name is not an ordinary word", () => {
+		// `Pack` has no case boundary, so only its capital distinguishes it
+		// from a word like `read`.
+		const graph = readGraph(
+			JSON.stringify({
+				nodes: [
+					{
+						id: "doc_store_read",
+						label: ".read()",
+						file_type: "code",
+						source_file: "src/doc-store.ts",
+					},
+					{
+						id: "assembler_pack",
+						label: "Pack",
+						file_type: "code",
+						source_file: "src/assembler.ts",
+					},
+				],
+				links: [],
+			}),
+		);
+
+		const found = symbolsInPlay(graph, "do not read any files: what is a Pack?");
+
+		expect(found.map((symbol) => symbol.label)).toEqual(["Pack"]);
+	});
+
 	test("an ordinary word written as a call still counts as code", () => {
 		const graph = readGraph(
 			JSON.stringify({

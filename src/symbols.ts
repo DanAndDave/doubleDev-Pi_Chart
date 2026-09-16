@@ -11,6 +11,7 @@ export interface Neighbourhood {
 const IDENTIFIER = /(\.?)([A-Za-z_][A-Za-z0-9_]{2,})(\s*\()?/g;
 const WORD_PART = /[A-Z]?[a-z0-9]+/g;
 const COMPOUND = /[a-z][A-Z]|_/;
+const CAPITALISED = /^[A-Z]/;
 
 /** Letters and digits only, so `.recordPack()` and `record_pack` are one name. */
 function canonical(name: string): string {
@@ -41,10 +42,16 @@ export function symbolsInPlay(graph: CodeGraph, prompt: string): GraphSymbol[] {
 
 	for (const match of prompt.matchAll(IDENTIFIER)) {
 		const [, member, identifier = "", call] = match;
-		// How much the prompt says this word is code rather than English.
-		// "parseConcept" and ".read()" are; "read" in "do not read any
-		// files" is not, even though some class has that method.
-		const written = COMPOUND.test(identifier) || member || call ? 1 : 0;
+		// How strongly the prompt says this word is code rather than
+		// English. `parseConcept`, `record_pack`, `.read` and `read()` say
+		// it outright; `Pack` suggests it; `read` in "do not read any
+		// files" does not, even though some class has that method.
+		const written =
+			COMPOUND.test(identifier) || member !== "" || call !== undefined
+				? 2
+				: CAPITALISED.test(identifier)
+					? 1
+					: 0;
 
 		const whole = byName.get(canonical(identifier));
 		if (whole) {
@@ -59,14 +66,16 @@ export function symbolsInPlay(graph: CodeGraph, prompt: string): GraphSymbol[] {
 		}
 	}
 
-	// When the prompt contains something unmistakably code — `parseConcept`,
-	// `.read()` — ordinary English words that happen to name methods are
-	// noise, and spending the Budget on them was measured costing 457
-	// tokens for a question about something else. When it contains none,
-	// plain words are all there is to go on, so they count.
+	// Only the strongest evidence in the prompt counts. When something is
+	// unmistakably code, ordinary English words that happen to name methods
+	// are noise — measured live, they spent 457 tokens on `.read()` and
+	// `.list()` for a question about something else. When there is nothing
+	// stronger, plain words are all there is to go on.
 	const matches = [...found.values()];
-	const explicit = matches.filter((each) => each.written > 0);
-	return (explicit.length > 0 ? explicit : matches).map((each) => each.symbol);
+	const strongest = Math.max(0, ...matches.map((each) => each.written));
+	return matches
+		.filter((each) => each.written === strongest)
+		.map((each) => each.symbol);
 }
 
 /**
