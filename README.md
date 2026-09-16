@@ -100,7 +100,7 @@ A symbol contributes at most twelve connections and says how many it left out, s
 
 The Spec Store is the one store this project does not own, and the only one that puts nothing in a pack. A Codebase's specs reach the agent through the workflow that reads them; this store's job is to make sure that workflow has something to read.
 
-At session start it checks the shape of `openspec/` — the root, `specs/`, `changes/`, `changes/archive/`, and `config.yaml` — and says so only when something is missing. That check is here rather than delegated because OpenSpec does not make it: measured, both `openspec list` and `openspec validate --all --strict` exit 0 on a tree missing `specs/`, missing `changes/archive/`, or missing `config.yaml`. Content is a different matter — OpenSpec defines what valid content is, so `specs` reports its words verbatim rather than a paraphrase that would drift.
+At session start it checks the shape of `openspec/` — the root, `specs/`, `changes/`, `changes/archive/`, and `config.yaml` — and speaks only when a tree exists and is wrong. A Codebase with no tree at all is not spec-driven, which is its own business; `/specs` answers on demand. That check is here rather than delegated because OpenSpec does not make it: measured, both `openspec list` and `openspec validate --all --strict` exit 0 on a tree missing `specs/`, missing `changes/archive/`, or missing `config.yaml`. Content is a different matter — OpenSpec defines what valid content is, so `specs` reports its words verbatim rather than a paraphrase that would drift.
 
 Nothing is created unasked. An `openspec/` tree is a claim about how a project is run, not a cache that can be regenerated, so initialization happens when you ask:
 

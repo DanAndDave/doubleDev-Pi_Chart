@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import {
-	GraphStore,
-	PINNED_GRAPHIFY,
-	type CommandResult,
-} from "../src/graph-store.ts";
+import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
+import type { CommandResult } from "../src/process.ts";
 
 const FIXTURE = readFileSync(
 	new URL("./fixtures/graph.json", import.meta.url).pathname,

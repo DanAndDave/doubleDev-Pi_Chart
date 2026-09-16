@@ -51,7 +51,7 @@ The Spec Store SHALL be able to initialize a Codebase's OpenSpec tree, and SHALL
 #### Scenario: Nothing is initialized unasked
 
 - **WHEN** a session begins in a Codebase with no OpenSpec tree
-- **THEN** the Codebase SHALL NOT be initialized as a side effect
+- **THEN** the Codebase SHALL NOT be initialized as a side effect, and its lack of a tree SHALL NOT be remarked upon
 
 ### Requirement: Malformed content is diagnosed by the tool that defines it
 

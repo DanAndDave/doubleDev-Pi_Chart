@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { CommandResult, RunCommand } from "./graph-store.ts";
+import { runProcess, type CommandResult, type RunCommand } from "./process.ts";
 
 /** What inspecting a path established. */
 export type Inspected = TreePart["kind"] | "absent" | "unreadable";
@@ -162,23 +162,6 @@ export function describeTree(report: TreeReport): string {
 	return `OpenSpec tree is incomplete: ${missing.join(", ")}.`;
 }
 
-async function runProcess(
-	command: string,
-	args: string[],
-	cwd?: string,
-): Promise<CommandResult> {
-	const spawned = Bun.spawn([command, ...args], {
-		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(spawned.stdout).text(),
-		new Response(spawned.stderr).text(),
-		spawned.exited,
-	]);
-	return { ok: code === 0, output: `${stdout}${stderr}`.trim() };
-}
 
 async function inspectPath(path: string): Promise<Inspected> {
 	try {

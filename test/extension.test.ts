@@ -1014,7 +1014,39 @@ describe("the spec store in a session", () => {
 		// An openspec/ tree is a claim about how a project is run, not a
 		// cache: planting one unasked would be presumptuous.
 		expect(ran.some((args) => args[0] === "init")).toBe(false);
-		expect(cm.reported.join("\n")).toContain("No OpenSpec tree");
+	});
+
+	test("a codebase that is simply not spec-driven is left in peace", async () => {
+		const { store } = specStore("absent");
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		// A missing tree is a project's own business; a broken one is a
+		// problem. Only the second is worth a line every session.
+		expect(cm.reported.join("\n")).not.toContain("OpenSpec");
+	});
+
+	test("asking about a codebase with no tree says so, without judging content", async () => {
+		const { store, ran } = specStore("absent");
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.commands.specs?.handler("", {});
+
+		expect(cm.shown.join("\n")).toContain("No OpenSpec tree");
+		// OpenSpec would answer "no root here", which reads as a verdict
+		// on specs that do not exist.
+		expect(ran).toEqual([]);
+	});
+
+	test("an unrecognised argument is answered, not silently ignored", async () => {
+		const { store } = specStore("conforming");
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.commands.specs?.handler("init --force", {});
+
+		expect(cm.shown.join("\n")).toContain("Unknown arguments");
 	});
 
 	test("verification can be switched off entirely", async () => {
@@ -1028,18 +1060,18 @@ describe("the spec store in a session", () => {
 	});
 
 	test("the pack is the same whether or not the codebase has a tree", async () => {
-		const withSpecs = harness({
-			config: config(true),
-			specs: specStore("conforming").store,
-		});
+		const { store, ran } = specStore("conforming");
+		const withSpecs = harness({ config: config(true), specs: store });
 		const without = harness({ config: config(true) });
 		const messages = [{ role: "user" as const, content: "hello" }];
 
 		const carried = await withSpecs.context({ messages }, ctx());
 		const bare = await without.context({ messages }, ctx());
 
-		// This Store feeds nothing into a pack, by requirement.
-		expect(carried?.messages).toEqual(bare?.messages ?? []);
+		// This Store feeds nothing into a pack, by requirement: assembling
+		// must not consult it at all.
+		expect(ran).toEqual([]);
+		expect(carried?.messages).toEqual(bare?.messages);
 	});
 
 	test("asking initializes, and reports the result", async () => {

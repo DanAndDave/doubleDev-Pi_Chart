@@ -37,6 +37,8 @@ The Graph Store writes a cache into a Codebase at session start, and that was al
 
 So verification is automatic and read-only; initialization happens when someone asks for it. That is also what makes "never rewrites existing specs or changes" true by construction rather than by care — though the measurement shows `openspec init` would not damage them anyway.
 
+The same restraint governs what is said at session start: a tree that exists and is broken is a problem worth a line every session, but a Codebase with no tree has simply not chosen this way of working, and saying so every session would be nagging about a decision that was never ours. `specs` answers either case on demand.
+
 ### Repair is delegated, for the same reason as diagnosis
 
 Filling gaps by hand would mean writing our own `config.yaml`, which is OpenSpec's file and will change with OpenSpec. `openspec init` fills exactly the gaps and leaves the rest, measured. So initialization is that command, not a directory-by-directory reconstruction.
@@ -49,7 +51,7 @@ If `openspec` cannot be run, content conformance is unknown. Reporting "nothing 
 
 - **Our shape check and OpenSpec's expectations could drift** → the shape is five paths, all of them created by `openspec init` itself, so the check is anchored to what the tool produces rather than to a document about it.
 - **Verification runs the CLI, which costs a process per session** → it runs in the background at session start alongside the other Stores' work, and reports only when something is wrong.
-- **A Codebase that is not spec-driven gets told so every session** → the report is one line and only when non-conforming; a Codebase can decline entirely with `CM_SPECS=off`.
+- **A Codebase that is not spec-driven gets told so every session** → it does not: session start reports only a tree that exists and is wrong, and a Codebase can decline the check entirely with `CM_SPECS=off`.
 
 ## Testing seams
 

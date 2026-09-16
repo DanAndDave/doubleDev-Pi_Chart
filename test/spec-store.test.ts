@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { CommandResult } from "../src/graph-store.ts";
+import type { CommandResult } from "../src/process.ts";
 import { describeTree, SpecStore } from "../src/spec-store.ts";
 
 /** A Codebase on a real filesystem: the thing being checked is paths. */
@@ -66,6 +66,7 @@ describe("verifying a codebase's tree", () => {
 	test("each absent part is named", async () => {
 		for (const missing of [
 			join("openspec", "specs"),
+			join("openspec", "changes"),
 			join("openspec", "changes", "archive"),
 			join("openspec", "config.yaml"),
 		]) {
@@ -97,19 +98,18 @@ describe("verifying a codebase's tree", () => {
 
 	test("a part that cannot be read is not reported as missing", async () => {
 		const root = await codebase(conforming);
-		await Bun.$`chmod 000 ${join(root, "openspec", "specs")}`.quiet();
+		// Through the real inspection: the whole content of this rule is
+		// which errno means absent and which means something else.
+		await Bun.$`chmod 000 ${join(root, "openspec")}`.quiet();
 		try {
-			const report = await new SpecStore({
-				inspect: async (path) =>
-					path.endsWith("specs") ? "unreadable" : "directory",
-			}).verify(root);
+			const report = await new SpecStore().verify(root);
 
 			// Telling someone to create what is already there would send
 			// them after the wrong problem.
 			expect(describeTree(report)).toContain("cannot be read");
 			expect(describeTree(report)).not.toContain("is missing");
 		} finally {
-			await Bun.$`chmod 755 ${join(root, "openspec", "specs")}`.quiet();
+			await Bun.$`chmod 755 ${join(root, "openspec")}`.quiet();
 		}
 	});
 

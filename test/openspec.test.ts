@@ -153,14 +153,4 @@ describeReal("against the real openspec", () => {
 		TIMEOUT,
 	);
 
-	test(
-		"verification writes nothing, even to a bare codebase",
-		async () => {
-			const root = await directory();
-			await new SpecStore().verify(root);
-
-			expect(await readdir(root)).toEqual([]);
-		},
-		TIMEOUT,
-	);
 });

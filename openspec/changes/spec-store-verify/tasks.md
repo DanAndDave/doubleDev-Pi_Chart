@@ -22,7 +22,7 @@
 
 ## 4. Wiring
 
-- [x] 4.1 Verify the Codebase on session start, away from the request path, reporting only when something is wrong
+- [x] 4.1 Verify the Codebase on session start, away from the request path, reporting only a tree that exists and is wrong
 - [x] 4.2 Offer initialization as an explicit request, and verify a session never initializes a Codebase by itself
 - [x] 4.3 Verify the Spec Store can be switched off entirely
 - [x] 4.4 Verify a Context Pack is identical whether or not the Codebase has an OpenSpec tree

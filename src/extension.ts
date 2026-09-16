@@ -131,13 +131,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		if (deps.specs && deps.config.specsVerify) {
 			const specs = deps.specs;
 			const codebase = deps.codebase ?? process.cwd();
-			// Read-only, and quiet when there is nothing to say: a Codebase
-			// that is not spec-driven should not be nagged every session.
+			// Read-only, and quiet unless a tree exists and is wrong. A
+			// Codebase with no OpenSpec tree is not spec-driven, which is
+			// its business; `specs` answers on demand.
 			inBackground(
 				"Spec Store verification",
 				(async () => {
 					const tree = await specs.verify(codebase);
-					if (!tree.conforming) deps.report(describeTree(tree));
+					if (!tree.absent && !tree.conforming) {
+						deps.report(describeTree(tree));
+					}
 				})(),
 			);
 		}
@@ -409,8 +412,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function checkSpecs(args: string): Promise<string> {
 		if (!deps.specs) return "The Spec Store is not configured.";
 		const codebase = deps.codebase ?? process.cwd();
+		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
 
-		if (args === "init") {
+		if (verb === "init") {
+			if (rest.length > 0) {
+				return `Unknown arguments: ${rest.join(" ")}. Use \`specs init\`.`;
+			}
 			try {
 				await deps.specs.initialize(codebase);
 			} catch (error) {
@@ -418,9 +425,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			}
 			return describeTree(await deps.specs.verify(codebase));
 		}
+		if (verb !== "") return `Unknown command: ${verb}. Use \`specs\` or \`specs init\`.`;
 
 		const tree = await deps.specs.verify(codebase);
 		const lines = [describeTree(tree)];
+		if (tree.absent) {
+			// Nothing to judge the content of, and OpenSpec would answer
+			// with its own "no root here", which reads as a verdict on
+			// specs that do not exist.
+			lines.push("Run `specs init` to create one.");
+			return lines.join("\n");
+		}
 		if (!tree.conforming) lines.push("Run `specs init` to create what is missing.");
 
 		const content = await deps.specs.diagnose(codebase);
@@ -658,6 +673,10 @@ export default function contextManager(pi: ExtensionAPI): void {
 			assemble: defaultAssemble,
 			turns: memory,
 			accounting: new MemoryAccounting(),
+			// Neither Postgres nor a model: `stat` and a subprocess, so it
+			// works in a session with no Thread Store at all.
+			specs: new SpecStore(),
+			codebase: process.cwd(),
 			report: reportToStderr,
 			show: showToStdout,
 		});

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { readGraph, type CodeGraph } from "./graph.ts";
+import { runProcess, type CommandResult, type RunCommand } from "./process.ts";
 
 /**
  * The graphify release this adapter was written against.
@@ -15,17 +16,6 @@ export const PINNED_GRAPHIFY = "0.9.63";
 
 /** Where graphify writes, relative to the Codebase it was pointed at. */
 const OUTPUT = join("graphify-out", "graph.json");
-
-/** Running a program: the seam a test replaces to avoid installing Python. */
-export interface RunCommand {
-	(command: string, args: string[], cwd?: string): Promise<CommandResult>;
-}
-
-export interface CommandResult {
-	ok: boolean;
-	/** Combined output, for reporting a failure precisely. */
-	output: string;
-}
 
 export interface GraphStoreOptions {
 	run?: RunCommand;
@@ -187,23 +177,6 @@ export class GraphStore {
 	}
 }
 
-async function runProcess(
-	command: string,
-	args: string[],
-	cwd?: string,
-): Promise<CommandResult> {
-	const spawned = Bun.spawn([command, ...args], {
-		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(spawned.stdout).text(),
-		new Response(spawned.stderr).text(),
-		spawned.exited,
-	]);
-	return { ok: code === 0, output: `${stdout}${stderr}`.trim() };
-}
 
 async function makeDirectory(path: string): Promise<void> {
 	await mkdir(path, { recursive: true });
