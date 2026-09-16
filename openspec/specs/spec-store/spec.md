@@ -1,7 +1,7 @@
 # spec-store Specification
 
 ## Purpose
-TBD - created by archiving change spec-store-verify. Update Purpose after archive.
+A Codebase's stated intent, held in its OpenSpec directory. The one Store this project does not own and the only one that puts nothing in a Context Pack: it checks that a Codebase is set up for spec-driven work, asks OpenSpec itself to judge the content, and creates what is missing only when asked.
 
 ## Requirements
 
