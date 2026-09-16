@@ -10,6 +10,9 @@ export interface PartView {
 	source: PackSource;
 	/** Local estimate of what it contributed. Approximate by construction. */
 	approximateTokens: number;
+	/** How many Turns it carried, known even when their positions are not. */
+	carried: number;
+	/** Their positions, where those are known. Identity, not count. */
 	turnIndices: number[];
 	budget?: number;
 	candidates?: number;
@@ -30,6 +33,8 @@ export interface CallView {
 	/** The Floor's share of the window, 0 to 1. Absent when unmeasured. */
 	floorShare?: number;
 	unassembled: boolean;
+	/** The Budgets in force, recorded even where a part carried nothing. */
+	budgets?: { tail: number; recall: number };
 }
 
 /** What changed between two Calls' packs. */
@@ -77,19 +82,23 @@ export function inspectCall(call: CallAccounting): CallView {
 		floorTokens: call.floorTokens,
 		floorShare,
 		unassembled: call.unassembled === true,
+		budgets: call.budgets,
 	};
 }
 
 function viewPart(part: RecordedPart): PartView {
 	const turnIndices = part.turnIndices ?? [];
+	// Count first, positions second: a part whose Turns have no position yet
+	// still carried them, and reporting nothing would understate the pack.
+	const carried = part.carried ?? turnIndices.length;
 	const candidates = part.candidates;
-	const carried = turnIndices.length;
 	const dropped =
 		candidates === undefined ? 0 : Math.max(candidates - carried, 0);
 
 	return {
 		source: part.source,
 		approximateTokens: part.approximateTokens,
+		carried,
 		turnIndices,
 		budget: part.budget,
 		candidates,
@@ -115,13 +124,15 @@ export function comparePacks(before: CallView, after: CallView): PackDiff {
 	const beforeItems = itemsOf(before);
 	const afterItems = itemsOf(after);
 
-	const entered = afterItems.filter((item) => !beforeItems.has(key(item)));
-	const left = [...beforeItems.values()].filter(
-		(item) => !afterItems.has(key(item)),
-	);
-	const unchanged = afterItems.filter((item) => beforeItems.has(key(item)));
+	const entered = [...afterItems].filter(([id]) => !beforeItems.has(id));
+	const left = [...beforeItems].filter(([id]) => !afterItems.has(id));
+	const unchanged = [...afterItems].filter(([id]) => beforeItems.has(id));
 
-	return { entered, left, unchanged };
+	return {
+		entered: entered.map(([, item]) => item),
+		left: left.map(([, item]) => item),
+		unchanged: unchanged.map(([, item]) => item),
+	};
 }
 
 interface Item {
@@ -129,20 +140,15 @@ interface Item {
 	turnIndex: number;
 }
 
-/** A pack's contents as comparable items, with lookup by identity. */
-function itemsOf(view: CallView): Item[] & { has(key: string): boolean } {
-	const items: Item[] = [];
+/** A pack's contents keyed by identity, so two packs can be compared. */
+function itemsOf(view: CallView): Map<string, Item> {
+	const items = new Map<string, Item>();
 	for (const part of view.parts) {
 		for (const turnIndex of part.turnIndices) {
-			items.push({ source: part.source, turnIndex });
+			items.set(`${part.source}:${turnIndex}`, { source: part.source, turnIndex });
 		}
 	}
-	const keys = new Set(items.map(key));
-	return Object.assign(items, { has: (candidate: string) => keys.has(candidate) });
-}
-
-function key(item: Item): string {
-	return `${item.source}:${item.turnIndex}`;
+	return items;
 }
 
 export function summarise(
@@ -178,8 +184,10 @@ function budgetUse(calls: CallView[]): ConversationSummary["budgetUse"] {
 
 	return [...bySource.entries()].map(([source, parts]) => ({
 		source,
-		averageCarried: mean(parts.map((part) => part.turnIndices.length)),
-		budget: parts.find((part) => part.budget !== undefined)?.budget,
+		averageCarried: mean(parts.map((part) => part.carried)),
+		// The Budget most recently in force: an average across a mid-session
+		// change would describe a Budget that never existed.
+		budget: parts.findLast((part) => part.budget !== undefined)?.budget,
 		timesTrimmed: parts.filter((part) => part.trimmed).length,
 	}));
 }

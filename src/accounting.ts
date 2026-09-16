@@ -27,6 +27,8 @@ export interface CallAccounting extends CallAddress {
 	unassembled?: boolean;
 	/** Whether the tail came from the store or from the harness's own history. */
 	tailSource?: TailSource;
+	/** The Budgets in force for this Call, recorded even when unused. */
+	budgets?: { tail: number; recall: number };
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -35,6 +37,8 @@ export interface RecordedPart {
 	approximateTokens: number;
 	/** Always true: nothing reports per-part cost, so this is our estimate. */
 	approximate: true;
+	/** How many Turns it carried. Absent on older records. */
+	carried?: number;
 	/** Turns this part carried, by position. Absent on older records. */
 	turnIndices?: number[];
 	/** The Budget that bounded it, where one did. */
@@ -84,6 +88,7 @@ export interface AccountingStore {
 export function recordPart(part: {
 	source: PackSource;
 	approximateTokens: number;
+	carried?: number;
 	turnIndices?: number[];
 	budget?: number;
 	candidates?: number;
@@ -92,6 +97,7 @@ export function recordPart(part: {
 		source: part.source,
 		approximateTokens: part.approximateTokens,
 		approximate: true,
+		carried: part.carried,
 		turnIndices: part.turnIndices,
 		budget: part.budget,
 		candidates: part.candidates,
@@ -161,6 +167,7 @@ export class MemoryAccounting implements AccountingStore {
 		call.parts = pack.parts.map(recordPart);
 		call.approximateTokens = pack.approximateTokens;
 		call.tailSource = tailSource;
+		call.budgets = pack.budgets;
 	}
 
 	async recordUnassembled(

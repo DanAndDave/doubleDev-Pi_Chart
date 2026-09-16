@@ -24,11 +24,13 @@ export interface PackPart {
 	 * reports per-part cost, so this is never used for pack-versus-Floor.
 	 */
 	approximateTokens: number;
+	/** How many Turns this part carried, known even when their positions are not. */
+	carried?: number;
 	/**
 	 * Which Turns this part carried, by their position in the Conversation.
-	 * Absent for content with no durable position, such as the Turn in
-	 * progress. Recorded so a pack can be explained afterwards rather than
-	 * only measured.
+	 * Absent for content whose position is not known — identity, not count:
+	 * `carried` is the count, so a pack is never reported as empty merely
+	 * because its Turns have no position yet.
 	 */
 	turnIndices?: number[];
 	/** The Budget that bounded this part, where one did. */
@@ -44,6 +46,8 @@ export interface PackPart {
 export interface Pack {
 	messages: HarnessMessage[];
 	parts: PackPart[];
+	/** The Budgets in force for this Call, whether or not a part used them. */
+	budgets: { tail: number; recall: number };
 	/** Sum of the parts' approximations. Approximate, for attribution only. */
 	approximateTokens: number;
 }
@@ -80,6 +84,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			source: "recalled",
 			messages,
 			approximateTokens: approximateTokens(messages),
+			carried: recollections.length,
 			turnIndices: recollections.map((each) => each.turnIndex),
 			budget: config.recallTurns,
 			candidates: eligible.length,
@@ -92,11 +97,14 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			source: "verbatim-tail",
 			messages: tailMessages,
 			approximateTokens: approximateTokens(tailMessages),
+			carried: tail.length,
 			turnIndices: tail
 				.map((turn) => turn.index)
 				.filter((index) => index !== undefined),
 			budget: config.tailTurns,
-			candidates: completed.length,
+			// No `candidates`: the tail arrives already trimmed to its Budget,
+			// so a count here could never exceed it and would read as evidence
+			// of a constraint that cannot fire.
 		});
 	}
 
@@ -105,6 +113,8 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			source: "current-turn",
 			messages: current.messages,
 			approximateTokens: approximateTokens(current.messages),
+			carried: 1,
+			turnIndices: current.index === undefined ? [] : [current.index],
 		});
 	}
 
@@ -112,7 +122,12 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	let total = 0;
 	for (const part of parts) total += part.approximateTokens;
 
-	return { messages, parts, approximateTokens: total };
+	return {
+		messages,
+		parts,
+		budgets: { tail: config.tailTurns, recall: config.recallTurns },
+		approximateTokens: total,
+	};
 }
 
 /**

@@ -19,7 +19,7 @@ export function renderCall(view: CallView): string {
 			part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
 		lines.push(
 			`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
-				`${budget ? ` (${part.turnIndices.length}${budget})` : ""}${turns}`,
+				`${budget ? ` (${part.carried}${budget})` : ""}${turns}`,
 		);
 	}
 

@@ -69,6 +69,12 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 				ON turns USING hnsw (embedding vector_cosine_ops)`,
 		],
 	},
+	{
+		version: 3,
+		statements: [
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS budgets JSONB`,
+		],
+	},
 ];
 
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
@@ -90,6 +96,7 @@ interface AccountingRow {
 	floor_tokens: number | null;
 	unassembled: boolean;
 	tail_source: TailSource | null;
+	budgets: JsonColumn;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -323,11 +330,11 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		await this.sql`
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
-				 approximate_tokens, unassembled, tail_source)
+				 approximate_tokens, unassembled, tail_source, budgets)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
-				${tailSource}
+				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -335,7 +342,8 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 				parts = EXCLUDED.parts,
 				approximate_tokens = EXCLUDED.approximate_tokens,
 				unassembled = FALSE,
-				tail_source = EXCLUDED.tail_source`;
+				tail_source = EXCLUDED.tail_source,
+				budgets = EXCLUDED.budgets`;
 	}
 
 	async recordUnassembled(
@@ -374,7 +382,7 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 	async readAccounting(conversationId: string): Promise<TurnAccounting[]> {
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
-			       pack_tokens, floor_tokens, unassembled, tail_source
+			       pack_tokens, floor_tokens, unassembled, tail_source, budgets
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -394,6 +402,10 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 			floorTokens: row.floor_tokens ?? undefined,
 			unassembled: row.unassembled || undefined,
 			tailSource: row.tail_source ?? undefined,
+			budgets: decode<{ tail: number; recall: number } | undefined>(
+				row.budgets,
+				undefined,
+			),
 		}));
 
 		return groupByTurn(conversationId, calls);

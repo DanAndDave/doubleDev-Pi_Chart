@@ -96,7 +96,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		reconcile(conversationId, branch);
 
 		try {
-			const live = reconstructTurns(messages);
+			const live = positioned(reconstructTurns(messages), address.turnIndex);
 			const current = live[live.length - 1];
 
 			// The current Turn always comes from the event: the Journal has not
@@ -212,8 +212,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"`pack summary`, `pack budget <tail|recall> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
-				deps.show?.(text);
-				commandCtx.ui?.notify?.(text, "info");
+				// One channel: the harness owns the screen when it offers one.
+				if (commandCtx.ui?.notify) commandCtx.ui.notify(text, "info");
+				else deps.show?.(text);
 			},
 		});
 	}
@@ -293,6 +294,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			deps.accounting.recordMeasurements(conversationId, fresh),
 		);
 	}
+}
+
+/**
+ * Gives Turns reconstructed from the live message array their position in the
+ * Conversation, counting back from the Turn now in progress. Without this a
+ * pack assembled before ingest reports carrying nothing, because only the
+ * Thread Store knows where a Turn sits.
+ */
+function positioned(turns: Turn[], currentIndex: number): Turn[] {
+	const offset = currentIndex - (turns.length - 1);
+	return turns.map((turn, at) => ({ ...turn, index: turn.index ?? offset + at }));
 }
 
 function conversationOf(ctx: HandlerContext): string {

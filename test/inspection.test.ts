@@ -315,3 +315,52 @@ describe("changing a budget", () => {
 		expect(current.recallTurns).toBe(4);
 	});
 });
+
+describe("parts whose turns have no recorded position", () => {
+	test("a tail is reported by what it carried, not by what it can name", async () => {
+		// Early in a Conversation the tail comes from the harness's own
+		// history, where Turns have no durable position yet.
+		const anonymous = [turn("older"), turn("recent"), turn("current")];
+		const turns = await record({
+			turns: anonymous,
+			tailTurns: 4,
+			recallTurns: 0,
+		});
+
+		const part = inspectCall(turns[0]?.calls[0] ?? missing()).parts.find(
+			(each) => each.source === "verbatim-tail",
+		);
+
+		expect(part?.carried).toBe(2);
+		expect(part?.turnIndices).toEqual([]);
+	});
+
+	test("a summary counts what was carried, not what was named", async () => {
+		const anonymous = [turn("older"), turn("recent"), turn("current")];
+		const turns = await record({
+			turns: anonymous,
+			tailTurns: 4,
+			recallTurns: 0,
+		});
+
+		const summary = summarise("conv-1", turns);
+
+		expect(
+			summary.budgetUse.find((each) => each.source === "verbatim-tail")
+				?.averageCarried,
+		).toBe(2);
+	});
+
+	test("the budgets in force are recorded even when a part carried nothing", async () => {
+		const turns = await record({
+			turns: [turn("current")],
+			tailTurns: 5,
+			recallTurns: 3,
+		});
+
+		const view = inspectCall(turns[0]?.calls[0] ?? missing());
+
+		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
+		expect(view.budgets).toEqual({ tail: 5, recall: 3 });
+	});
+});
