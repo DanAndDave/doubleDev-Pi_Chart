@@ -26,7 +26,7 @@ The Graph Store SHALL derive a Codebase's programmatic structure using graphify,
 
 ### Requirement: Only programmatic connections are carried
 
-The Graph Store SHALL carry connections that a parser established — calls, imports, re-exports, inheritance, implementation, mixing in, embedding, dependency, containment, membership, and resolved references — and SHALL exclude anything inferred, semantic, or drawn from documentation. A connection SHALL be carried only if the extraction states it was extracted rather than guessed.
+The Graph Store SHALL carry connections that a parser established — calls, imports and dynamic imports, re-exports, inheritance and extension, implementation, mixing in, embedding, dependency and requirement, containment, membership, and resolved references — and SHALL exclude anything inferred, semantic, or drawn from documentation. A connection SHALL be carried only if the extraction states it was extracted rather than guessed.
 
 #### Scenario: An inferred edge is excluded
 

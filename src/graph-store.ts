@@ -134,7 +134,11 @@ export class GraphStore {
 		// ran an older build, which is exactly when the pin has to bind.
 		if (await this.exists(this.executable)) {
 			const installed = await this.run(this.executable, ["--version"]);
-			if (installed.ok && installed.output.includes(PINNED_GRAPHIFY)) return;
+			// As a whole version, not a substring: `0.9.6` appears inside
+			// `0.9.63`, and a pin that matches the build it was meant to
+			// replace binds on no machine at all.
+			const reported = installed.output.split(/\s+/);
+			if (installed.ok && reported.includes(PINNED_GRAPHIFY)) return;
 		}
 
 		await this.makeDirectory(this.home);

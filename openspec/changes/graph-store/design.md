@@ -50,7 +50,7 @@ So the Graph Store does not fight it. The cost is honest and must be stated: poi
 
 Every edge is carried only if its own `confidence` says `EXTRACTED`, its relation is one the adapter knows to be programmatic, and both endpoints are code nodes. Three conditions rather than one, because the measurement showed each excludes something the others do not: confidence catches the 0.8 guesses, the relation list catches `cites`, and the node kind catches `ADR-0002`.
 
-An unknown relation is left out rather than assumed harmless. A schema that moves should cost recall, never correctness.
+An unknown relation is left out rather than assumed harmless. A schema that moves should cost recall, never correctness — so the allowlist is drawn from graphify's own structural vocabulary rather than from what this repository happens to emit: `extends`, `requires` and `dynamic_import` never appear in a TypeScript extraction but are what Dart, Scala, C++ and tsconfig inheritance produce, and omitting them would silently cost those Codebases their inheritance edges.
 
 ### Symbols are found by name, deterministically
 

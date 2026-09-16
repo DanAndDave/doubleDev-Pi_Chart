@@ -81,6 +81,19 @@ describe("obtaining graphify", () => {
 		expect(ran.map((each) => each.args[0])).toEqual(["--version"]);
 	});
 
+	test("reinstalls when the pinned version is a prefix of the installed one", async () => {
+		// `0.9.6` appears inside `0.9.63`; a substring check would accept
+		// the build the pin was moved away from.
+		const { store: graphStore, ran } = store({
+			present: ["bin/graphify"],
+			version: `${PINNED_GRAPHIFY}9`,
+		});
+
+		await graphStore.install();
+
+		expect(ran.map((each) => each.args[0])).toContain("install");
+	});
+
 	test("reinstalls when the installed version is not the pinned one", async () => {
 		// Otherwise moving the pin after a schema change is a no-op on every
 		// machine that ever ran an older build.

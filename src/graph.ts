@@ -40,15 +40,22 @@ const PROGRAMMATIC = new Set([
 	"imports",
 	"imports_from",
 	"re_exports",
+	"dynamic_import",
 	"implements",
 	"inherits",
+	"extends",
 	"mixes_in",
 	"embeds",
 	"depends_on",
+	"requires",
 	"method",
 	"contains",
 	"references",
 ]);
+
+// `uses` and `indirect_call` are absent deliberately: graphify emits both
+// only as INFERRED, so the confidence gate already excludes them and
+// listing them here would suggest they are carried.
 
 export type ProgrammaticRelation = string;
 

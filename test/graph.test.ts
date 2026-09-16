@@ -97,6 +97,39 @@ describe("an extraction that is not what the adapter requires", () => {
 		).toThrow(/link 0 has no string "relation"/);
 	});
 
+	test("refuses a graph in which nothing is code", () => {
+		// A renamed `file_type` would otherwise turn into permanent,
+		// invisible zero recall rather than an error.
+		expect(() =>
+			readGraph(
+				JSON.stringify({
+					nodes: [{ id: "a", label: "a", kind: "code", source_file: "a.ts" }],
+					links: [],
+				}),
+			),
+		).toThrow(/file_type/);
+	});
+
+	test("refuses a link naming a node the graph does not declare", () => {
+		expect(() =>
+			readGraph(
+				JSON.stringify({
+					nodes: [
+						{ id: "a", label: "a()", file_type: "code", source_file: "a.ts" },
+					],
+					links: [
+						{
+							source: "ghost",
+							target: "a",
+							relation: "calls",
+							confidence: "EXTRACTED",
+						},
+					],
+				}),
+			),
+		).toThrow(/does not declare/);
+	});
+
 	test("reports unreadable json rather than guessing", () => {
 		expect(() => readGraph("{not json")).toThrow(GraphFormatError);
 	});
@@ -191,6 +224,62 @@ describe("finding the symbols in play", () => {
 		const found = symbolsInPlay(graph, "does recordPack call assemble?");
 
 		expect(found.map((symbol) => symbol.label).sort()).toEqual([
+			".recordPack()",
+			"assemble()",
+		]);
+	});
+
+	test("a word naming several methods cannot crowd out the symbol asked about", () => {
+		// Found in review: "Describe what symbolsInPlay does" matched three
+		// `describe()` before `symbolsInPlay()`, and a Budget of three
+		// carried none of what was asked about.
+		const nodes = [
+			{
+				id: "target",
+				label: "symbolsInPlay()",
+				file_type: "code",
+				source_file: "src/symbols.ts",
+			},
+		];
+		for (let index = 0; index < 3; index++) {
+			nodes.push({
+				id: `describe${index}`,
+				label: ".describe()",
+				file_type: "code",
+				source_file: `src/other${index}.ts`,
+			});
+		}
+		const crowded = readGraph(JSON.stringify({ nodes, links: [] }));
+
+		const found = symbolsInPlay(crowded, "Describe what symbolsInPlay does");
+
+		expect(found[0]?.label).toBe("symbolsInPlay()");
+	});
+
+	test("each named symbol gets a turn before any gets a second", () => {
+		const nodes = [
+			{
+				id: "assemble",
+				label: "assemble()",
+				file_type: "code",
+				source_file: "src/assembler.ts",
+			},
+		];
+		for (let index = 0; index < 3; index++) {
+			nodes.push({
+				id: `record${index}`,
+				label: ".recordPack()",
+				file_type: "code",
+				source_file: `src/store${index}.ts`,
+			});
+		}
+		const many = readGraph(JSON.stringify({ nodes, links: [] }));
+
+		const found = symbolsInPlay(many, "does recordPack call assemble?");
+
+		// Three same-named methods must not spend a Budget of three before
+		// the other symbol the prompt names.
+		expect(found.slice(0, 2).map((symbol) => symbol.label)).toEqual([
 			".recordPack()",
 			"assemble()",
 		]);

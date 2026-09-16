@@ -46,48 +46,71 @@ export function symbolsInPlay(graph: CodeGraph, prompt: string): GraphSymbol[] {
 		byName.set(key, [...(byName.get(key) ?? []), symbol]);
 	}
 
-	const found = new Map<string, { symbol: GraphSymbol; named: boolean }>();
-	const remember = (symbol: GraphSymbol, code: boolean) => {
-		// A bare English word that happens to match a *method* name is the
-		// one ambiguous case: measured live, "do not read, grep, or list
-		// any files" matched `.read()` and `.list()` and spent 457 tokens
-		// on them. A bare word matching a function or a type is not
-		// ambiguous in the same way — nothing else in a prompt looks like
-		// `assemble` — so only members need the prompt to say "code".
-		const named = code || !symbol.label.startsWith(".");
-		const seen = found.get(symbol.id);
-		if (!seen || (named && !seen.named)) found.set(symbol.id, { symbol, named });
-	};
+	/** What one identifier in the prompt matched, and how it was written. */
+	interface Mention {
+		code: boolean;
+		symbols: GraphSymbol[];
+	}
 
+	const mentions = new Map<string, Mention>();
 	for (const match of prompt.matchAll(IDENTIFIER)) {
 		const [, member, identifier = "", call] = match;
+
+		const whole = byName.get(canonical(identifier));
+		const symbols =
+			whole ??
+			(identifier.match(WORD_PART) ?? [])
+				.filter((part) => part.length > 2)
+				.flatMap((part) => byName.get(canonical(part)) ?? []);
+		if (symbols.length === 0) continue;
+
 		// Does the prompt itself say this is code? `parseConcept`,
-		// `record_pack`, `.read` and `read()` do; `Pack` does by its
-		// capital; `read` in "do not read any files" does not.
+		// `record_pack`, `.read` and `read()` do outright. A capital says
+		// so only when it names something that is not a method — every
+		// sentence starts with a capital, and `Describe` opening a question
+		// is not a reference to `.describe()`.
 		const code =
 			COMPOUND.test(identifier) ||
 			member !== "" ||
 			call !== undefined ||
-			CAPITALISED.test(identifier);
+			(CAPITALISED.test(identifier) &&
+				symbols.some((each) => !each.label.startsWith(".")));
 
-		const whole = byName.get(canonical(identifier));
-		if (whole) {
-			for (const symbol of whole) remember(symbol, code);
-			continue;
-		}
-		for (const part of identifier.match(WORD_PART) ?? []) {
-			if (part.length <= 2) continue;
-			for (const symbol of byName.get(canonical(part)) ?? []) {
-				remember(symbol, code);
-			}
-		}
+		const key = canonical(identifier);
+		const seen = mentions.get(key);
+		mentions.set(key, { code: code || (seen?.code ?? false), symbols });
 	}
 
-	// Ambiguous matches are dropped only when something unambiguous was
-	// found; with nothing else to go on they are all there is.
-	const matches = [...found.values()];
-	const named = matches.filter((each) => each.named);
-	return (named.length > 0 ? named : matches).map((each) => each.symbol);
+	// A bare English word that matches only a *method* name is the one
+	// ambiguous case: measured live, "do not read, grep, or list any files"
+	// matched `.read()` and `.list()` and spent 457 tokens on them. A bare
+	// word matching a function or a type is not ambiguous in the same way.
+	const unambiguous = [...mentions.values()].filter(
+		(mention) =>
+			mention.code || mention.symbols.some((each) => !each.label.startsWith(".")),
+	);
+	const considered = unambiguous.length > 0 ? unambiguous : [...mentions.values()];
+
+	// Written-as-code first, then one symbol per identifier per round: a
+	// word that happens to name three methods must not spend a Budget
+	// ahead of the symbol the prompt was actually about.
+	const ordered = [
+		...considered.filter((mention) => mention.code),
+		...considered.filter((mention) => !mention.code),
+	];
+	const found = new Map<string, GraphSymbol>();
+	for (let round = 0; ; round++) {
+		let added = false;
+		for (const mention of ordered) {
+			const symbol = mention.symbols[round];
+			if (!symbol) continue;
+			found.set(symbol.id, symbol);
+			added = true;
+		}
+		if (!added) break;
+	}
+
+	return [...found.values()];
 }
 
 /**
@@ -151,9 +174,7 @@ function balance(symbol: GraphSymbol, edges: GraphEdge[]): GraphEdge[] {
 
 /** A symbol as the accounting names it: two `.recordPack()` are not one. */
 export function qualify(symbol: GraphSymbol): string {
-	return symbol.position
-		? `${symbol.label} (${symbol.file}:${symbol.position})`
-		: `${symbol.label} (${symbol.file})`;
+	return `${symbol.label} (${place(symbol)})`;
 }
 
 /** One connection, as the agent reads it: names, direction, and where. */
