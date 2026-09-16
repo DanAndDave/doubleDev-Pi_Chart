@@ -85,6 +85,8 @@ A carried symbol brings its direct connections, both directions, each naming the
 
 A symbol's degree is unbounded, though, and that broke the first version of this rule: `register()` has 30 incident edges and rendered to about 630 tokens, and three such symbols filled the default Budget with 1,528. A Budget counted only in symbols would admit anything between a hundred tokens and several thousand, which no other part of this system does. So a neighbourhood carries at most twelve connections and says how many it left out — silence would read as "this symbol connects to twelve things", which for a hub is false. With that cap the same corpus measures a median of 72 tokens, a 90th percentile of 249, and a worst case of 305.
 
+Which twelve matters as much as how many. Taking them in the order the extraction lists them left two of this repository's nineteen over-sized symbols with no callers at all, which is the worst possible truncation for a Store whose reason to exist is "what calls this". Taken alternately from each direction, that number is zero.
+
 Symbols are recorded by label *and* location, because labels are not unique: this repository has three distinct `.recordPack()` and five `.constructor()`. An inspector that printed `symbols .recordPack(), .recordPack(), .recordPack()` would name nothing, and a diff keyed on the label would be blind to the set changing.
 
 ## Risks / Trade-offs

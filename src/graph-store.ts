@@ -52,10 +52,15 @@ export class GraphStore {
 	private readonly exists: (path: string) => Promise<boolean>;
 	private readonly makeDirectory: (path: string) => Promise<void>;
 	private readonly changedAt: (path: string) => Promise<number | undefined>;
-	/** Parsed graphs, by Codebase, valid while the extraction is untouched. */
+	/**
+	 * What each Codebase's extraction parsed to, valid while the file is
+	 * untouched. A failure is remembered too: re-parsing a broken graph on
+	 * every Call would cost the same work and report the same complaint
+	 * every time.
+	 */
 	private readonly parsed = new Map<
 		string,
-		{ changedAt: number; graph: CodeGraph }
+		{ changedAt: number; graph?: CodeGraph; failure?: Error }
 	>();
 	/** Refreshes in flight, so concurrent sessions do not collide. */
 	private readonly refreshing = new Map<string, Promise<void>>();
@@ -161,11 +166,20 @@ export class GraphStore {
 		if (at === undefined) return undefined;
 
 		const cached = this.parsed.get(codebase);
-		if (cached && cached.changedAt === at) return cached.graph;
+		if (cached && cached.changedAt === at) {
+			if (cached.failure) throw cached.failure;
+			return cached.graph;
+		}
 
-		const graph = readGraph(await this.read(path));
-		this.parsed.set(codebase, { changedAt: at, graph });
-		return graph;
+		try {
+			const graph = readGraph(await this.read(path));
+			this.parsed.set(codebase, { changedAt: at, graph });
+			return graph;
+		} catch (error) {
+			const failure = error instanceof Error ? error : new Error(String(error));
+			this.parsed.set(codebase, { changedAt: at, failure });
+			throw failure;
+		}
 	}
 }
 

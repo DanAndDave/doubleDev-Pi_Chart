@@ -118,11 +118,35 @@ export function neighbourhoods(
 		if (!edges || edges.length === 0) continue;
 		result.push({
 			symbol,
-			edges: edges.slice(0, MAX_EDGES),
+			edges: balance(symbol, edges),
 			dropped: Math.max(edges.length - MAX_EDGES, 0),
 		});
 	}
 	return result;
+}
+
+/**
+ * The connections to keep when a symbol has more than a pack can hold.
+ *
+ * Taken alternately from each direction rather than in the order the
+ * extraction happens to list them: measured on this repository, plain
+ * truncation left two of nineteen over-sized symbols with no callers at
+ * all, and "what calls this" is the question the Store exists for.
+ */
+function balance(symbol: GraphSymbol, edges: GraphEdge[]): GraphEdge[] {
+	if (edges.length <= MAX_EDGES) return edges;
+
+	const inbound = edges.filter((edge) => edge.to.id === symbol.id);
+	const outbound = edges.filter((edge) => edge.from.id === symbol.id);
+	const kept: GraphEdge[] = [];
+	for (let index = 0; kept.length < MAX_EDGES; index++) {
+		const next = [inbound[index], outbound[index]].filter(
+			(edge): edge is GraphEdge => edge !== undefined,
+		);
+		if (next.length === 0) break;
+		kept.push(...next.slice(0, MAX_EDGES - kept.length));
+	}
+	return kept;
 }
 
 /** A symbol as the accounting names it: two `.recordPack()` are not one. */

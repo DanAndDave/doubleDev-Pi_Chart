@@ -243,6 +243,26 @@ describe("reading a codebase's graph", () => {
 		]);
 	});
 
+	test("an unreadable graph is reported once, not re-parsed every call", async () => {
+		let reads = 0;
+		const graphStore = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => 7,
+			read: async () => {
+				reads++;
+				return "{ not json";
+			},
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		await expect(graphStore.graph("/work/project")).rejects.toThrow(/not JSON/);
+		await expect(graphStore.graph("/work/project")).rejects.toThrow(/not JSON/);
+
+		expect(reads).toBe(1);
+	});
+
 	test("an unreadable graph is reported, not guessed at", async () => {
 		const { store: graphStore } = store({
 			present: ["bin/graphify", "graphify-out/graph.json"],

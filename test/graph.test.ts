@@ -300,6 +300,49 @@ describe("the neighbourhood of a symbol", () => {
 		expect(around?.dropped).toBe(20 - (around?.edges.length ?? 0));
 	});
 
+	test("a capped neighbourhood keeps callers, not just callees", () => {
+		// Measured on this repository: plain truncation left two of
+		// nineteen over-sized symbols with no callers at all.
+		const nodes = [
+			{ id: "hub", label: "hub()", file_type: "code", source_file: "a.ts" },
+		];
+		const links = [];
+		for (let index = 0; index < 20; index++) {
+			nodes.push({
+				id: `out${index}`,
+				label: `out${index}()`,
+				file_type: "code",
+				source_file: "b.ts",
+			});
+			links.push({
+				source: "hub",
+				target: `out${index}`,
+				relation: "calls",
+				confidence: "EXTRACTED",
+			});
+		}
+		nodes.push({
+			id: "caller",
+			label: "caller()",
+			file_type: "code",
+			source_file: "c.ts",
+		});
+		// Listed last, so file order alone would drop it.
+		links.push({
+			source: "caller",
+			target: "hub",
+			relation: "calls",
+			confidence: "EXTRACTED",
+		});
+		const big = readGraph(JSON.stringify({ nodes, links }));
+
+		const [around] = neighbourhoods(big, symbolsInPlay(big, "tell me about hub"));
+
+		expect(
+			(around?.edges ?? []).some((edge) => edge.from.label === "caller()"),
+		).toBe(true);
+	});
+
 	test("a symbol with no connections yields nothing", () => {
 		const found = symbolsInPlay(graph, "what about unusedHelper?");
 
