@@ -14,6 +14,7 @@ export interface Recorder {
 	recordMeasurements(
 		conversationId: string,
 		snapshots: ContextSnapshot[],
+		firstCallIndex: number,
 	): Promise<void>;
 }
 
@@ -34,7 +35,7 @@ const UNKNOWN_CONVERSATION = "unknown-conversation";
  * code that knows the harness exists.
  */
 export function register(pi: ExtensionAPI, deps: Dependencies): void {
-	const callIndexByConversation = new Map<string, number>();
+	const measuredByConversation = new Map<string, number>();
 
 	pi.on("session_start", async (_event, ctx) => {
 		const status = await ctx.memory?.status?.();
@@ -54,8 +55,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const turns = reconstructTurns(event.messages ?? []);
 			const pack = deps.assemble(turns, { tailTurns: deps.config.tailTurns });
 
-			const callIndex = callIndexByConversation.get(conversationId) ?? 0;
-			callIndexByConversation.set(conversationId, callIndex + 1);
+			// Derived from the session, not counted in this process: a resumed
+			// conversation must not restart at zero and overwrite its own history.
+			const callIndex = snapshotsOf(ctx).length;
+
+			// A call's reported size only exists once the provider has answered,
+			// which may be after this process's last agent_end. Sweeping here too
+			// means the next turn — or the next process — still records it.
+			await reconcile(conversationId, snapshotsOf(ctx));
 
 			try {
 				await deps.accounting.recordPack(conversationId, callIndex, pack);
@@ -73,23 +80,39 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
-		const conversationId = conversationOf(ctx);
-		const snapshots: ContextSnapshot[] = [];
-		for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
-			const snapshot = entry.message?.contextSnapshot;
-			if (snapshot) snapshots.push(snapshot);
-		}
-		if (snapshots.length === 0) return;
+		await reconcile(conversationOf(ctx), snapshotsOf(ctx));
+	});
+
+	/** Writes any reported window size this process has not written yet. */
+	async function reconcile(
+		conversationId: string,
+		snapshots: ContextSnapshot[],
+	): Promise<void> {
+		const already = measuredByConversation.get(conversationId) ?? 0;
+		const fresh = snapshots.slice(already);
+		if (fresh.length === 0) return;
+
 		try {
-			await deps.accounting.recordMeasurements(conversationId, snapshots);
+			await deps.accounting.recordMeasurements(conversationId, fresh, already);
+			measuredByConversation.set(conversationId, snapshots.length);
 		} catch (error) {
 			deps.report(`Measurements were not recorded: ${describe(error)}`);
 		}
-	});
+	}
 }
 
 function conversationOf(ctx: HandlerContext): string {
 	return ctx.sessionManager?.getSessionId?.() ?? UNKNOWN_CONVERSATION;
+}
+
+/** Every window size the harness has reported for this conversation, in order. */
+function snapshotsOf(ctx: HandlerContext): ContextSnapshot[] {
+	const snapshots: ContextSnapshot[] = [];
+	for (const entry of ctx.sessionManager?.getBranch?.() ?? []) {
+		const snapshot = entry.message?.contextSnapshot;
+		if (snapshot) snapshots.push(snapshot);
+	}
+	return snapshots;
 }
 
 function describe(error: unknown): string {

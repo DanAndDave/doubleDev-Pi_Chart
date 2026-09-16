@@ -45,6 +45,8 @@ This supersedes the plan to compute `Floor = reported input total − pack token
 
 Alternative considered: count everything locally with a real tokenizer. Rejected for the same reason — the Floor is assembled by the harness from sources we never see, so a local count of it would be a guess dressed as a measurement.
 
+Measured consequence, from a three-Turn session after implementation: `nonMessageTokens` held constant at 25,588 while `promptTokens − nonMessageTokens` was 3,741 for a Context Pack our own counter put at roughly 9 tokens. So about 3.7k of *message-side* content per request is injected by the harness rather than by the Assembler, and the Floor as the harness defines it understates what the Assembler cannot control. The honest figure is that the Assembler governs a few tens of tokens out of a ~29.3k window. Reported as-is rather than folded into either number; splitting harness-injected message content from pack content is work for the pack inspector slice, which is where it can be shown rather than guessed at.
+
 ### Accounting is written as an append-only local record, keyed by Conversation
 
 No Store exists yet, and inventing a schema now would be inventing it twice. Accounting appends to a local file keyed by Conversation and Turn, in the same shape the Thread Store will ingest in slice 2. This keeps the accounting requirements satisfiable now and makes slice 2 an ingest change rather than a redesign.

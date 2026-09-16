@@ -81,12 +81,13 @@ export class AccountingLog {
 	async recordMeasurements(
 		conversationId: string,
 		snapshots: ContextSnapshot[],
+		firstCallIndex = 0,
 	): Promise<void> {
-		for (const [callIndex, snapshot] of snapshots.entries()) {
+		for (const [offset, snapshot] of snapshots.entries()) {
 			await this.append({
 				kind: "measurement",
 				conversationId,
-				callIndex,
+				callIndex: firstCallIndex + offset,
 				promptTokens: snapshot.promptTokens,
 				nonMessageTokens: snapshot.nonMessageTokens,
 			});

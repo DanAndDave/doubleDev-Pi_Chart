@@ -118,11 +118,51 @@ describe("context handler", () => {
 
 	test("numbers calls within a conversation so measurements can be matched", async () => {
 		const cm = harness();
+		const branch: { type: string; message: Record<string, unknown> }[] = [];
+		const growing = ctx({
+			sessionManager: { getSessionId: () => "conv-1", getBranch: () => branch },
+		});
 
-		await cm.context({ messages: [{ role: "user", content: "one" }] }, ctx());
-		await cm.context({ messages: [{ role: "user", content: "two" }] }, ctx());
+		await cm.context({ messages: [{ role: "user", content: "one" }] }, growing);
+		branch.push({
+			type: "message",
+			message: {
+				role: "assistant",
+				contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
+			},
+		});
+		await cm.context({ messages: [{ role: "user", content: "two" }] }, growing);
 
 		expect(cm.recorded.map((entry) => entry.callIndex)).toEqual([0, 1]);
+	});
+
+	test("numbers calls from the session, so a restart does not reuse index 0", async () => {
+		const cm = harness();
+		const resumed = ctx({
+			sessionManager: {
+				getSessionId: () => "conv-1",
+				getBranch: () => [
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
+						},
+					},
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							contextSnapshot: { promptTokens: 110, nonMessageTokens: 90 },
+						},
+					},
+				],
+			},
+		});
+
+		await cm.context({ messages: [{ role: "user", content: "third" }] }, resumed);
+
+		expect(cm.recorded[0]?.callIndex).toBe(2);
 	});
 });
 
@@ -183,6 +223,40 @@ describe("measurement reconciliation", () => {
 		expect(cm.measured[0]?.snapshots).toEqual([
 			{ promptTokens: 100, nonMessageTokens: 90 },
 			{ promptTokens: 120, nonMessageTokens: 90 },
+		]);
+	});
+
+	test("does not re-record measurements it has already written", async () => {
+		const cm = harness();
+		const branch = [
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
+				},
+			},
+		];
+		const context = ctx({
+			sessionManager: {
+				getSessionId: () => "conv-1",
+				getBranch: () => branch,
+			},
+		});
+
+		await cm.agentEnd({}, context);
+		branch.push({
+			type: "message",
+			message: {
+				role: "assistant",
+				contextSnapshot: { promptTokens: 120, nonMessageTokens: 90 },
+			},
+		});
+		await cm.agentEnd({}, context);
+
+		expect(cm.measured.map((entry) => entry.snapshots)).toEqual([
+			[{ promptTokens: 100, nonMessageTokens: 90 }],
+			[{ promptTokens: 120, nonMessageTokens: 90 }],
 		]);
 	});
 });
