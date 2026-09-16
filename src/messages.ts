@@ -44,8 +44,6 @@ export interface Turn {
 	prompt: string;
 	/** Every message belonging to this turn, prompt first, in order. */
 	messages: HarnessMessage[];
-	/** True while the agent has not yet finished answering. */
-	inProgress: boolean;
 }
 
 export function messageText(message: HarnessMessage): string {

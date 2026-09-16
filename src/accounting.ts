@@ -4,70 +4,87 @@ import { join } from "node:path";
 import type { Pack, PackSource } from "./assembler.ts";
 import type { ContextSnapshot } from "./messages.ts";
 
+/** Where a Call sits in its Conversation. A Turn may contain several Calls. */
+export interface CallAddress {
+	turnIndex: number;
+	callIndex: number;
+}
+
 /**
- * What a single LLM call's Context Window was made of.
+ * What one Call's Context Window was made of.
  *
  * `packTokens` and `floorTokens` come from the harness's own report and are
- * absent until it has responded. `approximateTokens` is ours and is only ever
+ * absent until it has answered. `approximateTokens` is ours, and is only ever
  * used to attribute a pack across its parts.
  */
+export interface CallAccounting extends CallAddress {
+	at?: string;
+	parts: { source: PackSource; approximateTokens: number; approximate: true }[];
+	approximateTokens?: number;
+	packTokens?: number;
+	floorTokens?: number;
+	/** True when assembly failed and the harness's own array was used. */
+	unassembled?: boolean;
+}
+
+/** Everything recorded for one Turn, which is one or more Calls. */
 export interface TurnAccounting {
 	conversationId: string;
-	callIndex: number;
-	at: string;
-	parts: { source: PackSource; approximateTokens: number; approximate: true }[];
-	approximateTokens: number;
+	turnIndex: number;
+	calls: CallAccounting[];
+	/** The widest window this Turn reached, pack side. */
 	packTokens?: number;
+	/** The Floor during this Turn. Constant within a Turn in practice. */
 	floorTokens?: number;
 }
 
-interface PackRecord {
+interface PackEntry extends CallAddress {
 	kind: "pack";
 	conversationId: string;
-	callIndex: number;
 	at: string;
 	parts: { source: PackSource; approximateTokens: number }[];
 	approximateTokens: number;
+	unassembled?: boolean;
 }
 
-interface MeasurementRecord {
+interface MeasurementEntry extends CallAddress {
 	kind: "measurement";
 	conversationId: string;
-	callIndex: number;
 	promptTokens: number;
 	nonMessageTokens: number;
 }
 
-type Record_ = PackRecord | MeasurementRecord;
+type AccountingEntry = PackEntry | MeasurementEntry;
 
 /**
  * Append-only per-Conversation record of what each Context Window contained.
  *
- * Append-only because measurements arrive after the pack they describe: a
- * later record refines an earlier one rather than rewriting it, which is also
- * the shape the Thread Store will ingest.
+ * Append-only because measurements arrive after the pack they describe, often
+ * after the process that assembled it has exited: a later entry refines an
+ * earlier one rather than rewriting it, which is also the shape the Thread
+ * Store will ingest.
  */
-export class AccountingLog {
+export class Accounting {
 	constructor(private readonly directory: string) {}
 
 	private path(conversationId: string): string {
 		return join(this.directory, `${conversationId}.jsonl`);
 	}
 
-	private async append(record: Record_): Promise<void> {
+	private async append(entry: AccountingEntry): Promise<void> {
 		await mkdir(this.directory, { recursive: true });
-		await appendFile(this.path(record.conversationId), JSON.stringify(record) + "\n");
+		await appendFile(this.path(entry.conversationId), JSON.stringify(entry) + "\n");
 	}
 
 	async recordPack(
 		conversationId: string,
-		callIndex: number,
+		address: CallAddress,
 		pack: Pack,
 	): Promise<void> {
 		await this.append({
 			kind: "pack",
 			conversationId,
-			callIndex,
+			...address,
 			at: new Date().toISOString(),
 			parts: pack.parts.map((part) => ({
 				source: part.source,
@@ -77,23 +94,40 @@ export class AccountingLog {
 		});
 	}
 
-	/** Reconciles harness-reported window sizes onto the calls they describe. */
+	/** Records a Call the Assembler could not build a pack for. */
+	async recordUnassembled(
+		conversationId: string,
+		address: CallAddress,
+	): Promise<void> {
+		await this.append({
+			kind: "pack",
+			conversationId,
+			...address,
+			at: new Date().toISOString(),
+			parts: [],
+			approximateTokens: 0,
+			unassembled: true,
+		});
+	}
+
+	/** Reconciles harness-reported window sizes onto the Calls they describe. */
 	async recordMeasurements(
 		conversationId: string,
-		snapshots: ContextSnapshot[],
-		firstCallIndex = 0,
+		measurements: (CallAddress & { snapshot: ContextSnapshot })[],
 	): Promise<void> {
-		for (const [offset, snapshot] of snapshots.entries()) {
+		for (const measurement of measurements) {
 			await this.append({
 				kind: "measurement",
 				conversationId,
-				callIndex: firstCallIndex + offset,
-				promptTokens: snapshot.promptTokens,
-				nonMessageTokens: snapshot.nonMessageTokens,
+				turnIndex: measurement.turnIndex,
+				callIndex: measurement.callIndex,
+				promptTokens: measurement.snapshot.promptTokens,
+				nonMessageTokens: measurement.snapshot.nonMessageTokens,
 			});
 		}
 	}
 
+	/** Every Turn of a Conversation, in Turn order, each with its Calls. */
 	async read(conversationId: string): Promise<TurnAccounting[]> {
 		let text: string;
 		try {
@@ -102,26 +136,50 @@ export class AccountingLog {
 			return [];
 		}
 
-		const byCall = new Map<number, TurnAccounting>();
+		const calls = new Map<string, CallAccounting>();
 		for (const line of text.split("\n")) {
 			if (!line.trim()) continue;
-			const record = JSON.parse(line) as Record_;
-			if (record.kind === "pack") {
-				byCall.set(record.callIndex, {
-					conversationId: record.conversationId,
-					callIndex: record.callIndex,
-					at: record.at,
-					parts: record.parts.map((part) => ({ ...part, approximate: true })),
-					approximateTokens: record.approximateTokens,
-				});
-				continue;
+			const entry = JSON.parse(line) as AccountingEntry;
+			const key = `${entry.turnIndex}:${entry.callIndex}`;
+			const call = calls.get(key) ?? {
+				turnIndex: entry.turnIndex,
+				callIndex: entry.callIndex,
+				parts: [],
+			};
+
+			if (entry.kind === "pack") {
+				call.at = entry.at;
+				call.parts = entry.parts.map((part) => ({ ...part, approximate: true }));
+				call.approximateTokens = entry.approximateTokens;
+				if (entry.unassembled) call.unassembled = true;
+			} else {
+				// A measurement with no pack is still evidence the Call happened.
+				call.floorTokens = entry.nonMessageTokens;
+				call.packTokens = entry.promptTokens - entry.nonMessageTokens;
 			}
-			const existing = byCall.get(record.callIndex);
-			if (!existing) continue;
-			existing.floorTokens = record.nonMessageTokens;
-			existing.packTokens = record.promptTokens - record.nonMessageTokens;
+
+			calls.set(key, call);
 		}
 
-		return [...byCall.values()].sort((a, b) => a.callIndex - b.callIndex);
+		const turns = new Map<number, TurnAccounting>();
+		for (const call of [...calls.values()].sort(byAddress)) {
+			const turn = turns.get(call.turnIndex) ?? {
+				conversationId,
+				turnIndex: call.turnIndex,
+				calls: [],
+			};
+			turn.calls.push(call);
+			if (call.packTokens !== undefined) {
+				turn.packTokens = Math.max(turn.packTokens ?? 0, call.packTokens);
+			}
+			if (call.floorTokens !== undefined) turn.floorTokens = call.floorTokens;
+			turns.set(call.turnIndex, turn);
+		}
+
+		return [...turns.values()].sort((a, b) => a.turnIndex - b.turnIndex);
 	}
+}
+
+function byAddress(a: CallAddress, b: CallAddress): number {
+	return a.turnIndex - b.turnIndex || a.callIndex - b.callIndex;
 }

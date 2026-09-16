@@ -49,11 +49,12 @@ The extension checks this at session start and reports loudly if it is still act
 
 ## What it records
 
-One JSONL file per Conversation, append-only. Each LLM call gets a `pack` record when the Context Pack is assembled, and a `measurement` record once the harness reports what the window actually cost. Reading merges the two:
+One JSONL file per Conversation, append-only. Every Call gets a `pack` entry when its Context Pack is assembled, and a `measurement` entry once the harness reports what the window actually cost — often after the process that assembled it has exited, which is why the file is append-only rather than rewritten. Reading merges them and groups Calls under their Turn, so a tool-using Turn reads as one Turn with several Calls:
 
 - `floorTokens` — the Floor, reported by the harness as `nonMessageTokens`: system prompt, tool schemas, skills, and rules. Not controlled by the Assembler.
-- `packTokens` — the measured size of the pack, `promptTokens − nonMessageTokens`.
-- `parts` — which part of the Assembler contributed what, counted locally and **approximate**. Never used for the pack-versus-Floor figures.
+- `packTokens` — the measured pack size, `promptTokens − nonMessageTokens`; for a Turn, the widest its window reached.
+- `calls[].parts` — which part of the Assembler contributed what, counted locally and **approximate**. Never used for the pack-versus-Floor figures.
+- `calls[].unassembled` — set when assembly failed and the harness's own array was used for that Call.
 
 ## Develop
 

@@ -8,7 +8,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { AccountingLog } from "../src/accounting.ts";
+import { Accounting } from "../src/accounting.ts";
 import { journalText, runHeadless } from "./harness.ts";
 
 const live = process.env.CM_LIVE === "1";
@@ -90,18 +90,16 @@ describeLive("accounting against a live model", () => {
 				.pop();
 			expect(conversationId).toBeTruthy();
 
-			const records = await new AccountingLog(accountingDir).read(
+			const turns = await new Accounting(accountingDir).read(
 				conversationId ?? "",
 			);
 
-			expect(records.length).toBeGreaterThan(0);
-			const measured = records.filter(
-				(record) => record.floorTokens !== undefined,
-			);
+			expect(turns.length).toBeGreaterThan(0);
+			const measured = turns.filter((turn) => turn.floorTokens !== undefined);
 			expect(measured.length).toBeGreaterThan(0);
-			for (const record of measured) {
-				expect(record.floorTokens).toBeGreaterThan(0);
-				expect(record.packTokens).toBeLessThan(record.floorTokens ?? 0);
+			for (const turn of measured) {
+				expect(turn.floorTokens).toBeGreaterThan(0);
+				expect(turn.packTokens).toBeLessThan(turn.floorTokens ?? 0);
 			}
 		},
 		TIMEOUT,

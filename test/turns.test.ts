@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { reconstructTurns } from "../src/turns.ts";
-import type { HarnessMessage } from "../src/messages.ts";
-
-async function fixture(name: string): Promise<HarnessMessage[]> {
-	const file = Bun.file(new URL(`./fixtures/${name}.json`, import.meta.url));
-	return (await file.json()) as HarnessMessage[];
-}
+import { fixture } from "./fixtures.ts";
 
 describe("reconstructTurns", () => {
 	test("groups each user prompt with the agent output that answers it", async () => {
@@ -17,6 +12,13 @@ describe("reconstructTurns", () => {
 			"Now remember a second codeword: quartz. Reply with just: ok",
 			"What were the two codewords?",
 		]);
+	});
+
+	test("a single exchange is one turn", async () => {
+		const turns = reconstructTurns(await fixture("plain-exchange"));
+
+		expect(turns).toHaveLength(1);
+		expect(turns[0]?.prompt).toBe("Say the single word: apricot. Then stop.");
 	});
 
 	test("keeps a tool call together with its result", async () => {
@@ -30,12 +32,6 @@ describe("reconstructTurns", () => {
 			"assistant",
 			"toolResult",
 		]);
-	});
-
-	test("marks an unanswered prompt as still in progress", async () => {
-		const turns = reconstructTurns(await fixture("multi-turn"));
-
-		expect(turns.map((turn) => turn.inProgress)).toEqual([false, false, true]);
 	});
 
 	test("keeps a failed tool result with the call that produced it", async () => {
@@ -56,18 +52,6 @@ describe("reconstructTurns", () => {
 		]);
 
 		expect(turns.map((turn) => turn.prompt)).toEqual(["first", "second"]);
-	});
-
-	test("a tool call awaiting its result leaves the turn in progress", () => {
-		const turns = reconstructTurns([
-			{ role: "user", content: "go" },
-			{
-				role: "assistant",
-				content: [{ type: "toolCall", id: "call-1", name: "read" }],
-			},
-		]);
-
-		expect(turns[0]?.inProgress).toBe(true);
 	});
 
 	test("output with no prompt before it still forms a turn", () => {

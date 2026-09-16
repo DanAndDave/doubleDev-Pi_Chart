@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { assemble } from "../src/assembler.ts";
-import type { Pack } from "../src/assembler.ts";
+import type { CallAddress } from "../src/accounting.ts";
+import { assemble, type Pack } from "../src/assembler.ts";
 import { DEFAULT_TAIL_TURNS } from "../src/config.ts";
 import { register, type Dependencies, type Recorder } from "../src/extension.ts";
 import type {
+	BranchEntry,
 	ContextHandler,
 	ExtensionAPI,
 	HandlerContext,
@@ -12,35 +13,56 @@ import type {
 } from "../src/harness.ts";
 import type { ContextSnapshot } from "../src/messages.ts";
 
+interface Recorded extends CallAddress {
+	pack?: Pack;
+	unassembled?: boolean;
+}
+
 interface Harness {
-	pi: ExtensionAPI;
 	context: ContextHandler;
 	sessionStart: LifecycleHandler;
 	agentEnd: LifecycleHandler;
 	reported: string[];
-	recorded: { conversationId: string; callIndex: number; pack: Pack }[];
-	measured: { conversationId: string; snapshots: ContextSnapshot[] }[];
+	recorded: Recorded[];
+	measured: (CallAddress & { snapshot: ContextSnapshot })[];
+	/** Awaits the background accounting writes this extension started. */
+	settle: () => Promise<void>;
 }
 
 function harness(overrides: Partial<Dependencies> = {}): Harness {
-	const handlers: Record<string, unknown> = {};
-	const pi = {
-		on(event: string, handler: unknown) {
-			handlers[event] = handler;
+	let context: ContextHandler | undefined;
+	let sessionStart: LifecycleHandler | undefined;
+	let agentEnd: LifecycleHandler | undefined;
+
+	const pi: ExtensionAPI = {
+		on(event: string, handler: ContextHandler | LifecycleHandler) {
+			if (event === "context") context = handler as ContextHandler;
+			if (event === "session_start") sessionStart = handler as LifecycleHandler;
+			if (event === "agent_end") agentEnd = handler as LifecycleHandler;
 		},
-	} as unknown as ExtensionAPI;
+	} as ExtensionAPI;
 
 	const reported: string[] = [];
-	const recorded: Harness["recorded"] = [];
+	const recorded: Recorded[] = [];
 	const measured: Harness["measured"] = [];
 
+	const writes: Promise<unknown>[] = [];
+	function track<T>(write: Promise<T>): Promise<T> {
+		writes.push(write.catch(() => undefined));
+		return write;
+	}
+
 	const accounting: Recorder = {
-		async recordPack(conversationId, callIndex, pack) {
-			recorded.push({ conversationId, callIndex, pack });
-		},
-		async recordMeasurements(conversationId, snapshots) {
-			measured.push({ conversationId, snapshots });
-		},
+		recordPack: (_conversationId, address, pack) =>
+			track(Promise.resolve(recorded.push({ ...address, pack })).then(() => {})),
+		recordUnassembled: (_conversationId, address) =>
+			track(
+				Promise.resolve(recorded.push({ ...address, unassembled: true })).then(
+					() => {},
+				),
+			),
+		recordMeasurements: (_conversationId, measurements) =>
+			track(Promise.resolve(measured.push(...measurements)).then(() => {})),
 	};
 
 	register(pi, {
@@ -51,22 +73,44 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		...overrides,
 	});
 
+	if (!context || !sessionStart || !agentEnd) {
+		throw new Error("extension did not register its handlers");
+	}
+
 	return {
-		pi,
-		context: handlers.context as ContextHandler,
-		sessionStart: handlers.session_start as LifecycleHandler,
-		agentEnd: handlers.agent_end as LifecycleHandler,
+		context,
+		sessionStart,
+		agentEnd,
 		reported,
 		recorded,
 		measured,
+		settle: async () => {
+			// Drains the writes the extension started, plus the reporting
+			// microtask chained onto each, without waiting on the clock.
+			while (writes.length > 0) await writes.shift();
+			await Promise.resolve();
+		},
 	};
 }
 
-function ctx(overrides: Partial<HandlerContext> = {}): HandlerContext {
+function answered(promptTokens: number): BranchEntry[] {
+	return [
+		{ type: "message", message: { role: "user" } },
+		{
+			type: "message",
+			message: {
+				role: "assistant",
+				contextSnapshot: { promptTokens, nonMessageTokens: 90 },
+			},
+		},
+	];
+}
+
+function ctx(branch: BranchEntry[] = [], extra: Partial<HandlerContext> = {}) {
 	return {
-		sessionManager: { getSessionId: () => "conv-1", getBranch: () => [] },
-		...overrides,
-	};
+		sessionManager: { getSessionId: () => "conv-1", getBranch: () => branch },
+		...extra,
+	} satisfies HandlerContext;
 }
 
 describe("context handler", () => {
@@ -92,9 +136,11 @@ describe("context handler", () => {
 			{ messages: [{ role: "user", content: "hello" }] },
 			ctx(),
 		);
+		await cm.settle();
 
 		expect(result).toBeUndefined();
 		expect(cm.reported.join()).toContain("boom");
+		expect(cm.recorded[0]?.unassembled).toBe(true);
 	});
 
 	test("an accounting failure leaves the pack intact and the turn running", async () => {
@@ -103,6 +149,27 @@ describe("context handler", () => {
 				async recordPack() {
 					throw new Error("disk full");
 				},
+				async recordUnassembled() {},
+				async recordMeasurements() {},
+			},
+		});
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "hello" }] },
+			ctx(),
+		);
+		await cm.settle();
+
+		expect(result?.messages).toHaveLength(1);
+		expect(cm.reported.join()).toContain("disk full");
+	});
+
+	test("does not wait for accounting before handing back the pack", async () => {
+		const { promise: blocked, resolve: released } = Promise.withResolvers<void>();
+		const cm = harness({
+			accounting: {
+				recordPack: () => blocked,
+				async recordUnassembled() {},
 				async recordMeasurements() {},
 			},
 		});
@@ -113,56 +180,64 @@ describe("context handler", () => {
 		);
 
 		expect(result?.messages).toHaveLength(1);
-		expect(cm.reported.join()).toContain("disk full");
+		released();
 	});
 
-	test("numbers calls within a conversation so measurements can be matched", async () => {
+	test("addresses each call to its turn, so a tool loop stays one turn", async () => {
 		const cm = harness();
-		const branch: { type: string; message: Record<string, unknown> }[] = [];
-		const growing = ctx({
-			sessionManager: { getSessionId: () => "conv-1", getBranch: () => branch },
-		});
+		const branch = answered(100);
 
-		await cm.context({ messages: [{ role: "user", content: "one" }] }, growing);
+		await cm.context({ messages: [{ role: "user", content: "one" }] }, ctx(branch));
+		// A second call within the same turn: another reported window, no new prompt.
 		branch.push({
 			type: "message",
 			message: {
 				role: "assistant",
-				contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
+				contextSnapshot: { promptTokens: 110, nonMessageTokens: 90 },
 			},
 		});
-		await cm.context({ messages: [{ role: "user", content: "two" }] }, growing);
+		await cm.context({ messages: [{ role: "user", content: "one" }] }, ctx(branch));
+		await cm.settle();
 
-		expect(cm.recorded.map((entry) => entry.callIndex)).toEqual([0, 1]);
+		expect(cm.recorded.map((entry) => [entry.turnIndex, entry.callIndex])).toEqual([
+			[0, 1],
+			[0, 2],
+		]);
 	});
 
-	test("numbers calls from the session, so a restart does not reuse index 0", async () => {
+	test("numbers turns from the session, so a resumed conversation does not restart", async () => {
 		const cm = harness();
-		const resumed = ctx({
-			sessionManager: {
-				getSessionId: () => "conv-1",
-				getBranch: () => [
-					{
-						type: "message",
-						message: {
-							role: "assistant",
-							contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
-						},
-					},
-					{
-						type: "message",
-						message: {
-							role: "assistant",
-							contextSnapshot: { promptTokens: 110, nonMessageTokens: 90 },
-						},
-					},
+		const resumed: BranchEntry[] = [
+			...answered(100),
+			...answered(110),
+			{ type: "message", message: { role: "user" } },
+		];
+
+		await cm.context({ messages: [{ role: "user", content: "third" }] }, ctx(resumed));
+		await cm.settle();
+
+		expect(cm.recorded[0]).toMatchObject({ turnIndex: 2, callIndex: 0 });
+	});
+
+	test("a prompt the branch has not recorded yet still starts a new turn", async () => {
+		const cm = harness();
+		// The session lags by one prompt, which is what a resumed conversation
+		// looks like at the moment the context event fires.
+		const lagging = answered(100);
+
+		await cm.context(
+			{
+				messages: [
+					{ role: "user", content: "first" },
+					{ role: "assistant", content: "answered" },
+					{ role: "user", content: "second" },
 				],
 			},
-		});
+			ctx(lagging),
+		);
+		await cm.settle();
 
-		await cm.context({ messages: [{ role: "user", content: "third" }] }, resumed);
-
-		expect(cm.recorded[0]?.callIndex).toBe(2);
+		expect(cm.recorded[0]).toMatchObject({ turnIndex: 1, callIndex: 0 });
 	});
 });
 
@@ -172,7 +247,7 @@ describe("memory backend check", () => {
 
 		await cm.sessionStart(
 			{},
-			ctx({ memory: { status: () => ({ backend: "mnemopi", active: true }) } }),
+			ctx([], { memory: { status: () => ({ backend: "mnemopi", active: true }) } }),
 		);
 
 		expect(cm.reported.join()).toContain("mnemopi");
@@ -183,7 +258,7 @@ describe("memory backend check", () => {
 
 		await cm.sessionStart(
 			{},
-			ctx({ memory: { status: () => ({ backend: "off", active: false }) } }),
+			ctx([], { memory: { status: () => ({ backend: "off", active: false }) } }),
 		);
 
 		expect(cm.reported).toEqual([]);
@@ -191,72 +266,30 @@ describe("memory backend check", () => {
 });
 
 describe("measurement reconciliation", () => {
-	test("collects every reported window size from the session branch", async () => {
+	test("addresses every reported window to the call that produced it", async () => {
 		const cm = harness();
 
-		await cm.agentEnd(
-			{},
-			ctx({
-				sessionManager: {
-					getSessionId: () => "conv-1",
-					getBranch: () => [
-						{ type: "message", message: { role: "user" } },
-						{
-							type: "message",
-							message: {
-								role: "assistant",
-								contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
-							},
-						},
-						{
-							type: "message",
-							message: {
-								role: "assistant",
-								contextSnapshot: { promptTokens: 120, nonMessageTokens: 90 },
-							},
-						},
-					],
-				},
-			}),
-		);
+		await cm.agentEnd({}, ctx([...answered(100), ...answered(120)]));
+		await cm.settle();
 
-		expect(cm.measured[0]?.snapshots).toEqual([
-			{ promptTokens: 100, nonMessageTokens: 90 },
-			{ promptTokens: 120, nonMessageTokens: 90 },
+		expect(cm.measured).toEqual([
+			{ turnIndex: 0, callIndex: 0, snapshot: { promptTokens: 100, nonMessageTokens: 90 } },
+			{ turnIndex: 1, callIndex: 0, snapshot: { promptTokens: 120, nonMessageTokens: 90 } },
 		]);
 	});
 
 	test("does not re-record measurements it has already written", async () => {
 		const cm = harness();
-		const branch = [
-			{
-				type: "message",
-				message: {
-					role: "assistant",
-					contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
-				},
-			},
-		];
-		const context = ctx({
-			sessionManager: {
-				getSessionId: () => "conv-1",
-				getBranch: () => branch,
-			},
-		});
+		const branch = answered(100);
+		const session = ctx(branch);
 
-		await cm.agentEnd({}, context);
-		branch.push({
-			type: "message",
-			message: {
-				role: "assistant",
-				contextSnapshot: { promptTokens: 120, nonMessageTokens: 90 },
-			},
-		});
-		await cm.agentEnd({}, context);
+		await cm.agentEnd({}, session);
+		branch.push(...answered(120));
+		await cm.agentEnd({}, session);
+		await cm.settle();
 
-		expect(cm.measured.map((entry) => entry.snapshots)).toEqual([
-			[{ promptTokens: 100, nonMessageTokens: 90 }],
-			[{ promptTokens: 120, nonMessageTokens: 90 }],
+		expect(cm.measured.map((entry) => entry.snapshot.promptTokens)).toEqual([
+			100, 120,
 		]);
 	});
 });

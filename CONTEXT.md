@@ -65,6 +65,14 @@ _Avoid_: session, thread, chat
 One prompt and the agent's complete response to it, including the tool calls made along the way. The unit the Thread Store records and the Assembler serves.
 _Avoid_: message, exchange, interaction
 
+**Call**:
+One request to the model. A Turn is one or more Calls: a tool-using Turn makes a further Call for every tool result it acts on. Each Call gets its own Context Pack.
+_Avoid_: request, completion, round-trip
+
+**Accounting**:
+The record of what each Call's Context Window contained, split between the Context Pack and the Floor.
+_Avoid_: metrics, telemetry, stats, log
+
 **Concept**:
 One unit of knowledge in the Doc Store: a single markdown file with frontmatter, per OKF. Its identifier is its path within the bundle.
 _Avoid_: document, note, entry

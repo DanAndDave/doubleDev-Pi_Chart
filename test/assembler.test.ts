@@ -3,11 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { assemble } from "../src/assembler.ts";
 import type { HarnessMessage } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
-
-async function fixture(name: string): Promise<HarnessMessage[]> {
-	const file = Bun.file(new URL(`./fixtures/${name}.json`, import.meta.url));
-	return (await file.json()) as HarnessMessage[];
-}
+import { fixture } from "./fixtures.ts";
 
 function conversation(turnCount: number): HarnessMessage[] {
 	const messages: HarnessMessage[] = [];
@@ -67,16 +63,39 @@ describe("assemble", () => {
 		expect(counts).toEqual([1, 3, 7]);
 	});
 
-	test("assembling twice from the same inputs produces an identical pack", () => {
-		const turns = reconstructTurns(conversation(4));
+	test("the pack does not grow as the conversation does", () => {
+		const sizes = [20, 200, 2000].map(
+			(turnCount) =>
+				assemble(reconstructTurns(conversation(turnCount)), { tailTurns: 3 })
+					.messages.length,
+		);
 
-		const first = assemble(turns, { tailTurns: 2 });
-		const second = assemble(turns, { tailTurns: 2 });
-
-		expect(JSON.stringify(first)).toEqual(JSON.stringify(second));
+		expect(sizes).toEqual([7, 7, 7]);
 	});
 
-	test("parts account for every message in the pack, in order", async () => {
+	test("assembling the same conversation twice produces an identical pack", async () => {
+		// Two independent parses, so nothing is shared by reference.
+		const first = assemble(reconstructTurns(await fixture("multi-turn")), {
+			tailTurns: 2,
+		});
+		const second = assemble(reconstructTurns(await fixture("multi-turn")), {
+			tailTurns: 2,
+		});
+
+		expect(first).toEqual(second);
+	});
+
+	test("a different budget is the only thing that changes the pack", async () => {
+		const turns = reconstructTurns(await fixture("multi-turn"));
+
+		const narrow = assemble(turns, { tailTurns: 1 });
+		const wide = assemble(turns, { tailTurns: 2 });
+
+		expect(narrow).not.toEqual(wide);
+		expect(wide.messages.length).toBeGreaterThan(narrow.messages.length);
+	});
+
+	test("parts account for every message in the pack, in order", () => {
 		const turns = reconstructTurns(conversation(3));
 
 		const pack = assemble(turns, { tailTurns: 2 });

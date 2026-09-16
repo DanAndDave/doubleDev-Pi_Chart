@@ -18,7 +18,6 @@ export function reconstructTurns(messages: HarnessMessage[]): Turn[] {
 			turns.push({
 				prompt: startsTurn ? messageText(message) : "",
 				messages: [message],
-				inProgress: true,
 			});
 			continue;
 		}
@@ -26,33 +25,5 @@ export function reconstructTurns(messages: HarnessMessage[]): Turn[] {
 		current.messages.push(message);
 	}
 
-	for (const turn of turns) {
-		const last = turn.messages[turn.messages.length - 1];
-		turn.inProgress =
-			last === undefined ||
-			last.role === "user" ||
-			last.role === "toolResult" ||
-			hasPendingToolCall(turn.messages);
-	}
-
 	return turns;
-}
-
-/** True when a tool call in this turn has no matching result yet. */
-function hasPendingToolCall(messages: HarnessMessage[]): boolean {
-	const answered = new Set<string>();
-	for (const message of messages) {
-		if (message.role === "toolResult" && typeof message.toolCallId === "string") {
-			answered.add(message.toolCallId);
-		}
-	}
-	for (const message of messages) {
-		if (!Array.isArray(message.content)) continue;
-		for (const block of message.content) {
-			if (block.type !== "toolCall") continue;
-			const id = "id" in block ? block.id : undefined;
-			if (typeof id === "string" && !answered.has(id)) return true;
-		}
-	}
-	return false;
 }
