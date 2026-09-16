@@ -660,3 +660,44 @@ describe("the structure part in accounting", () => {
 		expect(diff.left.map((item) => item.symbol)).toEqual(["assemble()"]);
 	});
 });
+
+describe("degradation in the inspector", () => {
+	test("a tail served by the harness rather than the store is visible", () => {
+		const view = inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: [
+				recordPart({
+					source: "verbatim-tail",
+					approximateTokens: 100,
+					carried: 2,
+					turnIndices: [1, 2],
+				}),
+			],
+			tailSource: "harness-fallback",
+		});
+
+		// A session spent running without the store must be visible
+		// afterwards rather than mysterious.
+		expect(view.tailSource).toBe("harness-fallback");
+		expect(renderCall(view)).toContain("not the store");
+	});
+
+	test("a tail served by the store is not remarked upon", () => {
+		const view = inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: [
+				recordPart({
+					source: "verbatim-tail",
+					approximateTokens: 100,
+					carried: 2,
+					turnIndices: [1, 2],
+				}),
+			],
+			tailSource: "thread-store",
+		});
+
+		expect(renderCall(view)).not.toContain("not the store");
+	});
+});

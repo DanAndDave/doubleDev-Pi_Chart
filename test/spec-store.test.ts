@@ -114,7 +114,23 @@ describe("verifying a codebase's tree", () => {
 	});
 
 	test("verification changes nothing, whatever the state", async () => {
-		for (const build of [conforming, async () => {}]) {
+		const states: ((root: string) => Promise<void>)[] = [
+			conforming,
+			async () => {},
+			// Partial.
+			async (at) => {
+				await conforming(at);
+				await Bun.$`rm -rf ${join(at, "openspec", "specs")}`.quiet();
+			},
+			// Wrong kind.
+			async (at) => {
+				await conforming(at);
+				await Bun.$`rm -rf ${join(at, "openspec", "changes")}`.quiet();
+				await writeFile(join(at, "openspec", "changes"), "not a directory");
+			},
+		];
+
+		for (const build of states) {
 			const root = await codebase(build);
 			const before = await snapshot(root);
 

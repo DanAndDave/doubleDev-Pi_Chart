@@ -1,7 +1,7 @@
 # graph-store Specification
 
 ## Purpose
-TBD - created by archiving change graph-store. Update Purpose after archive.
+A Codebase's programmatic structure, derived with graphify and read through an adapter that carries only what a parser established. It answers structural questions — what calls this, what does it import — from a parse rather than a search, because a symbol's name is exact and such a question has one correct answer.
 
 ## Requirements
 

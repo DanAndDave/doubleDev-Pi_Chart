@@ -50,7 +50,7 @@ If `openspec` cannot be run, content conformance is unknown. Reporting "nothing 
 ## Risks / Trade-offs
 
 - **Our shape check and OpenSpec's expectations could drift** → the shape is five paths, all of them created by `openspec init` itself, so the check is anchored to what the tool produces rather than to a document about it.
-- **Verification runs the CLI, which costs a process per session** → it runs in the background at session start alongside the other Stores' work, and reports only when something is wrong.
+- **Asking the CLI costs a process** → so session start does not: it runs the shape check alone, which is five `stat` calls, and content is diagnosed only when `specs` is asked. The shape check is the one that catches what nothing else does.
 - **A Codebase that is not spec-driven gets told so every session** → it does not: session start reports only a tree that exists and is wrong, and a Codebase can decline the check entirely with `CM_SPECS=off`.
 
 ## Testing seams

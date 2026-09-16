@@ -7,10 +7,13 @@ export interface AssemblerConfig {
 	/** How many completed Turns are carried verbatim ahead of the current one. */
 	tailTurns: number;
 	/**
-	 * How many recalled Turns a pack may carry. Measured in Turns rather than
-	 * tokens: the only token count available here is the local approximation,
-	 * and a budget enforced with a number known to be wrong is worse than one
-	 * honestly named. `pack-inspector` makes tokens the unit.
+	 * How many recalled Turns a pack may carry.
+	 *
+	 * Counted in Turns rather than tokens, as every Budget here is: the only
+	 * token count available at assembly is the local approximation, and a
+	 * Budget enforced with a number known to be wrong is worse than one
+	 * honestly named. The inspector reports both, so the cost of a count is
+	 * visible even though the count is what binds.
 	 */
 	recallTurns: number;
 	/** How many Concepts a pack may carry. Zero disables curated knowledge. */

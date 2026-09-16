@@ -43,6 +43,12 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
+	// Said only when it is news: a session spent running without the store
+	// should be visible afterwards rather than mysterious.
+	if (view.tailSource === "harness-fallback") {
+		lines.push("  tail          from the harness's own history, not the store");
+	}
+
 	if (view.floorTokens === undefined || view.packTokens === undefined) {
 		lines.push("  window        not reported yet");
 		return lines.join("\n");

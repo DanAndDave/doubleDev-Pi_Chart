@@ -1118,3 +1118,26 @@ describe("the spec store in a session", () => {
 		expect(shown).toContain("change/half-done");
 	});
 });
+
+describe("an invariant that cannot be checked", () => {
+	test("a harness that does not report its memory backend is said so", async () => {
+		const cm = harness();
+
+		// Not the same as verified off: a silent return would read as
+		// confirmation (ADR-0003).
+		await cm.sessionStart({}, ctx([], { memory: {} }));
+
+		expect(cm.reported.join("\n")).toContain("cannot be confirmed off");
+	});
+
+	test("a harness that reports it off says nothing", async () => {
+		const cm = harness();
+
+		await cm.sessionStart(
+			{},
+			ctx([], { memory: { status: () => ({ backend: "off", active: false }) } }),
+		);
+
+		expect(cm.reported.join("\n")).not.toContain("memory backend");
+	});
+});

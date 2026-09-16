@@ -2,7 +2,7 @@
 
 Assembles a fresh Context Pack for every Turn of a coding agent, so the context window stops growing.
 
-The agent's window is rebuilt each Turn from what that Turn needs, rather than inherited from everything that came before. Two slices are in: the Assembler owns the window and measures what it costs, and the Thread Store holds the Turns it draws on so they outlive the session. The Doc, Spec, and Graph Stores arrive in later slices.
+The agent's window is rebuilt each Turn from what that Turn needs, rather than inherited from everything that came before. The Assembler owns the window and measures what it costs, and four Stores supply it: the **Thread Store** holds the Turns so they outlive the session, the **Doc Store** carries curated Concepts, the **Graph Store** answers structural questions from a parse, and the **Spec Store** checks that a Codebase is set up for spec-driven work — the one Store that puts nothing in a pack.
 
 See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 
@@ -145,9 +145,13 @@ CM_LIVE=1 bun test test/headless.test.ts
 
 # Model: exercises the pinned embedding model rather than the stub
 CM_EMBED=1 bun test test/embedder.test.ts
+
+# Tools: against the real graphify and the real OpenSpec CLI
+CM_GRAPHIFY=1 bun test test/graphify.test.ts
+CM_OPENSPEC=1 bun test test/openspec.test.ts
 ```
 
-Two suites are gated, for two different reasons. The store-backed tests need real Postgres because "the schema applies" and "SQL returns Turns in order" mean nothing against a fake. The live tests need a provider because they cover the claims that are only true when the harness and the model agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported.
+Four suites are gated, each because a fake would prove the wrong thing. The store-backed tests need real Postgres because "the schema applies" and "SQL returns Turns in order" mean nothing against a stub. The live tests need a provider because they cover the claims that are only true when the harness and the model agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported. The tool suites need the real graphify and OpenSpec because they are the only evidence that `--code-only` still emits inferred edges, that `openspec init` does not damage an existing tree, and that a malformed change is diagnosed in OpenSpec's own words.
 
 `test/fixtures/*.json` are message arrays captured from real sessions. Regenerate them with `test/capture-extension.ts`, which records what the harness passes to the `context` event and changes nothing:
 

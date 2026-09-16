@@ -180,7 +180,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		const status = await ctx.memory?.status?.();
-		if (!status) return;
+		if (!status) {
+			// The same rule the Spec Store applies to a missing CLI: an
+			// invariant that cannot be checked is unknown, and reporting
+			// nothing would read as "verified off" (ADR-0003).
+			deps.report(
+				"The harness does not report its memory backend, so it cannot be " +
+					"confirmed off. Two systems injecting recall into one window " +
+					"makes a bad pack impossible to diagnose.",
+			);
+			return;
+		}
 		if (status.active === true || (status.backend && status.backend !== "off")) {
 			deps.report(
 				`The harness memory backend is active (${status.backend ?? "unknown"}). ` +

@@ -1,6 +1,7 @@
 import type {
 	CallAccounting,
 	RecordedPart,
+	TailSource,
 	TurnAccounting,
 } from "./accounting.ts";
 import type { PackSource } from "./assembler.ts";
@@ -39,6 +40,8 @@ export interface CallView {
 	/** The Floor's share of the window, 0 to 1. Absent when unmeasured. */
 	floorShare?: number;
 	unassembled: boolean;
+	/** Where the verbatim tail came from. Absent on records that predate it. */
+	tailSource?: TailSource;
 	/** The Budgets in force, recorded even where a part carried nothing. */
 	budgets?: { tail: number; recall: number; docs: number; graph?: number };
 	/**
@@ -104,6 +107,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		floorTokens: call.floorTokens,
 		floorShare,
 		unassembled: call.unassembled === true,
+		tailSource: call.tailSource,
 		budgets: call.budgets,
 		rejected: call.rejected ?? 0,
 	};
