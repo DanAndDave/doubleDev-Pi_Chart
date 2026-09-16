@@ -65,3 +65,9 @@ CM_LIVE=1 bun test test/headless.test.ts   # runs real sessions against a real m
 ```
 
 The live tests are separate because they call a provider. They cover the three claims that are only true when the harness and the provider agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported.
+
+`test/fixtures/*.json` are message arrays captured from real sessions. Regenerate them with `test/capture-extension.ts`, which records what the harness passes to the `context` event and changes nothing:
+
+```sh
+CM_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
+```
