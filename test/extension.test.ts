@@ -14,6 +14,7 @@ import { MemoryTurnSource } from "../src/thread-store.ts";
 import type {
 	BranchEntry,
 	CommandDefinition,
+	ToolDefinition,
 	ContextHandler,
 	ExtensionAPI,
 	HandlerContext,
@@ -35,6 +36,7 @@ interface Harness {
 	recorded: Recorded[];
 	measured: Measurement[];
 	commands: Record<string, CommandDefinition>;
+	tools: Record<string, ToolDefinition>;
 	shown: string[];
 	/** Awaits the background accounting writes this extension started. */
 	settle: () => Promise<void>;
@@ -46,6 +48,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 	let agentEnd: LifecycleHandler | undefined;
 
 	const commands: Record<string, CommandDefinition> = {};
+	const tools: Record<string, ToolDefinition> = {};
 	const shown: string[] = [];
 	const pi: ExtensionAPI = {
 		on(event: string, handler: ContextHandler | LifecycleHandler) {
@@ -55,6 +58,9 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		},
 		registerCommand(name: string, command: CommandDefinition) {
 			commands[name] = command;
+		},
+		registerTool(tool: ToolDefinition) {
+			tools[tool.name] = tool;
 		},
 	} as ExtensionAPI;
 
@@ -113,6 +119,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		recorded,
 		measured,
 		commands,
+		tools,
 		shown,
 		settle: async () => {
 			// Drains the writes the extension started, plus the reporting
@@ -542,5 +549,76 @@ describe("the pack command", () => {
 		await cm.commands.pack?.handler("", {});
 
 		expect(cm.shown.join()).toContain("Nothing recorded");
+	});
+});
+
+describe("searching across conversations", () => {
+	const hit = {
+		turnIndex: 2,
+		turn: {
+			index: 2,
+			prompt: "we chose exponential backoff",
+			messages: [{ role: "user", content: "we chose exponential backoff" }],
+		},
+		conversationId: "other-conversation",
+		codebase: "/work/elsewhere",
+	};
+
+	test("the agent can search, and results say where they came from", async () => {
+		const cm = harness({ search: { searchAll: async () => [hit] } });
+
+		const result = await cm.tools.recall_across_conversations?.execute("1", {
+			query: "retries",
+		});
+
+		const text = result?.content.map((block) => block.text).join("\n") ?? "";
+		expect(text).toContain("other-conversation");
+		expect(text).toContain("/work/elsewhere");
+		expect(text).toContain("exponential backoff");
+	});
+
+	test("finding nothing says so rather than returning something weak", async () => {
+		const cm = harness({ search: { searchAll: async () => [] } });
+
+		const result = await cm.tools.recall_across_conversations?.execute("1", {
+			query: "anything",
+		});
+
+		expect(result?.content[0]?.text).toContain("No conversation holds");
+	});
+
+	test("a pack is identical whether or not the search exists", async () => {
+		const messages = [{ role: "user", content: "current" }];
+		const without = harness();
+		const with_ = harness({ search: { searchAll: async () => [hit] } });
+
+		const a = await without.context({ messages }, ctx());
+		const b = await with_.context({ messages }, ctx());
+		await without.settle();
+		await with_.settle();
+
+		expect(b?.messages).toEqual(a?.messages ?? []);
+	});
+
+	test("no tool is offered when there is nothing to search", async () => {
+		const cm = harness();
+
+		expect(cm.tools.recall_across_conversations).toBeUndefined();
+	});
+
+	test("a search failure is the tool's result, not the turn's", async () => {
+		const cm = harness({
+			search: {
+				searchAll: () => Promise.reject(new Error("store unreachable")),
+			},
+		});
+
+		const result = await cm.tools.recall_across_conversations?.execute("1", {
+			query: "x",
+		});
+
+		expect(result?.content[0]?.text).toContain("store unreachable");
+		expect(result?.details?.failed).toBe(true);
+		expect(cm.reported.join()).toContain("store unreachable");
 	});
 });

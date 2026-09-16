@@ -105,6 +105,12 @@ Two suites are gated, for two different reasons. The store-backed tests need rea
 CM_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
 ```
 
+## Reaching other conversations
+
+Recall into a Context Pack never leaves the current Conversation — that scoping has held since the first slice and still does. When the answer is somewhere else, the agent calls `recall_across_conversations`, which searches every ingested Conversation under the same relevance threshold and returns hits with the Conversation and Codebase they came from.
+
+It is a tool rather than a second recall tier on purpose: assembly stays deterministic, and a session that went looking elsewhere is readable in the transcript afterwards.
+
 ## Inspect a pack
 
 `/pack` in the harness shows what the last Call's Context Window was made of:

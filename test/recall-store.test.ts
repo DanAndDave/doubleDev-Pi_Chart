@@ -259,3 +259,89 @@ describeStore("the relevance threshold", () => {
 		expect(turns).toEqual([]);
 	});
 });
+
+describeStore("searching every conversation", () => {
+	let store: PostgresStore;
+
+	beforeAll(async () => {
+		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+		await store.ingest("conv-1", CONVERSATION, "/work/alpha");
+		await store.ingest(
+			"conv-2",
+			[subject(0, "how should we cache parsed config", "in beta we cached too")],
+			"/work/beta",
+		);
+		while ((await store.embedPending()) > 0);
+	});
+
+	test("finds a turn from another conversation", async () => {
+		const found = await store.searchAll("cache the parsed config", 10, 2);
+
+		expect(found.map((hit) => hit.conversationId)).toContain("conv-2");
+	});
+
+	test("does not exclude the conversation you are in", async () => {
+		const found = await store.searchAll("cache the parsed config", 10, 2);
+
+		expect(found.map((hit) => hit.conversationId)).toContain("conv-1");
+	});
+
+	test("says which conversation and codebase each hit came from", async () => {
+		const [hit] = await store.searchAll("cache the parsed config", 1, 2);
+
+		expect(hit?.conversationId).toBeTruthy();
+		expect(hit?.codebase).toMatch(/^\/work\//);
+	});
+
+	test("a turn ingested without a codebase is still returned", async () => {
+		await store.ingest("conv-3", [subject(0, "anonymous turn", "no codebase")]);
+		while ((await store.embedPending("conv-3")) > 0);
+
+		const found = await store.searchAll("anonymous turn", 10, 2);
+
+		const hit = found.find((each) => each.conversationId === "conv-3");
+		expect(hit).toBeTruthy();
+		expect(hit?.codebase).toBeUndefined();
+	});
+
+	test("re-ingesting without a codebase does not erase the one recorded", async () => {
+		await store.ingest("conv-1", CONVERSATION);
+
+		const [hit] = await store.searchAll("cache the parsed config", 10, 2);
+
+		expect(
+			(await store.searchAll("cache the parsed config", 10, 2)).find(
+				(each) => each.conversationId === "conv-1",
+			)?.codebase,
+		).toBe("/work/alpha");
+		expect(hit).toBeTruthy();
+	});
+
+	test("refuses irrelevant turns here too", async () => {
+		expect(await store.searchAll("cache the parsed config", 10, 0.01)).toEqual([]);
+	});
+
+	test("returns no more than asked for, nearest first", async () => {
+		const found = await store.searchAll("cache the parsed config", 1, 2);
+
+		expect(found).toHaveLength(1);
+		expect(found[0]?.turn.prompt).toContain("cache");
+	});
+
+	test("a pack's tail still sees only its own conversation", async () => {
+		// The wider search exists; scoping must be unaffected by that.
+		const tail = await store.recentTurns("conv-2", 10);
+
+		expect(tail).toHaveLength(1);
+		expect(tail[0]?.messages[1]?.content).toBe("in beta we cached too");
+	});
+});

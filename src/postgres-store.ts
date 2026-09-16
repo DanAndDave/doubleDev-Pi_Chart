@@ -17,6 +17,8 @@ import type { JournalTurn } from "./journal.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
 import { messageText } from "./messages.ts";
 import type {
+	CorpusSearch,
+	FoundTurn,
 	Recollections,
 	RecalledTurn,
 	TurnRecall,
@@ -89,6 +91,10 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS rejected INTEGER`,
 		],
 	},
+	{
+		version: 5,
+		statements: [`ALTER TABLE turns ADD COLUMN IF NOT EXISTS codebase TEXT`],
+	},
 ];
 
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
@@ -128,7 +134,7 @@ function decode<T>(value: JsonColumn, fallback: T): T {
  * (ADR-0002). Holds the Turns the Assembler reads its verbatim tail from, and
  * the accounting that describes each Context Window.
  */
-export class PostgresStore implements TurnSource, TurnSink, TurnRecall, AccountingStore {
+export class PostgresStore implements TurnSource, TurnSink, TurnRecall, CorpusSearch, AccountingStore {
 	constructor(
 		private readonly sql: SQL,
 		private readonly embedder?: Embedder,
@@ -160,13 +166,23 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		await this.sql.end();
 	}
 
-	async ingest(conversationId: string, turns: JournalTurn[]): Promise<void> {
+	async ingest(
+		conversationId: string,
+		turns: JournalTurn[],
+		codebase?: string,
+	): Promise<void> {
 		for (const turn of turns) {
 			await this.sql`
-				INSERT INTO turns (conversation_id, turn_index, prompt)
-				VALUES (${conversationId}, ${turn.turnIndex}, ${turn.prompt})
+				INSERT INTO turns (conversation_id, turn_index, prompt, codebase)
+				VALUES (
+					${conversationId}, ${turn.turnIndex}, ${turn.prompt},
+					${codebase ?? null}
+				)
 				ON CONFLICT (conversation_id, turn_index)
-				DO UPDATE SET prompt = EXCLUDED.prompt`;
+				DO UPDATE SET
+					prompt = EXCLUDED.prompt,
+					-- Never unset a Codebase a previous ingest knew.
+					codebase = COALESCE(EXCLUDED.codebase, turns.codebase)`;
 
 			for (const [ordinal, message] of turn.messages.entries()) {
 				await this.sql`
@@ -462,6 +478,47 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		}));
 
 		return groupByTurn(conversationId, calls);
+	}
+
+	/**
+	 * Every Conversation, searched on request. The same ordering and the
+	 * same relevance threshold as recall; the only thing missing is the
+	 * predicate confining it to one Conversation.
+	 */
+	async searchAll(
+		query: string,
+		limit: number,
+		maxDistance: number,
+	): Promise<FoundTurn[]> {
+		if (!this.embedder || limit <= 0) return [];
+		const [vector] = await this.embedder.embed([query]);
+		if (!vector) return [];
+
+		const rows = (await this.sql`
+			SELECT conversation_id, turn_index, codebase
+			FROM turns
+			WHERE embedding IS NOT NULL
+				AND (embedding <=> ${JSON.stringify(vector)}::vector) <= ${maxDistance}
+			ORDER BY embedding <=> ${JSON.stringify(vector)}::vector ASC,
+				conversation_id ASC, turn_index ASC
+			LIMIT ${limit}`) as {
+			conversation_id: string;
+			turn_index: number;
+			codebase: string | null;
+		}[];
+
+		const found: FoundTurn[] = [];
+		for (const row of rows) {
+			const turn = await this.turnAt(row.conversation_id, row.turn_index);
+			if (!turn) continue;
+			found.push({
+				turnIndex: row.turn_index,
+				turn,
+				conversationId: row.conversation_id,
+				codebase: row.codebase ?? undefined,
+			});
+		}
+		return found;
 	}
 
 	/** Empties the store. The Journal remains the record it is rebuilt from. */

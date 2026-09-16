@@ -38,9 +38,21 @@ One column beside the Conversation. A Conversations table would be the normalise
 
 Rows ingested before the column existed read back with it absent — the spec says so explicitly — rather than being backfilled, because ADR-0002 makes the Journal the record and a re-ingest restores it for free.
 
-### The threshold is re-measured, not inherited
+### The threshold is re-measured, and survives
 
-`recall-relevance` calibrated 0.50 within a single Conversation, and closed noting that a cross-Conversation corpus would stress it hardest: matches now compete against everything ever said, so the nearest thing to a query is far more likely to be a coincidence. Task 1 measures against a corpus of several real Conversations and the search ships with whatever that says — the same discipline, applied to the case it was flagged for.
+`recall-relevance` calibrated 0.50 within a single Conversation and closed noting that a cross-Conversation corpus would stress it hardest: matches now compete against everything ever said, so the nearest thing to a query is likelier to be a coincidence.
+
+Measured over three real Conversations, 22 Turns:
+
+| query | nearest match | distance |
+| --- | --- | --- |
+| "what did we decide about retries and backoff" | the retries Turn, another Conversation | **0.193** |
+| "what did we decide about caching parsed configuration" | the caching Turn, another Conversation | **0.136** |
+| "how did we enable the docker daemon" | the docker Turn, another Conversation | **0.399** |
+| "what is the best sourdough starter hydration" | a Turn about naming a river | 0.550 |
+| "who won the 1998 world cup final" | a Turn about retries | 0.549 |
+
+Genuine matches from elsewhere land at 0.136–0.399; queries with no answer anywhere bottom out at 0.549. **0.50 sits in the gap**, so the wider search ships with the same threshold — not inherited, but re-earned. The weakest genuine match (0.399) and the strongest coincidence (0.549) leave 0.15 of margin, narrower than within one Conversation but real.
 
 ### Search is bounded and reports nothing rather than something weak
 

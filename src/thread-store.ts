@@ -15,7 +15,27 @@ export interface TurnSource {
 
 /** Ingests a Conversation's recorded Turns. */
 export interface TurnSink {
-	ingest(conversationId: string, turns: JournalTurn[]): Promise<void>;
+	ingest(
+		conversationId: string,
+		turns: JournalTurn[],
+		codebase?: string,
+	): Promise<void>;
+}
+
+/** A Turn found anywhere in the store, with where it came from. */
+export interface FoundTurn extends RecalledTurn {
+	conversationId: string;
+	/** Absent for Turns ingested before Codebases were recorded. */
+	codebase?: string;
+}
+
+/** Searches every Conversation, on request rather than during assembly. */
+export interface CorpusSearch {
+	searchAll(
+		query: string,
+		limit: number,
+		maxDistance: number,
+	): Promise<FoundTurn[]>;
 }
 
 /** A Turn found by meaning, with where it sits in the Conversation. */

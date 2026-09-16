@@ -54,6 +54,22 @@ export interface CommandDefinition {
 	handler: (args: string, ctx: CommandContext) => Promise<void> | void;
 }
 
+export interface ToolResult {
+	content: { type: "text"; text: string }[];
+	details?: Record<string, unknown>;
+}
+
+export interface ToolDefinition {
+	name: string;
+	label: string;
+	description: string;
+	parameters: unknown;
+	execute: (
+		id: string,
+		params: Record<string, unknown>,
+	) => Promise<ToolResult>;
+}
+
 export interface ExtensionAPI {
 	on(event: "context", handler: ContextHandler): void;
 	on(
@@ -61,4 +77,7 @@ export interface ExtensionAPI {
 		handler: LifecycleHandler,
 	): void;
 	registerCommand?: (name: string, command: CommandDefinition) => void;
+	registerTool?: (tool: ToolDefinition) => void;
+	/** Schema builder the harness supplies to extensions. */
+	zod?: unknown;
 }

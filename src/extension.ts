@@ -17,13 +17,20 @@ import {
 	inspectConversation,
 	summarise,
 } from "./inspection.ts";
-import { renderCall, renderDiff, renderSummary } from "./report.ts";
+import {
+	renderCall,
+	renderDiff,
+	renderSearch,
+	renderSummary,
+} from "./report.ts";
 import { findJournal, readJournal } from "./journal.ts";
 import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
 import type { BranchEntry, ExtensionAPI, HandlerContext } from "./harness.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { PostgresStore } from "./postgres-store.ts";
 import {
+	type CorpusSearch,
+	type FoundTurn,
 	MemoryTurnSource,
 	type Recollections,
 	type TurnRecall,
@@ -44,11 +51,18 @@ export interface Dependencies {
 	close?: () => Promise<void> | void;
 	/** Shows text to the person running the session. */
 	show?: (text: string) => void;
+	/** Searches every Conversation, when the agent asks. */
+	search?: CorpusSearch;
+	/** The Codebase this session is working in. */
+	codebase?: string;
 	accounting: AccountingStore;
 	report: (message: string) => void;
 }
 
 const UNKNOWN_CONVERSATION = "unknown-conversation";
+
+/** How many hits a cross-Conversation search returns when unasked. */
+const DEFAULT_SEARCH_RESULTS = 5;
 
 /**
  * Wires the Assembler into the harness.
@@ -175,7 +189,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function runSweep(conversationId: string): Promise<void> {
 		if (!deps.ingest) return;
 		try {
-			await ingestJournal(conversationId, deps.ingest);
+			await ingestJournal(conversationId, deps.ingest, deps.codebase);
 		} catch (error) {
 			deps.report(`Ingest failed: ${describe(error)}`);
 			return;
@@ -207,6 +221,53 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// An empty store is not a failure: a Conversation's first Turns predate
 		// any ingest, and the harness still has them.
 		return { tail: live.slice(0, -1), tailSource: "harness-fallback" };
+	}
+
+	if (pi.registerTool && deps.search) {
+		const search = deps.search;
+		pi.registerTool({
+			name: "recall_across_conversations",
+			label: "Recall across conversations",
+			description:
+				"Search every recorded conversation for turns relevant to a query. " +
+				"Use when the current conversation does not hold the answer and it " +
+				"may have been decided elsewhere. Results say which conversation " +
+				"and codebase they came from.",
+			parameters: {
+				type: "object",
+				properties: {
+					query: { type: "string", description: "What to look for" },
+					limit: { type: "number", description: "Most results to return" },
+				},
+				required: ["query"],
+			},
+			async execute(_id, params) {
+				const query = typeof params.query === "string" ? params.query : "";
+				const limit =
+					typeof params.limit === "number" && params.limit > 0
+						? Math.floor(params.limit)
+						: DEFAULT_SEARCH_RESULTS;
+				try {
+					return renderSearch(
+						await search.searchAll(query, limit, deps.config.recallMaxDistance),
+					);
+				} catch (error) {
+					// The failure is the search's outcome, not the Turn's: the
+					// agent asked a question and deserves an answer it can act on.
+					const reason = describe(error);
+					deps.report(`Cross-conversation search failed: ${reason}`);
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `The search could not run: ${reason}`,
+							},
+						],
+						details: { failed: true },
+					};
+				}
+			},
+		});
 	}
 
 	if (pi.registerCommand) {
@@ -281,10 +342,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function ingestJournal(
 		conversationId: string,
 		sink: TurnSink,
+		codebase?: string,
 	): Promise<void> {
 		const path = await findJournal(conversationId);
 		if (!path) return;
-		await sink.ingest(conversationId, await readJournal(path));
+		await sink.ingest(conversationId, await readJournal(path), codebase);
 	}
 
 	/** Writes any reported window size this process has not written yet. */
@@ -419,6 +481,8 @@ export default function contextManager(pi: ExtensionAPI): void {
 		turns: store,
 		ingest: store,
 		recall: store,
+		search: store,
+		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),
 		close: () => {
 			embedder.close();

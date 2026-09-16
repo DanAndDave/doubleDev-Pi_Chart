@@ -1,3 +1,6 @@
+import type { ToolResult } from "./harness.ts";
+import { messageText } from "./messages.ts";
+import type { FoundTurn } from "./thread-store.ts";
 import type {
 	CallView,
 	ConversationSummary,
@@ -85,4 +88,41 @@ export function renderSummary(summary: ConversationSummary): string {
 	}
 
 	return lines.join("\n");
+}
+
+/**
+ * Renders a cross-Conversation search as a tool result.
+ *
+ * Each hit says where it came from: a recollection from another project is
+ * only useful if the agent can tell that is what it is.
+ */
+export function renderSearch(found: FoundTurn[]): ToolResult {
+	if (found.length === 0) {
+		return {
+			content: [
+				{
+					type: "text",
+					text: "No conversation holds anything relevant to that.",
+				},
+			],
+			details: { results: 0 },
+		};
+	}
+
+	const lines = found.map((hit) => {
+		const where = hit.codebase ? `${hit.codebase} ` : "";
+		const body = hit.turn.messages
+			.map((message) => `    ${message.role}: ${messageText(message)}`)
+			.filter((line) => line.trim().length > 0)
+			.join("\n");
+		return `- ${where}conversation ${hit.conversationId}, turn ${hit.turnIndex}\n${body}`;
+	});
+
+	return {
+		content: [{ type: "text", text: lines.join("\n\n") }],
+		details: {
+			results: found.length,
+			conversations: [...new Set(found.map((hit) => hit.conversationId))],
+		},
+	};
 }
