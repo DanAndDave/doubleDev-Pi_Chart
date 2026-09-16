@@ -14,6 +14,12 @@ import {
 import type { Concept } from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
 import { readBundle } from "./doc-store.ts";
+import { GraphStore } from "./graph-store.ts";
+import {
+	neighbourhoods,
+	symbolsInPlay,
+	type Neighbourhood,
+} from "./symbols.ts";
 import type { ConceptHit, ConceptSearch } from "./doc-index.ts";
 import {
 	comparePacks,
@@ -63,6 +69,8 @@ export interface Dependencies {
 	search?: CorpusSearch;
 	/** The Doc Store's index, searched during assembly. */
 	docs?: ConceptSearch;
+	/** The Codebase's programmatic structure. */
+	graph?: GraphStore;
 	/**
 	 * Reads the bundle the index is derived from, or resolves to `undefined`
 	 * when there is no bundle to read.
@@ -112,6 +120,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (deps.graph && deps.config.graphExtract) {
+			const graph = deps.graph;
+			const codebase = deps.codebase ?? process.cwd();
+			// Background, like Doc Store indexing: extracting a Codebase is
+			// seconds of work a first prompt must not wait for.
+			inBackground("Graph Store extraction", graph.refresh(codebase));
+		}
+
 		if (deps.docs && deps.bundle) {
 			const docs = deps.docs;
 			const bundle = deps.bundle;
@@ -170,11 +186,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.config.tailTurns,
 			);
 
-			// Both retrievals at once: neither depends on the other, and a
+			// All three retrievals at once: none depends on another, and a
 			// Call should not pay for them in series.
-			const [recalled, concepts] = await Promise.all([
+			const [recalled, concepts, structure] = await Promise.all([
 				recallFor(conversationId, current),
 				conceptsFor(current),
+				structureFor(current),
 			]);
 
 			const pack = deps.assemble(
@@ -183,11 +200,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					recalled: recalled.turns,
 					rejected: recalled.rejected,
 					concepts,
+					structure,
 				},
 				{
 					tailTurns: deps.config.tailTurns,
 					recallTurns: deps.config.recallTurns,
 					docConcepts: deps.config.docConcepts,
+					graphSymbols: deps.config.graphSymbols,
 				},
 			);
 
@@ -339,7 +358,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		pi.registerCommand("pack", {
 			description:
 				"Inspect the context pack: `pack` for the last call, `pack diff`, " +
-				"`pack summary`, `pack budget <tail|recall|docs> <n>`",
+				"`pack summary`, `pack budget <tail|recall|docs|graph> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
 				// One channel: the harness owns the screen when it offers one.
@@ -430,6 +449,31 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 		} catch (error) {
 			deps.report(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
+			return [];
+		}
+	}
+
+	/**
+	 * The structure around the symbols this prompt names. A Graph Store
+	 * failure costs the structure, never the Turn.
+	 */
+	async function structureFor(
+		current: Turn | undefined,
+	): Promise<Neighbourhood[]> {
+		if (!deps.graph || !current || deps.config.graphSymbols <= 0) return [];
+		try {
+			const graph = await deps.graph.graph(deps.codebase ?? process.cwd());
+			if (!graph) return [];
+			// Over-fetch, as the other Stores do, so what the Budget excluded
+			// is visible in the accounting rather than invisible.
+			return neighbourhoods(graph, symbolsInPlay(graph, current.prompt)).slice(
+				0,
+				deps.config.graphSymbols * 2,
+			);
+		} catch (error) {
+			deps.report(
+				`Graph Store unavailable, pack assembled without it: ${describe(error)}`,
+			);
 			return [];
 		}
 	}
@@ -568,6 +612,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		recall: store,
 		search: store,
 		docs: store,
+		graph: new GraphStore(),
 		ready,
 		bundle: () => readBundle(config.docBundle),
 		codebase: process.cwd(),

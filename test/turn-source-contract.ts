@@ -121,14 +121,14 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 		await store.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
 		const before = assemble(
 			{ turns: await store.recentTurns("conv-1", 2) },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 },
 		);
 
 		const rebuilt = await fresh();
 		await rebuilt.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
 		const after = assemble(
 			{ turns: await rebuilt.recentTurns("conv-1", 2) },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 },
 		);
 
 		expect(after).toEqual(before);

@@ -1,0 +1,107 @@
+{
+ "directed": true,
+ "multigraph": false,
+ "graph": {},
+ "nodes": [
+  {
+   "id": "assembler_assemble",
+   "label": "assemble()",
+   "file_type": "code",
+   "source_file": "src/assembler.ts",
+   "source_location": "L92",
+   "norm_label": "assemble"
+  },
+  {
+   "id": "extension_contextmanager",
+   "label": "contextManager()",
+   "file_type": "code",
+   "source_file": "src/extension.ts",
+   "source_location": "L520",
+   "norm_label": "contextmanager"
+  },
+  {
+   "id": "accounting_recordpack",
+   "label": ".recordPack()",
+   "file_type": "code",
+   "source_file": "src/accounting.ts",
+   "source_location": "L160",
+   "norm_label": "recordpack"
+  },
+  {
+   "id": "assembler_approximatetokens",
+   "label": "approximateTokens()",
+   "file_type": "code",
+   "source_file": "src/assembler.ts",
+   "source_location": "L237",
+   "norm_label": "approximatetokens"
+  },
+  {
+   "id": "lonely_symbol",
+   "label": "unusedHelper()",
+   "file_type": "code",
+   "source_file": "src/util.ts",
+   "source_location": "L4",
+   "norm_label": "unusedhelper"
+  },
+  {
+   "id": "assembler_ts_docref_adr_0003",
+   "label": "ADR-0003",
+   "file_type": "concept",
+   "source_file": "src/assembler.ts"
+  },
+  {
+   "id": "ref_bun",
+   "label": "ref_bun",
+   "file_type": "concept",
+   "source_file": ""
+  }
+ ],
+ "links": [
+  {
+   "source": "extension_contextmanager",
+   "target": "assembler_assemble",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "src/extension.ts"
+  },
+  {
+   "source": "assembler_assemble",
+   "target": "assembler_approximatetokens",
+   "relation": "calls",
+   "confidence": "EXTRACTED",
+   "confidence_score": 1.0,
+   "source_file": "src/assembler.ts"
+  },
+  {
+   "source": "assembler_assemble",
+   "target": "accounting_recordpack",
+   "relation": "calls",
+   "confidence": "INFERRED",
+   "confidence_score": 0.8,
+   "source_file": "src/assembler.ts"
+  },
+  {
+   "source": "assembler_assemble",
+   "target": "assembler_ts_docref_adr_0003",
+   "relation": "cites",
+   "confidence": "EXTRACTED",
+   "source_file": "src/assembler.ts"
+  },
+  {
+   "source": "assembler_assemble",
+   "target": "accounting_recordpack",
+   "relation": "semantically_similar_to",
+   "confidence": "EXTRACTED",
+   "source_file": "src/assembler.ts"
+  },
+  {
+   "source": "extension_contextmanager",
+   "target": "ref_bun",
+   "relation": "imports",
+   "confidence": "EXTRACTED",
+   "source_file": "src/extension.ts"
+  }
+ ],
+ "hyperedges": []
+}

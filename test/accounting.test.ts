@@ -6,7 +6,7 @@ import type { HarnessMessage } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
 
 function pack(...messages: HarnessMessage[]) {
-	return assemble({ turns: reconstructTurns(messages) }, { tailTurns: 4, recallTurns: 0, docConcepts: 0 });
+	return assemble({ turns: reconstructTurns(messages) }, { tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 }
 
 function at(turnIndex: number, callIndex: number): CallAddress {

@@ -26,9 +26,12 @@ export function renderCall(view: CallView): string {
 			part.conceptIds.length > 0
 				? ` concepts ${part.conceptIds.join(", ")}`
 				: "";
+		const symbols =
+			part.symbols.length > 0 ? ` symbols ${part.symbols.join(", ")}` : "";
 		lines.push(
 			`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
-				`${budget ? ` (${part.carried}${budget})` : ""}${turns}${concepts}`,
+				`${budget ? ` (${part.carried}${budget})` : ""}${turns}${concepts}` +
+				`${symbols}`,
 		);
 	}
 
@@ -66,8 +69,7 @@ export function renderDiff(diff: PackDiff): string {
 
 /** A diffed item: a Turn by position, or a Concept by id. */
 function describeItem(item: PackDiff["entered"][number]): string {
-	const what =
-		item.conceptId === undefined ? `turn ${item.turnIndex}` : item.conceptId;
+	const what = item.conceptId ?? item.symbol ?? `turn ${item.turnIndex}`;
 	return `${item.source} ${what}`;
 }
 

@@ -14,6 +14,14 @@ export interface Config {
 	recallMaxDistance: number;
 	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
 	docConcepts: number;
+	/** How many symbols' neighbourhoods a pack may carry. Zero disables them. */
+	graphSymbols: number;
+	/**
+	 * Whether to derive a Codebase's graph. Off means read one if it is
+	 * already there; extraction writes a directory into the Codebase, which
+	 * is graphify's convention but still the user's repository.
+	 */
+	graphExtract: boolean;
 	/**
 	 * How distant a Concept may be and still be carried. Measured separately
 	 * from recall on curated prose: genuine matches land at 0.24-0.42 and
@@ -30,6 +38,7 @@ export const DEFAULT_TAIL_TURNS = 8;
 export const DEFAULT_RECALL_TURNS = 4;
 export const DEFAULT_RECALL_MAX_DISTANCE = 0.5;
 export const DEFAULT_DOC_CONCEPTS = 2;
+export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
@@ -41,6 +50,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 			DEFAULT_RECALL_MAX_DISTANCE,
 		),
 		docConcepts: count(env.CM_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
+		graphSymbols: count(env.CM_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
+		graphExtract: env.CM_GRAPH !== "off",
 		docMaxDistance: distance(env.CM_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl: env.CM_DATABASE_URL,
 		docBundle:
@@ -77,9 +88,13 @@ export function setBudget(
 		config.docConcepts = parsed;
 		return { ok: true, budget: parsed };
 	}
+	if (name === "graph") {
+		config.graphSymbols = parsed;
+		return { ok: true, budget: parsed };
+	}
 	return {
 		ok: false,
-		reason: `unknown budget "${name}"; expected tail, recall or docs`,
+		reason: `unknown budget "${name}"; expected tail, recall, docs or graph`,
 	};
 }
 

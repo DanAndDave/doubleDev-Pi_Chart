@@ -65,7 +65,7 @@ describeStore("PostgresStore", () => {
 		await store.recordPack(
 			"conv-1",
 			{ turnIndex: 0, callIndex: 0 },
-			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, { tailTurns: 2, recallTurns: 0, docConcepts: 0 }),
+			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
 			"thread-store",
 		);
 		await store.recordMeasurements("conv-1", [
@@ -92,7 +92,7 @@ describeStore("PostgresStore", () => {
 	test("accounting for a tool-using turn groups its calls", async () => {
 		const pack = assemble(
 			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store");

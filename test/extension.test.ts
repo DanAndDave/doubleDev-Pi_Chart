@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
+import { GraphStore } from "../src/graph-store.ts";
 
 import {
 	MemoryAccounting,
@@ -99,6 +102,8 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 			recallMaxDistance: 1,
 			docConcepts: 0,
 			docMaxDistance: 0.5,
+			graphSymbols: 0,
+			graphExtract: false,
 			docBundle: "/unused",
 		},
 		assemble,
@@ -437,7 +442,7 @@ describe("recall wiring", () => {
 
 	test("a pack draws recall from the store, attributed as its own part", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false },
 			recall: {
 				similarTurns: async () => ({
 					turns: [
@@ -464,7 +469,7 @@ describe("recall wiring", () => {
 
 	test("a retrieval failure costs the recollections, not the turn", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false },
 			recall: {
 				similarTurns: () => Promise.reject(new Error("index offline")),
 			},
@@ -499,7 +504,7 @@ describe("the pack command", () => {
 	const prompt = [{ role: "user", content: "current" }];
 
 	test("changing a budget applies to the next call", async () => {
-		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" };
+		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false };
 		const cm = harness({
 			config,
 			recall: {
@@ -536,7 +541,7 @@ describe("the pack command", () => {
 	});
 
 	test("an invalid budget is reported and nothing changes", async () => {
-		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused" };
+		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false };
 		const cm = harness({ config });
 
 		await cm.commands.pack?.handler("budget recall plenty", {});
@@ -648,6 +653,8 @@ describe("the doc store in a session", () => {
 				recallMaxDistance: 1,
 				docConcepts: 2,
 				docMaxDistance: 0.5,
+				graphSymbols: 0,
+				graphExtract: false,
 				docBundle: "/unused",
 			},
 			docs: {
@@ -674,6 +681,8 @@ describe("the doc store in a session", () => {
 				recallMaxDistance: 1,
 				docConcepts: 2,
 				docMaxDistance: 0.5,
+				graphSymbols: 0,
+				graphExtract: false,
 				docBundle: "/unused",
 			},
 			docs: {
@@ -805,5 +814,109 @@ describe("a bundle that is not there", () => {
 		migrated.resolve();
 		await cm.settle();
 		expect(indexed).toBe(true);
+	});
+});
+
+describe("the graph store in a session", () => {
+	const graphJson = readFileSync(
+		new URL("./fixtures/graph.json", import.meta.url).pathname,
+		"utf8",
+	);
+
+	function graphStore(options: { graph?: string; fails?: boolean } = {}) {
+		const refreshed: string[] = [];
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async (path) =>
+				path.endsWith("bin/graphify") ||
+				(options.graph !== undefined && path.endsWith("graph.json")),
+			read: async () => {
+				if (options.fails) throw new Error("graph unreadable");
+				return options.graph ?? graphJson;
+			},
+			makeDirectory: async () => {},
+			run: async (_command, args) => {
+				refreshed.push(args.join(" "));
+				return { ok: true, output: "" };
+			},
+		});
+		return { store, refreshed };
+	}
+
+	const config = (graphSymbols: number, graphExtract = false) => ({
+		tailTurns: DEFAULT_TAIL_TURNS,
+		recallTurns: 0,
+		recallMaxDistance: 1,
+		docConcepts: 0,
+		docMaxDistance: 0.5,
+		docBundle: "/unused",
+		graphSymbols,
+		graphExtract,
+	});
+
+	test("structure about a named symbol reaches the pack", async () => {
+		const { store } = graphStore({ graph: graphJson });
+		const cm = harness({ config: config(2), graph: store });
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain(
+			"[codebase structure: assemble()]",
+		);
+		expect(JSON.stringify(result?.messages)).toContain("src/extension.ts:L520");
+	});
+
+	test("a codebase with no graph contributes nothing", async () => {
+		const { store } = graphStore();
+		const cm = harness({ config: config(2), graph: store });
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(result?.messages).toHaveLength(1);
+	});
+
+	test("a graph store failure costs the structure, not the turn", async () => {
+		const { store } = graphStore({ graph: graphJson, fails: true });
+		const cm = harness({ config: config(2), graph: store });
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(result?.messages).toHaveLength(1);
+		expect(cm.reported.join("\n")).toContain("Graph Store unavailable");
+	});
+
+	test("the codebase is extracted at session start, off the request path", async () => {
+		const { store, refreshed } = graphStore({ graph: graphJson });
+		const cm = harness({
+			config: config(2, true),
+			graph: store,
+			codebase: "/work/project",
+		});
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(refreshed).toContain("update /work/project");
+	});
+
+	test("extraction is declined when it is switched off", async () => {
+		const { store, refreshed } = graphStore({ graph: graphJson });
+		const cm = harness({ config: config(2, false), graph: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		// It writes a directory into the user's repository, so it must be
+		// possible to say no.
+		expect(refreshed).toEqual([]);
 	});
 });

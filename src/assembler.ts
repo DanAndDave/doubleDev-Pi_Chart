@@ -1,5 +1,6 @@
 import { messageText, type HarnessMessage, type Turn } from "./messages.ts";
 import type { ConceptHit } from "./doc-index.ts";
+import { describeEdge, type Neighbourhood } from "./symbols.ts";
 import type { RecalledTurn } from "./thread-store.ts";
 
 export interface AssemblerConfig {
@@ -14,6 +15,8 @@ export interface AssemblerConfig {
 	recallTurns: number;
 	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
 	docConcepts: number;
+	/** How many symbols' neighbourhoods a pack may carry. Zero disables them. */
+	graphSymbols: number;
 }
 
 /** Where a slice of a Context Pack came from. */
@@ -21,7 +24,8 @@ export type PackSource =
 	| "verbatim-tail"
 	| "current-turn"
 	| "recalled"
-	| "curated";
+	| "curated"
+	| "structure";
 
 export interface PackPart {
 	source: PackSource;
@@ -42,6 +46,8 @@ export interface PackPart {
 	turnIndices?: number[];
 	/** Which Concepts this part carried, by id. Identity, not count. */
 	conceptIds?: string[];
+	/** Which symbols this part carried, by name. Identity, not count. */
+	symbols?: string[];
 	/** The Budget that bounded this part, where one did. */
 	budget?: number;
 	/**
@@ -62,7 +68,7 @@ export interface Pack {
 	messages: HarnessMessage[];
 	parts: PackPart[];
 	/** The Budgets in force for this Call, whether or not a part used them. */
-	budgets: { tail: number; recall: number; docs: number };
+	budgets: { tail: number; recall: number; docs: number; graph: number };
 	/**
 	 * Candidates retrieval refused as not relevant enough. A Call-level fact,
 	 * not a part's: when everything is refused there is no recalled part to
@@ -82,6 +88,8 @@ export interface AssembleInput {
 	rejected?: number;
 	/** Concepts found in the Doc Store, most relevant first. */
 	concepts?: ConceptHit[];
+	/** Neighbourhoods of the symbols this prompt refers to. */
+	structure?: Neighbourhood[];
 }
 
 /**
@@ -90,7 +98,13 @@ export interface AssembleInput {
  * so the same inputs always produce the same pack.
  */
 export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
-	const { turns, recalled = [], rejected = 0, concepts = [] } = input;
+	const {
+		turns,
+		recalled = [],
+		rejected = 0,
+		concepts = [],
+		structure = [],
+	} = input;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
@@ -133,6 +147,22 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		});
 	}
 
+	// Structure is what the Codebase is, so it comes before what was said
+	// about it — and ahead of the tail for the same reason recall is.
+	const carriedStructure = structure.slice(0, Math.max(config.graphSymbols, 0));
+	if (carriedStructure.length > 0) {
+		const messages = carriedStructure.map(asStructure);
+		parts.push({
+			source: "structure",
+			messages,
+			approximateTokens: approximateTokens(messages),
+			carried: carriedStructure.length,
+			symbols: carriedStructure.map((each) => each.symbol.label),
+			budget: config.graphSymbols,
+			candidates: structure.length,
+		});
+	}
+
 	const tailMessages = tail.flatMap((turn) => turn.messages);
 	if (tailMessages.length > 0) {
 		parts.push({
@@ -171,6 +201,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			tail: config.tailTurns,
 			recall: config.recallTurns,
 			docs: config.docConcepts,
+			graph: config.graphSymbols,
 		},
 		rejected,
 		approximateTokens: total,
@@ -195,6 +226,20 @@ function eligibleRecollections(
 	return recalled.filter(
 		(candidate) => !alreadyCarried.has(candidate.turnIndex),
 	);
+}
+
+/**
+ * A symbol's neighbourhood enters the window as fact, not prose: what calls
+ * it, what it calls, and where each of those is, so the agent can act
+ * without opening a file.
+ */
+function asStructure(around: Neighbourhood): HarnessMessage {
+	const lines = around.edges.map(describeEdge);
+	return {
+		role: "user",
+		content: `[codebase structure: ${around.symbol.label}]\n${lines.join("\n")}`,
+		cmStructure: true,
+	};
 }
 
 /**

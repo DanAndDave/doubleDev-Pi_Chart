@@ -53,6 +53,8 @@ The extension checks this at session start and reports loudly if it is still act
 | `CM_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
 | `CM_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
 | `CM_DOC_BUNDLE` | `~/.context-manager/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
+| `CM_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
+| `CM_GRAPH` | on | `off` stops the extension deriving a graph. An existing `graphify-out/` is still read. |
 
 ## Recall
 
@@ -72,6 +74,24 @@ Two lifecycle rules keep curated knowledge honest:
 - **Current and human-reviewed Concepts win ties.** Among matches of comparable relevance, fresher and reviewed knowledge comes first — a tie-break, not a trust score mixed into a distance, so it stays possible to say why a Concept was chosen.
 
 Concepts arrive attributed — `[curated knowledge: decisions/0007-ledger-sharding]` — under their own Budget, and exhausting it never touches the verbatim tail or recalled Turns. `/pack` names the Concepts a Call carried.
+
+## Codebase structure
+
+The Graph Store answers structural questions — what calls this, what does it import — from a parse rather than from a search. No embedding is involved: a symbol's name is exact, and "what calls `parseConcept`?" has one correct answer.
+
+It uses [graphify](https://github.com/Graphify-Labs/graphify), installed at a pinned version into a private virtual environment under `~/.context-manager/graphify`, because this machine had no `uv`, `pipx` or `pip` and `python3 -m venv` is always there.
+
+**It writes into your repository.** `graphify extract` creates `graphify-out/` in the Codebase and offers no way to redirect it; graphify intends that directory to be committed so a team shares one map. `CM_GRAPH=off` declines, and an existing extraction is still read.
+
+Only what a parser established is carried. Three separate conditions, because each excludes something the others do not:
+
+- the edge's own `confidence` is `EXTRACTED` — `--code-only` still emits inferred `calls` at confidence 0.8;
+- the relation is one the adapter knows to be programmatic — which drops `cites` and `semantically_similar_to`;
+- both ends are code — which drops documentation nodes like `ADR-0002` and bare references like `ref_bun`.
+
+A relation the adapter does not recognise is left out rather than assumed harmless, and output that does not meet what the adapter requires raises an error naming the missing field. A moving schema should cost recall, never correctness.
+
+Symbols are matched by name, ignoring case and punctuation, so `recordPack`, `record_pack` and `.recordPack()` are one name. When a prompt contains something unmistakably code — a compound name, or a word written as `read()` or `.read` — ordinary English words that happen to match method names are dropped: measured live, "do not read, grep, or list any files" was spending 457 tokens on `.read()` and `.list()` for a question about something else.
 
 ## Start the Thread Store
 
@@ -142,6 +162,6 @@ Turn 6, call 0
 - `/pack` — the last Call
 - `/pack diff` — what entered and left since the Call before it
 - `/pack summary` — the whole Conversation, with average Budget spend
-- `/pack budget <tail|recall|docs> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session
+- `/pack budget <tail|recall|docs|graph> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session
 
 Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides.

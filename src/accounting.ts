@@ -28,7 +28,7 @@ export interface CallAccounting extends CallAddress {
 	/** Whether the tail came from the store or from the harness's own history. */
 	tailSource?: TailSource;
 	/** The Budgets in force for this Call, recorded even when unused. */
-	budgets?: { tail: number; recall: number; docs: number };
+	budgets?: { tail: number; recall: number; docs: number; graph?: number };
 	/** Candidates refused as not relevant enough, even when none survived. */
 	rejected?: number;
 }
@@ -45,6 +45,8 @@ export interface RecordedPart {
 	turnIndices?: number[];
 	/** Concepts this part carried, by id — identity, not count. */
 	conceptIds?: string[];
+	/** Symbols this part carried, by name — identity, not count. */
+	symbols?: string[];
 	/** The Budget that bounded it, where one did. */
 	budget?: number;
 	/** How many candidates it chose from. */
@@ -97,6 +99,7 @@ export function recordPart(part: {
 	carried?: number;
 	turnIndices?: number[];
 	conceptIds?: string[];
+	symbols?: string[];
 	budget?: number;
 	candidates?: number;
 	irrelevant?: number;
@@ -108,6 +111,7 @@ export function recordPart(part: {
 		carried: part.carried,
 		turnIndices: part.turnIndices,
 		conceptIds: part.conceptIds,
+		symbols: part.symbols,
 		budget: part.budget,
 		candidates: part.candidates,
 		irrelevant: part.irrelevant,

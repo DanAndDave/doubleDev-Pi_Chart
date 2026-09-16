@@ -166,7 +166,7 @@ describeStore("per-part detail round-trips", () => {
 					{ turnIndex: 9, turn: { index: 9, prompt: "oldest", messages: [] } },
 				],
 			},
-			{ tailTurns: 2, recallTurns: 1, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 1, docConcepts: 0, graphSymbols: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 

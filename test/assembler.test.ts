@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { assemble } from "../src/assembler.ts";
-import type { HarnessMessage } from "../src/messages.ts";
+import type { HarnessMessage, Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import { fixture } from "./fixtures.ts";
 
@@ -19,7 +19,7 @@ describe("assemble", () => {
 	test("carries the current prompt and the last N turns, dropping older ones", () => {
 		const turns = reconstructTurns(conversation(5));
 
-		const pack = assemble({ turns: turns }, { tailTurns: 2, recallTurns: 0, docConcepts: 0 });
+		const pack = assemble({ turns: turns }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 		const texts = pack.messages.map((message) => message.content);
 
 		expect(texts).toEqual([
@@ -34,7 +34,7 @@ describe("assemble", () => {
 	test("a shorter conversation is carried whole", () => {
 		const turns = reconstructTurns(conversation(1));
 
-		const pack = assemble({ turns: turns }, { tailTurns: 10, recallTurns: 0, docConcepts: 0 });
+		const pack = assemble({ turns: turns }, { tailTurns: 10, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 
 		expect(pack.messages).toHaveLength(3);
 	});
@@ -42,7 +42,7 @@ describe("assemble", () => {
 	test("keeps tool calls and their results intact in the tail", async () => {
 		const turns = reconstructTurns(await fixture("tool-turn"));
 
-		const pack = assemble({ turns: turns }, { tailTurns: 5, recallTurns: 0, docConcepts: 0 });
+		const pack = assemble({ turns: turns }, { tailTurns: 5, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 
 		expect(pack.messages.map((message) => message.role)).toEqual([
 			"user",
@@ -58,7 +58,7 @@ describe("assemble", () => {
 
 		const counts = [0, 1, 3].map(
 			(tailTurns) =>
-				assemble({ turns }, { tailTurns, recallTurns: 0, docConcepts: 0 }).messages
+				assemble({ turns }, { tailTurns, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }).messages
 					.length,
 		);
 
@@ -68,7 +68,7 @@ describe("assemble", () => {
 	test("the pack does not grow as the conversation does", () => {
 		const sizes = [20, 200, 2000].map(
 			(turnCount) =>
-				assemble({ turns: reconstructTurns(conversation(turnCount)) }, { tailTurns: 3, recallTurns: 0, docConcepts: 0 })
+				assemble({ turns: reconstructTurns(conversation(turnCount)) }, { tailTurns: 3, recallTurns: 0, docConcepts: 0, graphSymbols: 0 })
 					.messages.length,
 		);
 
@@ -77,8 +77,8 @@ describe("assemble", () => {
 
 	test("assembling the same conversation twice produces an identical pack", async () => {
 		// Two independent parses, so nothing is shared by reference.
-		const first = assemble({ turns: reconstructTurns(await fixture("multi-turn")) }, { tailTurns: 2, recallTurns: 0, docConcepts: 0 });
-		const second = assemble({ turns: reconstructTurns(await fixture("multi-turn")) }, { tailTurns: 2, recallTurns: 0, docConcepts: 0 });
+		const first = assemble({ turns: reconstructTurns(await fixture("multi-turn")) }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
+		const second = assemble({ turns: reconstructTurns(await fixture("multi-turn")) }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 
 		expect(first).toEqual(second);
 	});
@@ -86,8 +86,8 @@ describe("assemble", () => {
 	test("a different budget is the only thing that changes the pack", async () => {
 		const turns = reconstructTurns(await fixture("multi-turn"));
 
-		const narrow = assemble({ turns: turns }, { tailTurns: 1, recallTurns: 0, docConcepts: 0 });
-		const wide = assemble({ turns: turns }, { tailTurns: 2, recallTurns: 0, docConcepts: 0 });
+		const narrow = assemble({ turns: turns }, { tailTurns: 1, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
+		const wide = assemble({ turns: turns }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 
 		expect(narrow).not.toEqual(wide);
 		expect(wide.messages.length).toBeGreaterThan(narrow.messages.length);
@@ -96,7 +96,7 @@ describe("assemble", () => {
 	test("parts account for every message in the pack, in order", () => {
 		const turns = reconstructTurns(conversation(3));
 
-		const pack = assemble({ turns: turns }, { tailTurns: 2, recallTurns: 0, docConcepts: 0 });
+		const pack = assemble({ turns: turns }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 		const fromParts = pack.parts.flatMap((part) => part.messages);
 
 		expect(fromParts).toEqual(pack.messages);
@@ -120,7 +120,7 @@ describe("curated knowledge in a pack", () => {
 	test("a concept reaches the model as its own part", () => {
 		const pack = assemble(
 			{ turns: turns(1), concepts: [concept("decisions/caching", "We cache.")] },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 2 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 },
 		);
 
 		const curated = pack.parts.find((part) => part.source === "curated");
@@ -135,7 +135,7 @@ describe("curated knowledge in a pack", () => {
 				recalled: earlier.turn ? [{ turnIndex: 9, turn: earlier.turn }] : [],
 				concepts: [concept("decisions/caching", "We cache.")],
 			},
-			{ tailTurns: 2, recallTurns: 2, docConcepts: 2 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 2, graphSymbols: 0 },
 		);
 
 		const curated = pack.parts.find((part) => part.source === "curated");
@@ -149,7 +149,7 @@ describe("curated knowledge in a pack", () => {
 	test("a stale concept says so", () => {
 		const pack = assemble(
 			{ turns: turns(1), concepts: [concept("decisions/old", "Old news.", true)] },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 2 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 },
 		);
 
 		expect(JSON.stringify(pack.parts)).toContain("(stale)");
@@ -164,7 +164,7 @@ describe("curated knowledge in a pack", () => {
 
 		const pack = assemble(
 			{ turns: turns(1), concepts: offered },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 2 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 },
 		);
 
 		const curated = pack.parts.find((part) => part.source === "curated");
@@ -179,8 +179,8 @@ describe("curated knowledge in a pack", () => {
 			concepts: [concept("decisions/a", "First."), concept("decisions/b", "Second.")],
 		};
 
-		const generous = assemble(input, { tailTurns: 2, recallTurns: 1, docConcepts: 2 });
-		const exhausted = assemble(input, { tailTurns: 2, recallTurns: 1, docConcepts: 1 });
+		const generous = assemble(input, { tailTurns: 2, recallTurns: 1, docConcepts: 2, graphSymbols: 0 });
+		const exhausted = assemble(input, { tailTurns: 2, recallTurns: 1, docConcepts: 1, graphSymbols: 0 });
 
 		const others = (pack: ReturnType<typeof assemble>) =>
 			pack.parts.filter((part) => part.source !== "curated");
@@ -193,14 +193,133 @@ describe("curated knowledge in a pack", () => {
 			concepts: [concept("decisions/caching", "We cache.")],
 		};
 
-		const off = assemble(input, { tailTurns: 2, recallTurns: 0, docConcepts: 0 });
+		const off = assemble(input, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
 		const without = assemble({ turns: input.turns }, {
 			tailTurns: 2,
 			recallTurns: 0,
 			docConcepts: 2,
+		graphSymbols: 0,
 		});
 
 		expect(off.parts.some((part) => part.source === "curated")).toBe(false);
 		expect(off.messages).toEqual(without.messages);
+	});
+});
+
+describe("codebase structure in a pack", () => {
+	const around = (label: string, calls: string) => ({
+		symbol: { id: label, label, file: "src/a.ts", position: "L10" },
+		edges: [
+			{
+				from: { id: label, label, file: "src/a.ts", position: "L10" },
+				to: { id: calls, label: calls, file: "src/b.ts", position: "L20" },
+				relation: "calls",
+			},
+		],
+	});
+
+	test("structure reaches the model as its own part", () => {
+		const pack = assemble(
+			{ turns: reconstructTurns(conversation(1)), structure: [around("assemble()", "tokens()")] },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 },
+		);
+
+		const part = pack.parts.find((each) => each.source === "structure");
+		expect(part?.carried).toBe(1);
+		expect(part?.symbols).toEqual(["assemble()"]);
+	});
+
+	test("a connection says where both ends are", () => {
+		const pack = assemble(
+			{ turns: reconstructTurns(conversation(1)), structure: [around("assemble()", "tokens()")] },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 },
+		);
+
+		const text = JSON.stringify(pack.parts);
+		expect(text).toContain("src/a.ts:L10");
+		expect(text).toContain("src/b.ts:L20");
+	});
+
+	test("the structure budget bounds what is carried, and records what was offered", () => {
+		const pack = assemble(
+			{
+				turns: reconstructTurns(conversation(1)),
+				structure: [
+					around("a()", "x()"),
+					around("b()", "y()"),
+					around("c()", "z()"),
+				],
+			},
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 },
+		);
+
+		const part = pack.parts.find((each) => each.source === "structure");
+		expect(part?.carried).toBe(2);
+		expect(part?.candidates).toBe(3);
+	});
+
+	test("exhausting the structure budget leaves the other parts untouched", () => {
+		const input = {
+			turns: reconstructTurns(conversation(2)),
+			recalled: [{ turnIndex: 9, turn: reconstructTurns(conversation(1))[0] }].filter(
+				(each): each is { turnIndex: number; turn: Turn } => each.turn !== undefined,
+			),
+			concepts: [
+				{
+					conceptId: "decisions/caching",
+					text: "We cache.",
+					trust: "unverified" as const,
+					stale: false,
+				},
+			],
+			structure: [around("a()", "x()"), around("b()", "y()")],
+		};
+
+		const generous = assemble(input, {
+			tailTurns: 2,
+			recallTurns: 1,
+			docConcepts: 1,
+			graphSymbols: 2,
+		});
+		const exhausted = assemble(input, {
+			tailTurns: 2,
+			recallTurns: 1,
+			docConcepts: 1,
+			graphSymbols: 1,
+		});
+
+		const others = (pack: ReturnType<typeof assemble>) =>
+			pack.parts.filter((part) => part.source !== "structure");
+		expect(others(exhausted)).toEqual(others(generous));
+	});
+
+	test("a structure budget of zero carries nothing and changes nothing else", () => {
+		const input = {
+			turns: reconstructTurns(conversation(1)),
+			structure: [around("assemble()", "tokens()")],
+		};
+
+		const off = assemble(input, {
+			tailTurns: 2,
+			recallTurns: 0,
+			docConcepts: 0,
+			graphSymbols: 0,
+		});
+		const without = assemble(
+			{ turns: input.turns },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 },
+		);
+
+		expect(off.parts.some((part) => part.source === "structure")).toBe(false);
+		expect(off.messages).toEqual(without.messages);
+	});
+
+	test("the structure budget is recorded even when nothing was found", () => {
+		const pack = assemble(
+			{ turns: reconstructTurns(conversation(1)) },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 4 },
+		);
+
+		expect(pack.budgets.graph).toBe(4);
 	});
 });

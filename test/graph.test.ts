@@ -1,0 +1,241 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
+import { GraphFormatError, readGraph } from "../src/graph.ts";
+import { describeEdge, neighbourhoods, symbolsInPlay } from "../src/symbols.ts";
+
+const FIXTURE = readFileSync(
+	new URL("./fixtures/graph.json", import.meta.url).pathname,
+	"utf8",
+);
+const graph = readGraph(FIXTURE);
+
+describe("reading an extraction", () => {
+	test("carries what a parser established", () => {
+		const relations = graph.edges.map((edge) => edge.relation);
+
+		expect(relations).toEqual(["calls", "calls"]);
+	});
+
+	test("leaves out an inferred connection", () => {
+		// graphify emits these even under --code-only, at confidence 0.8.
+		const inferred = graph.edges.filter(
+			(edge) => edge.to.label === ".recordPack()",
+		);
+
+		expect(inferred).toEqual([]);
+	});
+
+	test("leaves out a documentation node and its connections", () => {
+		expect(graph.symbols.map((symbol) => symbol.label)).not.toContain(
+			"ADR-0003",
+		);
+		expect(graph.edges.map((edge) => edge.relation)).not.toContain("cites");
+	});
+
+	test("leaves out a relation it does not know", () => {
+		expect(graph.edges.map((edge) => edge.relation)).not.toContain(
+			"semantically_similar_to",
+		);
+	});
+
+	test("leaves out a connection to something that is not code", () => {
+		const toBun = graph.edges.filter((edge) => edge.to.label === "ref_bun");
+
+		expect(toBun).toEqual([]);
+	});
+
+	test("keeps where each symbol is", () => {
+		const assemble = graph.symbols.find(
+			(symbol) => symbol.label === "assemble()",
+		);
+
+		expect(assemble?.file).toBe("src/assembler.ts");
+		expect(assemble?.position).toBe("L92");
+	});
+
+	test("an extraction with nothing extracted carries nothing", () => {
+		const guessed = readGraph(
+			JSON.stringify({
+				nodes: [
+					{ id: "a", label: "a()", file_type: "code", source_file: "a.ts" },
+					{ id: "b", label: "b()", file_type: "code", source_file: "b.ts" },
+				],
+				links: [
+					{ source: "a", target: "b", relation: "calls", confidence: "INFERRED" },
+				],
+			}),
+		);
+
+		expect(guessed.edges).toEqual([]);
+		expect(guessed.symbols).toHaveLength(2);
+	});
+});
+
+describe("an extraction that is not what the adapter requires", () => {
+	test("names the missing nodes array", () => {
+		expect(() => readGraph(JSON.stringify({ links: [] }))).toThrow(
+			/"nodes"/,
+		);
+	});
+
+	test("names the missing links array", () => {
+		expect(() => readGraph(JSON.stringify({ nodes: [] }))).toThrow(/"links"/);
+	});
+
+	test("names a node without an id", () => {
+		expect(() =>
+			readGraph(JSON.stringify({ nodes: [{ label: "a" }], links: [] })),
+		).toThrow(/node 0 has no string "id"/);
+	});
+
+	test("names a link without a relation", () => {
+		expect(() =>
+			readGraph(
+				JSON.stringify({ nodes: [], links: [{ source: "a", target: "b" }] }),
+			),
+		).toThrow(/link 0 has no string "relation"/);
+	});
+
+	test("reports unreadable json rather than guessing", () => {
+		expect(() => readGraph("{not json")).toThrow(GraphFormatError);
+	});
+
+	test("accepts the older edges field", () => {
+		// NetworkX node-link has renamed this field before; the adapter
+		// reads either rather than failing on a graph it can understand.
+		const older = readGraph(
+			JSON.stringify({
+				nodes: [
+					{ id: "a", label: "a()", file_type: "code", source_file: "a.ts" },
+					{ id: "b", label: "b()", file_type: "code", source_file: "b.ts" },
+				],
+				edges: [
+					{ source: "a", target: "b", relation: "calls", confidence: "EXTRACTED" },
+				],
+			}),
+		);
+
+		expect(older.edges).toHaveLength(1);
+	});
+});
+
+describe("finding the symbols in play", () => {
+	test("finds a symbol a prompt names", () => {
+		const found = symbolsInPlay(graph, "who calls assemble in this codebase?");
+
+		expect(found.map((symbol) => symbol.label)).toEqual(["assemble()"]);
+	});
+
+	test("finds a symbol written in a different style", () => {
+		// The graph records `.recordPack()`; the prompt writes it three
+		// other ways.
+		for (const written of ["recordPack", "record_pack", "RecordPack"]) {
+			const found = symbolsInPlay(graph, `what happens in ${written}?`);
+
+			expect(found.map((symbol) => symbol.label)).toEqual([".recordPack()"]);
+		}
+	});
+
+	test("an identifier that matches is not also split into parts", () => {
+		const found = symbolsInPlay(graph, "what happens when recordPack runs?");
+
+		// Not `approximateTokens()` via "record", nor anything via "pack".
+		expect(found).toHaveLength(1);
+	});
+
+	test("an identifier that matches nothing falls back to its parts", () => {
+		const found = symbolsInPlay(graph, "is assembleLater a thing?");
+
+		expect(found.map((symbol) => symbol.label)).toEqual(["assemble()"]);
+	});
+
+	test("an ordinary word is dropped when the prompt names real code", () => {
+		// Observed live: "do not read, grep, or list any files" matched
+		// `.read()` and `.list()`, and they spent the Budget ahead of the
+		// symbol the question was about.
+		const graph = readGraph(
+			JSON.stringify({
+				nodes: [
+					{
+						id: "doc_store_read",
+						label: ".read()",
+						file_type: "code",
+						source_file: "src/doc-store.ts",
+					},
+					{
+						id: "concept_parseconcept",
+						label: "parseConcept()",
+						file_type: "code",
+						source_file: "src/concept.ts",
+					},
+				],
+				links: [],
+			}),
+		);
+
+		// The ordinary word comes first in the prompt, so insertion order
+		// alone would put `.read()` ahead of what was actually asked about.
+		const found = symbolsInPlay(
+			graph,
+			"do not read any files: which functions call parseConcept?",
+		);
+
+		expect(found.map((symbol) => symbol.label)).toEqual(["parseConcept()"]);
+	});
+
+	test("an ordinary word written as a call still counts as code", () => {
+		const graph = readGraph(
+			JSON.stringify({
+				nodes: [
+					{
+						id: "doc_store_read",
+						label: ".read()",
+						file_type: "code",
+						source_file: "src/doc-store.ts",
+					},
+				],
+				links: [],
+			}),
+		);
+
+		expect(symbolsInPlay(graph, "what does read() do?")).toHaveLength(1);
+		expect(symbolsInPlay(graph, "what does store.read do?")).toHaveLength(1);
+	});
+
+	test("a prompt about nothing in the codebase finds nothing", () => {
+		expect(symbolsInPlay(graph, "what is the capital of Peru")).toEqual([]);
+	});
+});
+
+describe("the neighbourhood of a symbol", () => {
+	test("carries both what calls it and what it calls", () => {
+		const [around] = neighbourhoods(
+			graph,
+			symbolsInPlay(graph, "tell me about assemble"),
+		);
+
+		const described = (around?.edges ?? []).map(describeEdge);
+		expect(described).toHaveLength(2);
+		expect(described.join("\n")).toContain("contextManager() (src/extension.ts:L520)");
+		expect(described.join("\n")).toContain("approximateTokens()");
+	});
+
+	test("a connection says where both ends are", () => {
+		const [around] = neighbourhoods(
+			graph,
+			symbolsInPlay(graph, "tell me about assemble"),
+		);
+		const first = around?.edges[0];
+		if (!first) throw new Error("no edge");
+
+		expect(describeEdge(first)).toContain("src/assembler.ts:L92");
+	});
+
+	test("a symbol with no connections yields nothing", () => {
+		const found = symbolsInPlay(graph, "what about unusedHelper?");
+
+		expect(found).toHaveLength(1);
+		expect(neighbourhoods(graph, found)).toEqual([]);
+	});
+});

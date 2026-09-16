@@ -16,6 +16,8 @@ export interface PartView {
 	turnIndices: number[];
 	/** Which Concepts it carried, by id, where it carried any. */
 	conceptIds: string[];
+	/** Which symbols it carried, by name, where it carried any. */
+	symbols: string[];
 	budget?: number;
 	candidates?: number;
 	/** True when the Budget, not the supply, decided what it carried. */
@@ -38,7 +40,7 @@ export interface CallView {
 	floorShare?: number;
 	unassembled: boolean;
 	/** The Budgets in force, recorded even where a part carried nothing. */
-	budgets?: { tail: number; recall: number; docs: number };
+	budgets?: { tail: number; recall: number; docs: number; graph?: number };
 	/**
 	 * Candidates refused as not relevant enough. Reported on the Call, so it
 	 * survives the case where nothing was relevant and there is no recalled
@@ -59,6 +61,7 @@ export interface PackItem {
 	source: PackSource;
 	turnIndex?: number;
 	conceptId?: string;
+	symbol?: string;
 }
 
 /** What a whole Conversation's windows cost. */
@@ -109,6 +112,7 @@ export function inspectCall(call: CallAccounting): CallView {
 function viewPart(part: RecordedPart): PartView {
 	const turnIndices = part.turnIndices ?? [];
 	const conceptIds = part.conceptIds ?? [];
+	const symbols = part.symbols ?? [];
 	// Count first, positions second: a part whose Turns have no position yet
 	// still carried them, and reporting nothing would understate the pack.
 	const carried = part.carried ?? turnIndices.length;
@@ -118,6 +122,7 @@ function viewPart(part: RecordedPart): PartView {
 
 	return {
 		source: part.source,
+		symbols,
 		approximateTokens: part.approximateTokens,
 		carried,
 		turnIndices,
@@ -170,6 +175,9 @@ function itemsOf(view: CallView): Map<string, PackItem> {
 		// changes every prompt — so the diff has to see them too.
 		for (const conceptId of part.conceptIds) {
 			items.set(`${part.source}:${conceptId}`, { source: part.source, conceptId });
+		}
+		for (const symbol of part.symbols) {
+			items.set(`${part.source}:${symbol}`, { source: part.source, symbol });
 		}
 	}
 	return items;

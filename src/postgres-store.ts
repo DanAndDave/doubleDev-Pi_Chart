@@ -513,7 +513,9 @@ export class PostgresStore implements
 			floorTokens: row.floor_tokens ?? undefined,
 			unassembled: row.unassembled || undefined,
 			tailSource: row.tail_source ?? undefined,
-			budgets: decode<{ tail: number; recall: number; docs: number } | undefined>(
+			budgets: decode<
+				{ tail: number; recall: number; docs: number; graph?: number } | undefined
+			>(
 				row.budgets,
 				undefined,
 			),

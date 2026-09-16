@@ -59,6 +59,7 @@ async function record(options: {
 			tailTurns: options.tailTurns,
 			recallTurns: options.recallTurns,
 			docConcepts: 0,
+		graphSymbols: 0,
 		},
 	);
 	await store.recordPack("conv-1", address, pack, "thread-store");
@@ -217,7 +218,7 @@ describe("summarising a conversation", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled(7) },
-			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 },
 		);
 		for (const callIndex of [0, 1]) {
 			const address = { turnIndex: callIndex, callIndex: 0 };
@@ -292,6 +293,8 @@ describe("changing a budget", () => {
 			recallMaxDistance: 0.5,
 			docConcepts: 0,
 			docMaxDistance: 0.5,
+			graphSymbols: 0,
+			graphExtract: false,
 			docBundle: "/unused",
 		};
 	}
@@ -384,7 +387,7 @@ describe("parts whose turns have no recorded position", () => {
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
 		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
-		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0 });
+		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0, graph: 0 });
 	});
 });
 
@@ -393,7 +396,7 @@ describe("relevance against budget", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled(7), rejected: 4 },
-			{ tailTurns: 2, recallTurns: 3, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
@@ -410,7 +413,7 @@ describe("relevance against budget", () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: [], rejected: 6 },
-			{ tailTurns: 2, recallTurns: 3, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
@@ -419,14 +422,14 @@ describe("relevance against budget", () => {
 		);
 
 		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
-		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0 });
+		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0, graph: 0 });
 	});
 
 	test("trimming still outranks irrelevance when both happened", async () => {
 		const store = new MemoryAccounting();
 		const pack = assemble(
 			{ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 },
-			{ tailTurns: 2, recallTurns: 2, docConcepts: 0 },
+			{ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 },
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
@@ -478,7 +481,7 @@ describe("the curated part in accounting", () => {
 					},
 				],
 			},
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 2 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 },
 		);
 
 		const view = inspectCall({
@@ -571,7 +574,7 @@ describe("the doc budget in accounting", () => {
 				turns: reconstructTurns([{ role: "user", content: "now" }]),
 				concepts: [],
 			},
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 3 },
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 3, graphSymbols: 0 },
 		);
 
 		// The Budget is the evidence that the Doc Store was consulted at
@@ -579,5 +582,56 @@ describe("the doc budget in accounting", () => {
 		// from one where the Store was switched off.
 		expect(pack.parts.some((part) => part.source === "curated")).toBe(false);
 		expect(pack.budgets.docs).toBe(3);
+	});
+});
+
+describe("the structure part in accounting", () => {
+	test("is attributed separately and names the symbols it carried", () => {
+		const view = inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: [
+				recordPart({
+					source: "structure",
+					approximateTokens: 63,
+					carried: 1,
+					symbols: ["assemble()"],
+					budget: 3,
+					candidates: 2,
+				}),
+				recordPart({
+					source: "verbatim-tail",
+					approximateTokens: 120,
+					carried: 2,
+					turnIndices: [1, 2],
+				}),
+			],
+		});
+
+		const structure = view.parts.find((part) => part.source === "structure");
+		expect(structure?.symbols).toEqual(["assemble()"]);
+		expect(structure?.carried).toBeLessThanOrEqual(structure?.budget ?? 0);
+		expect(renderCall(view)).toContain("symbols assemble()");
+	});
+
+	test("a symbol that entered or left is visible in a diff", () => {
+		const callWith = (symbols: string[]) =>
+			inspectCall({
+				turnIndex: 1,
+				callIndex: 0,
+				parts: [
+					recordPart({
+						source: "structure",
+						approximateTokens: 63,
+						carried: symbols.length,
+						symbols,
+					}),
+				],
+			});
+
+		const diff = comparePacks(callWith(["assemble()"]), callWith(["recall()"]));
+
+		expect(diff.entered.map((item) => item.symbol)).toEqual(["recall()"]);
+		expect(diff.left.map((item) => item.symbol)).toEqual(["assemble()"]);
 	});
 });
