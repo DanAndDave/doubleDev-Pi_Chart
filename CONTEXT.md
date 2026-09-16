@@ -21,6 +21,14 @@ _Avoid_: retriever, orchestrator, router
 **Budget**:
 The share of a Context Pack a single store may occupy. Set per store, independently.
 
+**Floor**:
+The part of a Context Window the Assembler cannot reach: system prompt, tool schemas, skills, and rules. Measured, budgeted around, and deliberately left intact.
+_Avoid_: overhead, preamble, base context
+
+**Journal**:
+The harness's append-only on-disk record of a Conversation. The source of record the Thread Store derives from, and untouched by anything the Assembler does.
+_Avoid_: transcript, log, session file
+
 ### The stores
 
 **Store**:
