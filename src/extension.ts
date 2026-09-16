@@ -15,6 +15,7 @@ import type { Concept } from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
 import { readBundle } from "./doc-store.ts";
 import { GraphStore } from "./graph-store.ts";
+import { describeTree, SpecStore } from "./spec-store.ts";
 import {
 	neighbourhoods,
 	symbolsInPlay,
@@ -71,6 +72,8 @@ export interface Dependencies {
 	docs?: ConceptSearch;
 	/** The Codebase's programmatic structure. */
 	graph?: GraphStore;
+	/** The Codebase's stated intent. Verified, never read into a pack. */
+	specs?: SpecStore;
 	/**
 	 * Reads the bundle the index is derived from, or resolves to `undefined`
 	 * when there is no bundle to read.
@@ -125,6 +128,20 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (deps.specs && deps.config.specsVerify) {
+			const specs = deps.specs;
+			const codebase = deps.codebase ?? process.cwd();
+			// Read-only, and quiet when there is nothing to say: a Codebase
+			// that is not spec-driven should not be nagged every session.
+			inBackground(
+				"Spec Store verification",
+				(async () => {
+					const tree = await specs.verify(codebase);
+					if (!tree.conforming) deps.report(describeTree(tree));
+				})(),
+			);
+		}
+
 		if (deps.graph && deps.config.graphExtract) {
 			const graph = deps.graph;
 			const codebase = deps.codebase ?? process.cwd();
@@ -360,6 +377,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	if (pi.registerCommand) {
+		pi.registerCommand("specs", {
+			description:
+				"Check the codebase's OpenSpec tree: `specs` to verify, " +
+				"`specs init` to create what is missing",
+			handler: async (args, commandCtx) => {
+				const text = await checkSpecs(args.trim());
+				if (commandCtx.ui?.notify) commandCtx.ui.notify(text, "info");
+				else deps.show?.(text);
+			},
+		});
+
 		pi.registerCommand("pack", {
 			description:
 				"Inspect the context pack: `pack` for the last call, `pack diff`, " +
@@ -371,6 +399,39 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				else deps.show?.(text);
 			},
 		});
+	}
+
+	/**
+	 * The Spec Store's whole surface. Initialization is a request and never
+	 * a side effect: an `openspec/` tree is a claim about how a project is
+	 * run, not a cache that can be recreated.
+	 */
+	async function checkSpecs(args: string): Promise<string> {
+		if (!deps.specs) return "The Spec Store is not configured.";
+		const codebase = deps.codebase ?? process.cwd();
+
+		if (args === "init") {
+			try {
+				await deps.specs.initialize(codebase);
+			} catch (error) {
+				return `Could not initialize: ${describe(error)}`;
+			}
+			return describeTree(await deps.specs.verify(codebase));
+		}
+
+		const tree = await deps.specs.verify(codebase);
+		const lines = [describeTree(tree)];
+		if (!tree.conforming) lines.push("Run `specs init` to create what is missing.");
+
+		const content = await deps.specs.diagnose(codebase);
+		lines.push(
+			content.valid === undefined
+				? `Content unchecked: ${content.detail}`
+				: content.valid
+					? "OpenSpec reports every spec and change valid."
+					: content.detail,
+		);
+		return lines.join("\n");
 	}
 
 	/** The inspector's whole surface, kept out of the harness adapter. */
@@ -618,6 +679,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		search: store,
 		docs: store,
 		graph: new GraphStore(),
+		specs: new SpecStore(),
 		ready,
 		bundle: () => readBundle(config.docBundle),
 		codebase: process.cwd(),

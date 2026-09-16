@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
+import { SpecStore } from "../src/spec-store.ts";
 
 import {
 	MemoryAccounting,
@@ -105,6 +106,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 			docMaxDistance: 0.5,
 			graphSymbols: 0,
 			graphExtract: false,
+			specsVerify: false,
 			docBundle: "/unused",
 		},
 		assemble,
@@ -443,7 +445,7 @@ describe("recall wiring", () => {
 
 	test("a pack draws recall from the store, attributed as its own part", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false },
 			recall: {
 				similarTurns: async () => ({
 					turns: [
@@ -470,7 +472,7 @@ describe("recall wiring", () => {
 
 	test("a retrieval failure costs the recollections, not the turn", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false },
 			recall: {
 				similarTurns: () => Promise.reject(new Error("index offline")),
 			},
@@ -505,7 +507,7 @@ describe("the pack command", () => {
 	const prompt = [{ role: "user", content: "current" }];
 
 	test("changing a budget applies to the next call", async () => {
-		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false };
+		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false };
 		const cm = harness({
 			config,
 			recall: {
@@ -542,7 +544,7 @@ describe("the pack command", () => {
 	});
 
 	test("an invalid budget is reported and nothing changes", async () => {
-		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false };
+		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false };
 		const cm = harness({ config });
 
 		await cm.commands.pack?.handler("budget recall plenty", {});
@@ -656,6 +658,7 @@ describe("the doc store in a session", () => {
 				docMaxDistance: 0.5,
 				graphSymbols: 0,
 				graphExtract: false,
+			specsVerify: false,
 				docBundle: "/unused",
 			},
 			docs: {
@@ -684,6 +687,7 @@ describe("the doc store in a session", () => {
 				docMaxDistance: 0.5,
 				graphSymbols: 0,
 				graphExtract: false,
+			specsVerify: false,
 				docBundle: "/unused",
 			},
 			docs: {
@@ -854,6 +858,7 @@ describe("the graph store in a session", () => {
 		docBundle: "/unused",
 		graphSymbols,
 		graphExtract,
+		specsVerify: false,
 	});
 
 	test("structure about a named symbol reaches the pack", async () => {
@@ -946,5 +951,138 @@ describe("the graph store in a session", () => {
 		// It writes a directory into the user's repository, so it must be
 		// possible to say no.
 		expect(refreshed).toEqual([]);
+	});
+});
+
+describe("the spec store in a session", () => {
+	function specStore(tree: "conforming" | "partial" | "absent") {
+		const ran: string[][] = [];
+		const store = new SpecStore({
+			inspect: async (path) => {
+				if (tree === "absent") return undefined;
+				if (tree === "partial" && path.endsWith("specs")) return undefined;
+				return path.endsWith("config.yaml") ? "file" : "directory";
+			},
+			run: async (_command, args) => {
+				ran.push(args);
+				return { ok: true, output: "All items valid" };
+			},
+		});
+		return { store, ran };
+	}
+
+	const config = (specsVerify: boolean) => ({
+		tailTurns: DEFAULT_TAIL_TURNS,
+		recallTurns: 0,
+		recallMaxDistance: 1,
+		docConcepts: 0,
+		docMaxDistance: 0.5,
+		docBundle: "/unused",
+		graphSymbols: 0,
+		graphExtract: false,
+		specsVerify,
+	});
+
+	test("a non-conforming codebase is reported at session start", async () => {
+		const { store } = specStore("partial");
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).toContain("openspec/specs is missing");
+	});
+
+	test("a conforming codebase is not mentioned", async () => {
+		const { store } = specStore("conforming");
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		// A Codebase that is set up correctly has nothing to say about it.
+		expect(cm.reported.join("\n")).not.toContain("OpenSpec");
+	});
+
+	test("a session never initializes a codebase by itself", async () => {
+		const { store, ran } = specStore("absent");
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		// An openspec/ tree is a claim about how a project is run, not a
+		// cache: planting one unasked would be presumptuous.
+		expect(ran.some((args) => args[0] === "init")).toBe(false);
+		expect(cm.reported.join("\n")).toContain("No OpenSpec tree");
+	});
+
+	test("verification can be switched off entirely", async () => {
+		const { store } = specStore("absent");
+		const cm = harness({ config: config(false), specs: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).not.toContain("OpenSpec");
+	});
+
+	test("the pack is the same whether or not the codebase has a tree", async () => {
+		const withSpecs = harness({
+			config: config(true),
+			specs: specStore("conforming").store,
+		});
+		const without = harness({ config: config(true) });
+		const messages = [{ role: "user" as const, content: "hello" }];
+
+		const carried = await withSpecs.context({ messages }, ctx());
+		const bare = await without.context({ messages }, ctx());
+
+		// This Store feeds nothing into a pack, by requirement.
+		expect(carried?.messages).toEqual(bare?.messages ?? []);
+	});
+
+	test("asking initializes, and reports the result", async () => {
+		const ran: string[][] = [];
+		let initialized = false;
+		const store = new SpecStore({
+			inspect: async (path) =>
+				initialized
+					? path.endsWith("config.yaml")
+						? "file"
+						: "directory"
+					: undefined,
+			run: async (_command, args) => {
+				ran.push(args);
+				if (args[0] === "init") initialized = true;
+				return { ok: true, output: "" };
+			},
+		});
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.commands.specs?.handler("init", {});
+
+		expect(ran[0]?.[0]).toBe("init");
+		expect(cm.shown.join("\n")).toContain("as expected");
+	});
+
+	test("verifying says what is wrong and what openspec says", async () => {
+		const store = new SpecStore({
+			inspect: async (path) =>
+				path.endsWith("specs")
+					? undefined
+					: path.endsWith("config.yaml")
+						? "file"
+						: "directory",
+			run: async () => ({ ok: false, output: "✗ change/half-done" }),
+		});
+		const cm = harness({ config: config(true), specs: store });
+
+		await cm.commands.specs?.handler("", {});
+
+		const shown = cm.shown.join("\n");
+		expect(shown).toContain("openspec/specs is missing");
+		expect(shown).toContain("specs init");
+		expect(shown).toContain("change/half-done");
 	});
 });

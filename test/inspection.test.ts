@@ -295,6 +295,7 @@ describe("changing a budget", () => {
 			docMaxDistance: 0.5,
 			graphSymbols: 0,
 			graphExtract: false,
+			specsVerify: false,
 			docBundle: "/unused",
 		};
 	}

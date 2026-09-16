@@ -22,6 +22,8 @@ export interface Config {
 	 * is graphify's convention but still the user's repository.
 	 */
 	graphExtract: boolean;
+	/** Whether to check the Codebase's OpenSpec tree at all. */
+	specsVerify: boolean;
 	/**
 	 * How distant a Concept may be and still be carried. Measured separately
 	 * from recall on curated prose: genuine matches land at 0.24-0.42 and
@@ -52,6 +54,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		docConcepts: count(env.CM_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
 		graphSymbols: count(env.CM_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
 		graphExtract: env.CM_GRAPH !== "off",
+		specsVerify: env.CM_SPECS !== "off",
 		docMaxDistance: distance(env.CM_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl: env.CM_DATABASE_URL,
 		docBundle:

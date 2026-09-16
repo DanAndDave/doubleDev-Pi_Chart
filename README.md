@@ -55,6 +55,7 @@ The extension checks this at session start and reports loudly if it is still act
 | `CM_DOC_BUNDLE` | `~/.context-manager/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
 | `CM_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
 | `CM_GRAPH` | on | `off` stops the extension deriving a graph. An existing `graphify-out/` is still read. |
+| `CM_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
 
 ## Recall
 
@@ -94,6 +95,17 @@ A relation the adapter does not recognise is left out rather than assumed harmle
 Symbols are matched by name, ignoring case and punctuation, so `recordPack`, `record_pack` and `.recordPack()` are one name. A bare English word that matches only a *method* name is dropped when the prompt also names something unambiguously — measured live, "do not read, grep, or list any files" was spending 457 tokens on `.read()` and `.list()` for a question about something else. A bare word matching a function or a type is kept, because nothing in ordinary prose looks like `assemble`.
 
 A symbol contributes at most twelve connections and says how many it left out, so one hub cannot swallow the Budget: measured over this repository, a neighbourhood is 72 tokens at the median and 305 at worst.
+
+## Stated intent
+
+The Spec Store is the one store this project does not own, and the only one that puts nothing in a pack. A Codebase's specs reach the agent through the workflow that reads them; this store's job is to make sure that workflow has something to read.
+
+At session start it checks the shape of `openspec/` — the root, `specs/`, `changes/`, `changes/archive/`, and `config.yaml` — and says so only when something is missing. That check is here rather than delegated because OpenSpec does not make it: measured, both `openspec list` and `openspec validate --all --strict` exit 0 on a tree missing `specs/`, missing `changes/archive/`, or missing `config.yaml`. Content is a different matter — OpenSpec defines what valid content is, so `specs` reports its words verbatim rather than a paraphrase that would drift.
+
+Nothing is created unasked. An `openspec/` tree is a claim about how a project is run, not a cache that can be regenerated, so initialization happens when you ask:
+
+- `/specs` — verify the tree and report what OpenSpec says about its content
+- `/specs init` — create what is missing, through `openspec init`, which leaves existing specs, changes, and configuration untouched
 
 ## Start the Thread Store
 
