@@ -27,7 +27,7 @@
 ## 5. Accounting
 
 - [ ] 5.1 Record each assembled pack with its Conversation and Turn identity in an append-only local record, shaped for ingest by the Thread Store, and verify a completed session produces one record per Turn in Turn order
-- [ ] 5.2 Capture provider-reported usage after each response and derive the Floor as reported input total minus pack tokens, and verify against a headless run that the recorded Floor is non-zero for a trivially small pack
+- [ ] 5.2 Read the harness-reported `promptTokens` and `nonMessageTokens` from each response and record the Floor and the measured pack size from them, and verify against a headless run that the recorded Floor is non-zero for a trivially small pack
 - [ ] 5.3 Label locally counted pack-internal attribution as approximate wherever it is surfaced, and verify reported usage — not the local count — is the basis of the pack-versus-Floor figures
 - [ ] 5.4 Implement reading accounting back for a whole Conversation in Turn order, and verify against a recorded session
 - [ ] 5.5 Make accounting failures non-fatal, and verify with a failing writer that the pack is unchanged and the Turn completes

@@ -37,11 +37,13 @@ The harness passes a flat message array; the verbatim tail is defined in Turns. 
 
 Consequence: N counts Turns, not messages, so pack size varies with how tool-heavy recent Turns were. That variance is real and worth seeing in the accounting rather than hiding behind a message count.
 
-### The Floor is measured, not computed; the pack's internals are approximated
+### The Floor is reported by the harness, not derived
 
-Provider-reported usage is the only trustworthy number, and it arrives after the response, not at assembly time. So: record the assembled pack at `context` time, capture reported usage when the provider responds, and derive `Floor = reported input total − pack tokens`. Per-part attribution inside the pack uses a deterministic local count, which is an approximation and is labelled as one.
+Fixture capture from real sessions showed that assistant messages carry `contextSnapshot: { promptTokens, nonMessageTokens, compactionEpoch }` alongside provider `usage`. `nonMessageTokens` is the Floor, stated directly by the harness — measured at 25,588 across a three-Turn session whose messages were trivially small. Accounting therefore reads both figures from the response rather than deriving either: `Floor = nonMessageTokens`, and the pack's measured size is `promptTokens − nonMessageTokens`.
 
-Alternative considered: count everything locally with a real tokenizer. Rejected because the Floor is assembled by the harness from sources we do not see, so a local count of it would be a guess dressed as a measurement — and the guess is the number every Budget decision depends on.
+This supersedes the plan to compute `Floor = reported input total − pack tokens`. Subtraction would have folded every local counting error into the Floor, which is the number every Budget decision depends on. Per-part attribution *inside* the pack still uses a deterministic local count, because nothing reports it, and it is labelled approximate wherever it is surfaced.
+
+Alternative considered: count everything locally with a real tokenizer. Rejected for the same reason — the Floor is assembled by the harness from sources we never see, so a local count of it would be a guess dressed as a measurement.
 
 ### Accounting is written as an append-only local record, keyed by Conversation
 

@@ -1,0 +1,115 @@
+[
+	{
+		"role": "user",
+		"content": [
+			{
+				"type": "text",
+				"text": "Remember this codeword: zephyr. Reply with just: ok"
+			}
+		],
+		"attribution": "user",
+		"timestamp": 1789575525074
+	},
+	{
+		"role": "assistant",
+		"content": [
+			{
+				"type": "text",
+				"text": "ok"
+			}
+		],
+		"api": "anthropic-messages",
+		"provider": "anthropic",
+		"model": "claude-opus-5",
+		"usage": {
+			"input": 4,
+			"output": 4,
+			"cacheRead": 20488,
+			"cacheWrite": 8860,
+			"totalTokens": 29356,
+			"cost": {
+				"input": 0.00002,
+				"output": 0.0001,
+				"cacheRead": 0.010244,
+				"cacheWrite": 0.08860000000000001,
+				"total": 0.09896400000000001
+			},
+			"cttl": {
+				"ephemeral1h": 8860
+			}
+		},
+		"stopReason": "stop",
+		"timestamp": 1789575525122,
+		"responseId": "msg_011Cf7RPHXyYcDVivqTD9nhV",
+		"duration": 2120.6741469999997,
+		"ttft": 2116.7018850000004,
+		"completedAt": 1789575527261,
+		"contextSnapshot": {
+			"promptTokens": 29352,
+			"nonMessageTokens": 25588,
+			"compactionEpoch": 0
+		}
+	},
+	{
+		"role": "user",
+		"content": [
+			{
+				"type": "text",
+				"text": "Now remember a second codeword: quartz. Reply with just: ok"
+			}
+		],
+		"attribution": "user",
+		"timestamp": 1789575527691
+	},
+	{
+		"role": "assistant",
+		"content": [
+			{
+				"type": "text",
+				"text": "ok"
+			}
+		],
+		"api": "anthropic-messages",
+		"provider": "anthropic",
+		"model": "claude-opus-5",
+		"usage": {
+			"input": 4,
+			"output": 4,
+			"cacheRead": 29348,
+			"cacheWrite": 30,
+			"totalTokens": 29386,
+			"cost": {
+				"input": 0.00002,
+				"output": 0.0001,
+				"cacheRead": 0.014674,
+				"cacheWrite": 0.00030000000000000003,
+				"total": 0.015094
+			},
+			"cttl": {
+				"ephemeral1h": 30
+			}
+		},
+		"stopReason": "stop",
+		"timestamp": 1789575527741,
+		"responseId": "msg_011Cf7RPVTKsDMZdfpVnVjeg",
+		"duration": 2155.7622850000002,
+		"ttft": 2154.733298,
+		"completedAt": 1789575529917,
+		"contextSnapshot": {
+			"promptTokens": 29382,
+			"nonMessageTokens": 25588,
+			"compactionEpoch": 0
+		}
+	},
+	{
+		"role": "user",
+		"content": [
+			{
+				"type": "text",
+				"text": "What were the two codewords?"
+			}
+		],
+		"attribution": "user",
+		"timestamp": 1789575530312
+	}
+]

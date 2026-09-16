@@ -1,0 +1,13 @@
+[
+	{
+		"role": "user",
+		"content": [
+			{
+				"type": "text",
+				"text": "Say the single word: apricot. Then stop."
+			}
+		],
+		"attribution": "user",
+		"timestamp": 1789575480659
+	}
+]

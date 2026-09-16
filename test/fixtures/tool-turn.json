@@ -1,0 +1,137 @@
+[
+	{
+		"role": "user",
+		"content": [
+			{
+				"type": "text",
+				"text": "Create a file notes.txt containing the word starling, then read it back and tell me what it says."
+			}
+		],
+		"attribution": "user",
+		"timestamp": 1789575484883
+	},
+	{
+		"role": "assistant",
+		"content": [
+			{
+				"type": "toolCall",
+				"id": "toolu_01HWbtWaZRH64xxfQywc4gg9",
+				"name": "write",
+				"arguments": {
+					"path": "notes.txt",
+					"content": "starling\n",
+					"i": "Creating notes.txt with word"
+				},
+				"intent": "Creating notes.txt with word"
+			}
+		],
+		"api": "anthropic-messages",
+		"provider": "anthropic",
+		"model": "claude-opus-5",
+		"usage": {
+			"input": 4,
+			"output": 103,
+			"cacheRead": 20488,
+			"cacheWrite": 8867,
+			"totalTokens": 29462,
+			"cost": {
+				"input": 0.00002,
+				"output": 0.002575,
+				"cacheRead": 0.010244,
+				"cacheWrite": 0.08867000000000001,
+				"total": 0.10150900000000002
+			},
+			"cttl": {
+				"ephemeral1h": 8867
+			}
+		},
+		"stopReason": "toolUse",
+		"timestamp": 1789575484930,
+		"responseId": "msg_011Cf7RLLh9H5qQx6xW3Gxr2",
+		"duration": 2894.167638,
+		"ttft": 1761.385901
+	},
+	{
+		"role": "toolResult",
+		"toolCallId": "toolu_01HWbtWaZRH64xxfQywc4gg9",
+		"toolName": "write",
+		"content": [
+			{
+				"type": "text",
+				"text": "[notes.txt#DA41]\nSuccessfully wrote 9 bytes to notes.txt"
+			}
+		],
+		"details": {
+			"resolvedPath": "/work/notes.txt"
+		},
+		"isError": false,
+		"timestamp": 1789575487848
+	},
+	{
+		"role": "assistant",
+		"content": [
+			{
+				"type": "toolCall",
+				"id": "toolu_014irPphVYLcCMjnhFPBr9V4",
+				"name": "read",
+				"arguments": {
+					"path": "notes.txt",
+					"i": "Reading notes.txt back"
+				},
+				"intent": "Reading notes.txt back"
+			}
+		],
+		"api": "anthropic-messages",
+		"provider": "anthropic",
+		"model": "claude-opus-5",
+		"usage": {
+			"input": 143,
+			"output": 79,
+			"cacheRead": 29355,
+			"cacheWrite": 0,
+			"totalTokens": 29577,
+			"cost": {
+				"input": 0.000715,
+				"output": 0.001975,
+				"cacheRead": 0.0146775,
+				"cacheWrite": 0,
+				"total": 0.0173675
+			}
+		},
+		"stopReason": "toolUse",
+		"timestamp": 1789575487854,
+		"responseId": "msg_011Cf7RLYsd7v1LsSGd3Cskm",
+		"duration": 1930.087216,
+		"ttft": 1403.8763289999997
+	},
+	{
+		"role": "toolResult",
+		"toolCallId": "toolu_014irPphVYLcCMjnhFPBr9V4",
+		"toolName": "read",
+		"content": [
+			{
+				"type": "text",
+				"text": "[notes.txt#DA41]\n1:starling"
+			}
+		],
+		"details": {
+			"totalLines": 1,
+			"displayContent": {
+				"text": "starling",
+				"startLine": 1,
+				"lineNumbers": [
+					1
+				]
+			},
+			"fileSize": 9,
+			"meta": {
+				"source": {
+					"type": "path",
+					"value": "/work/notes.txt"
+				}
+			}
+		},
+		"isError": false,
+		"timestamp": 1789575489802
+	}
+]

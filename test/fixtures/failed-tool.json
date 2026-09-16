@@ -1,0 +1,137 @@
+[
+	{
+		"role": "user",
+		"content": [
+			{
+				"type": "text",
+				"text": "Read the file ./definitely-missing-file.txt and tell me what happened."
+			}
+		],
+		"attribution": "user",
+		"timestamp": 1789575492020
+	},
+	{
+		"role": "assistant",
+		"content": [
+			{
+				"type": "text",
+				"text": "I'll try the read."
+			},
+			{
+				"type": "toolCall",
+				"id": "toolu_01EYhyLodoUQBzNQs9erRAMY",
+				"name": "read",
+				"arguments": {
+					"path": "./definitely-missing-file.txt",
+					"i": "Reading requested file"
+				},
+				"intent": "Reading requested file"
+			}
+		],
+		"api": "anthropic-messages",
+		"provider": "anthropic",
+		"model": "claude-opus-5",
+		"usage": {
+			"input": 4,
+			"output": 91,
+			"cacheRead": 20488,
+			"cacheWrite": 8865,
+			"totalTokens": 29448,
+			"cost": {
+				"input": 0.00002,
+				"output": 0.002275,
+				"cacheRead": 0.010244,
+				"cacheWrite": 0.08865,
+				"total": 0.101189
+			},
+			"cttl": {
+				"ephemeral1h": 8865
+			}
+		},
+		"stopReason": "toolUse",
+		"timestamp": 1789575492069,
+		"responseId": "msg_011Cf7RLrH8uJSm9Zxte7Rk3",
+		"duration": 2679.265739,
+		"ttft": 1433.894896
+	},
+	{
+		"role": "toolResult",
+		"toolCallId": "toolu_01EYhyLodoUQBzNQs9erRAMY",
+		"toolName": "read",
+		"content": [
+			{
+				"type": "text",
+				"text": "Path './definitely-missing-file.txt' not found"
+			}
+		],
+		"details": {},
+		"isError": true,
+		"timestamp": 1789575494775
+	},
+	{
+		"role": "assistant",
+		"content": [
+			{
+				"type": "thinking",
+				"thinking": "As expected, the read failed since the file doesn't exist. Let me check the directory listing to confirm and look for any similar names or evidence.\n\n",
+				"thinkingSignature": "CAISmQMKpgEIERgCKkB3cRn5BuFvCzyQZM9xnx2AjMYBZZC0roadgrmq8cZVlwGFK/QYPLVBqUq5PKgKoytM3hozYVnoOz+Mq5Ysp5ftMg1jbGF1ZGUtb3B1cy01OAFCCHRoaW5raW5nWiQ0YTMxNjc4MS04YzRjLTRjN2QtYjM4MS1hMDUyZGY2MWExOTByEKszgaagU5sehamUXIeCudmIAQGoAcmCq9UGsAECEgzeyp4yY7sdoVAKmwEaDBmW6N1A3DjNjWaSCCIwU/HCqNKCtJIO2x/UqB5fta7Ip6Y7xY9lG3/+j023Cx6IWkszSD7OX3kKKVNZ9rD3Kp8B+eQUYFB1pULT1stBMSZnVyTSpxgIWonXnGsKNpItJ9C2SMoWgUz+R1CbCPCaZflG6Yc1xTHBZbdzkLgaOsqjWhiETjclaNSZy5UZk9dMtDlg6KJaDVUnFcCkGZPASd3gphoKb2fLQ85/ElK/KpBRjYOH4eJrMBzgvXdxFigJiavGboHhTrij2MTQ24m7kBFaNbZFNTaP9cMLKuO/TYxOGAE="
+			},
+			{
+				"type": "toolCall",
+				"id": "toolu_01UCWZvQQF7FFFWK5inq5Wdp",
+				"name": "glob",
+				"arguments": {
+					"path": "*",
+					"i": "Listing workspace root contents",
+					"gitignore": false
+				},
+				"intent": "Listing workspace root contents"
+			}
+		],
+		"api": "anthropic-messages",
+		"provider": "anthropic",
+		"model": "claude-opus-5",
+		"usage": {
+			"input": 123,
+			"output": 149,
+			"cacheRead": 29353,
+			"cacheWrite": 0,
+			"totalTokens": 29625,
+			"cost": {
+				"input": 0.0006150000000000001,
+				"output": 0.003725,
+				"cacheRead": 0.014676499999999999,
+				"cacheWrite": 0,
+				"total": 0.0190165
+			}
+		},
+		"stopReason": "toolUse",
+		"timestamp": 1789575494781,
+		"responseId": "msg_011Cf7RM3ekFK3eTsq3bdspe",
+		"upstreamModel": "claude-opus-5",
+		"duration": 3096.1026380000003,
+		"ttft": 1169.02268
+	},
+	{
+		"role": "toolResult",
+		"toolCallId": "toolu_01UCWZvQQF7FFFWK5inq5Wdp",
+		"toolName": "glob",
+		"content": [
+			{
+				"type": "text",
+				"text": "capture.jsonl"
+			}
+		],
+		"details": {
+			"scopePath": ".",
+			"fileCount": 1,
+			"files": [
+				"capture.jsonl"
+			],
+			"truncated": false,
+			"cwd": "/work"
+		},
+		"isError": false,
+		"timestamp": 1789575497886
+	}
+]
