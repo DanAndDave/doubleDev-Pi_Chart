@@ -107,9 +107,10 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 	};
 }
 
-function answered(promptTokens: number): BranchEntry[] {
+/** A completed Turn as the session records it: a prompt and an answered call. */
+function answered(promptTokens: number, prompt = "earlier"): BranchEntry[] {
 	return [
-		{ type: "message", message: { role: "user" } },
+		{ type: "message", message: { role: "user", content: prompt } },
 		{
 			type: "message",
 			message: {
@@ -205,10 +206,11 @@ describe("context handler", () => {
 
 	test("addresses each call to its turn, so a tool loop stays one turn", async () => {
 		const cm = harness();
-		const branch = answered(100);
+		// The prompt is in the branch already, which is what a tool loop's
+		// second and later calls look like.
+		const branch = answered(100, "one");
 
 		await cm.context({ messages: [{ role: "user", content: "one" }] }, ctx(branch));
-		// A second call within the same turn: another reported window, no new prompt.
 		branch.push({
 			type: "message",
 			message: {
@@ -225,13 +227,23 @@ describe("context handler", () => {
 		]);
 	});
 
+	test("turns after a clear do not collide with the ones before it", async () => {
+		const cm = harness();
+		// Clearing does not drop history: the branch keeps the earlier prompt
+		// and gains a boundary marker, while the new prompt has not landed yet.
+		const branch = answered(100, "first");
+		await cm.context({ messages: [{ role: "user", content: "first" }] }, ctx(branch));
+
+		branch.push({ type: "reset_boundary" });
+		await cm.context({ messages: [{ role: "user", content: "after" }] }, ctx(branch));
+		await cm.settle();
+
+		expect(cm.recorded.map((entry) => entry.turnIndex)).toEqual([0, 1]);
+	});
+
 	test("numbers turns from the session, so a resumed conversation does not restart", async () => {
 		const cm = harness();
-		const resumed: BranchEntry[] = [
-			...answered(100),
-			...answered(110),
-			{ type: "message", message: { role: "user" } },
-		];
+		const resumed: BranchEntry[] = [...answered(100), ...answered(110)];
 
 		await cm.context({ messages: [{ role: "user", content: "third" }] }, ctx(resumed));
 		await cm.settle();

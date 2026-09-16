@@ -56,22 +56,34 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 	},
 ];
 
+/** `jsonb` arrives as text from the driver, so it is decoded on read. */
+type JsonColumn = string | unknown;
+
 interface TurnMessageRow {
 	turn_index: number;
 	prompt: string;
-	message: HarnessMessage;
+	message: JsonColumn;
 }
 
 interface AccountingRow {
 	turn_index: number;
 	call_index: number;
 	recorded_at: Date | null;
-	parts: { source: PackSource; approximateTokens: number }[];
+	parts: JsonColumn;
 	approximate_tokens: number | null;
 	pack_tokens: number | null;
 	floor_tokens: number | null;
 	unassembled: boolean;
 	tail_source: TailSource | null;
+}
+
+function decode<T>(value: JsonColumn, fallback: T): T {
+	if (typeof value !== "string") return (value as T | undefined) ?? fallback;
+	try {
+		return JSON.parse(value) as T;
+	} catch {
+		return fallback;
+	}
 }
 
 /**
@@ -160,7 +172,8 @@ export class PostgresStore implements TurnSource, TurnSink, AccountingStore {
 				turns.push({ prompt: row.prompt, messages: [] });
 				currentIndex = row.turn_index;
 			}
-			turns[turns.length - 1]?.messages.push(row.message);
+			const message = decode<HarnessMessage | undefined>(row.message, undefined);
+			if (message) turns[turns.length - 1]?.messages.push(message);
 		}
 		return turns;
 	}
@@ -239,7 +252,10 @@ export class PostgresStore implements TurnSource, TurnSink, AccountingStore {
 			turnIndex: row.turn_index,
 			callIndex: row.call_index,
 			at: row.recorded_at?.toISOString(),
-			parts: (row.parts ?? []).map((part) => ({ ...part, approximate: true })),
+			parts: decode<{ source: PackSource; approximateTokens: number }[]>(
+				row.parts,
+				[],
+			).map((part) => ({ ...part, approximate: true as const })),
 			approximateTokens: row.approximate_tokens ?? undefined,
 			packTokens: row.pack_tokens ?? undefined,
 			floorTokens: row.floor_tokens ?? undefined,

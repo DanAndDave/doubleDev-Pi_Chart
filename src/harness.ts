@@ -19,7 +19,11 @@ export interface MemoryStatus {
 
 export interface BranchEntry {
 	type?: string;
-	message?: { role?: string; contextSnapshot?: ContextSnapshot };
+	message?: {
+		role?: string;
+		content?: HarnessMessage["content"];
+		contextSnapshot?: ContextSnapshot;
+	};
 }
 
 export interface HandlerContext {

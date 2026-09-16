@@ -12,7 +12,7 @@ import {
 } from "./assembler.ts";
 import { loadConfig, type Config } from "./config.ts";
 import { findJournal, readJournal } from "./journal.ts";
-import type { ContextSnapshot, HarnessMessage, Turn } from "./messages.ts";
+import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
 import type { BranchEntry, ExtensionAPI, HandlerContext } from "./harness.ts";
 import { PostgresStore } from "./postgres-store.ts";
 import { MemoryTurnSource, type TurnSink, type TurnSource } from "./thread-store.ts";
@@ -164,36 +164,49 @@ function conversationOf(ctx: HandlerContext): string {
 }
 
 /**
- * Where the Call about to happen sits: Turns are counted from the prompts in
- * the session, and Calls from the windows the harness has reported *within*
- * the current Turn. Both come from the session rather than from a counter, so
- * a resumed Conversation does not restart at zero and overwrite its history.
+ * Where the Call about to happen sits.
  *
- * The session branch can lag the prompt that triggered this Call — on a
- * resumed Conversation the new prompt is not in it yet — so the event's own
- * message array, which always carries it, decides the Turn.
+ * The branch holds every prompt the Conversation has ever seen, including
+ * those before a clear — clearing adds a boundary marker, it does not drop
+ * history — so counting prompts there numbers Turns continuously. What the
+ * branch may lack is the prompt that triggered *this* Call: it is appended
+ * after the context event on a new Turn, and present on the Calls of a tool
+ * loop. That distinction is the whole of the arithmetic.
  */
 function addressOf(
 	branch: BranchEntry[],
 	messages: HarnessMessage[],
 ): CallAddress {
-	let turnIndex = -1;
-	let callIndex = 0;
+	let prompts = 0;
+	let callsThisTurn = 0;
+	let lastPrompt: string | undefined;
 	for (const entry of branch) {
 		if (entry.message?.role === "user") {
-			turnIndex++;
-			callIndex = 0;
+			prompts++;
+			callsThisTurn = 0;
+			lastPrompt = messageText({
+				role: "user",
+				content: entry.message.content,
+			});
 		}
-		if (entry.message?.contextSnapshot) callIndex++;
+		if (entry.message?.contextSnapshot) callsThisTurn++;
 	}
 
-	let prompts = 0;
-	for (const message of messages) if (message.role === "user") prompts++;
+	const current = currentPrompt(messages);
+	const inBranch = prompts > 0 && current !== undefined && current === lastPrompt;
 
-	// A prompt the branch has not caught up with starts a Turn, at its first Call.
-	if (prompts > turnIndex + 1) return { turnIndex: prompts - 1, callIndex: 0 };
+	// Not yet in the branch: this prompt opens a Turn, at its first Call.
+	if (!inBranch) return { turnIndex: prompts, callIndex: 0 };
 
-	return { turnIndex: Math.max(turnIndex, 0), callIndex };
+	return { turnIndex: prompts - 1, callIndex: callsThisTurn };
+}
+
+function currentPrompt(messages: HarnessMessage[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message?.role === "user") return messageText(message);
+	}
+	return undefined;
 }
 
 /** Every window size the harness has reported, addressed to its Call. */
