@@ -1,7 +1,13 @@
 # Proposal: Graph Store from graphify
 
-Triage: needs-triage
+Triage: ready-for-agent
 Blocked by: assembler-owns-window
+
+## Why
+
+The agent can now remember what was said (Thread Store) and what was decided (Doc Store), but it still learns a Codebase's shape by reading it — grep, open file, follow import, repeat. That is the most expensive thing it does, and the answer is already computable: a call graph is a parse away.
+
+`doc-store-recall` retrieves prose by meaning. Structure is not prose. "What calls `assemble`?" has one correct answer, it does not degrade gracefully, and no embedding should be involved in producing it.
 
 ## What to build
 
@@ -19,4 +25,4 @@ Only programmatic edges count — calls, imports, inheritance. Documentation and
 
 ## Non-goals
 
-Planning artifacts for this change — delta specs, design, and tasks — are written by `/opsx-propose`. This file is the slice statement and its blocking edges only.
+Writing to the graph, querying it by natural language, graphify's semantic passes over docs and images, cross-repository graphs, and any use of its MCP server or agent hooks. The Doc Store already carries prose; this Store carries structure.
