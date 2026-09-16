@@ -44,6 +44,7 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 			// Keyed by address, so re-ingesting the same Journal replaces rather
 			// than duplicates.
 			existing.set(turn.turnIndex, {
+				index: turn.turnIndex,
 				prompt: turn.prompt,
 				messages: turn.messages,
 			});

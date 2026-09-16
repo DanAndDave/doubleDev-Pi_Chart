@@ -195,6 +195,10 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		);
 		const vectors = await this.embedder.embed(texts);
 
+		// The count returned is what was *written*, not what was selected: a
+		// batch that embeds nothing must end the caller's loop rather than
+		// re-selecting the same rows forever.
+		let embedded = 0;
 		for (const [index, row] of pending.entries()) {
 			const vector = vectors[index];
 			if (!vector) continue;
@@ -202,8 +206,9 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 				UPDATE turns SET embedding = ${JSON.stringify(vector)}::vector
 				WHERE conversation_id = ${row.conversation_id}
 					AND turn_index = ${row.turn_index}`;
+			embedded++;
 		}
-		return pending.length;
+		return embedded;
 	}
 
 	/** What a Turn is embedded as: its prompt and everything answering it. */
@@ -271,7 +276,7 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 			const message = decode<HarnessMessage | undefined>(row.message, undefined);
 			if (message) messages.push(message);
 		}
-		return { prompt: rows[0]?.prompt ?? "", messages };
+		return { index: turnIndex, prompt: rows[0]?.prompt ?? "", messages };
 	}
 
 	async recentTurns(conversationId: string, limit: number): Promise<Turn[]> {
@@ -296,7 +301,7 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		let currentIndex: number | undefined;
 		for (const row of rows) {
 			if (row.turn_index !== currentIndex) {
-				turns.push({ prompt: row.prompt, messages: [] });
+				turns.push({ index: row.turn_index, prompt: row.prompt, messages: [] });
 				currentIndex = row.turn_index;
 			}
 			const message = decode<HarnessMessage | undefined>(row.message, undefined);

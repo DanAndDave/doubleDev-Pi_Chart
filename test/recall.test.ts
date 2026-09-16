@@ -4,8 +4,9 @@ import { assemble } from "../src/assembler.ts";
 import type { Turn } from "../src/messages.ts";
 import type { RecalledTurn } from "../src/thread-store.ts";
 
-function turn(prompt: string, answer = `answer to ${prompt}`): Turn {
+function turn(prompt: string, answer = `answer to ${prompt}`, index?: number): Turn {
 	return {
+		index,
 		prompt,
 		messages: [
 			{ role: "user", content: prompt },
@@ -21,7 +22,12 @@ function recalled(...prompts: string[]): RecalledTurn[] {
 	}));
 }
 
-const CONVERSATION = [turn("recent one"), turn("recent two"), turn("current")];
+// Stored Turns carry their position; the Turn in progress has none yet.
+const CONVERSATION = [
+	turn("recent one", undefined, 10),
+	turn("recent two", undefined, 11),
+	turn("current"),
+];
 
 function textOf(content: unknown): string {
 	return typeof content === "string" ? content : JSON.stringify(content);
@@ -114,12 +120,28 @@ describe("recall in a pack", () => {
 		const pack = assemble(
 			{
 				turns: CONVERSATION,
-				recalled: [{ turnIndex: 0, turn: turn("recent one") }],
+				recalled: [{ turnIndex: 10, turn: turn("recent one", undefined, 10) }],
 			},
 			{ tailTurns: 2, recallTurns: 2 },
 		);
 
 		expect(pack.parts.map((part) => part.source)).not.toContain("recalled");
+	});
+
+	test("a different turn that happens to share a prompt is still recalled", () => {
+		// "continue" twice is two Turns, not one. De-duplicating on wording
+		// would silently drop the older one and under-fill the budget.
+		const pack = assemble(
+			{
+				turns: [turn("continue", "did the first thing", 10), turn("current")],
+				recalled: [{ turnIndex: 3, turn: turn("continue", "did the older thing", 3) }],
+			},
+			{ tailTurns: 2, recallTurns: 2 },
+		);
+
+		const recollection = pack.parts.find((part) => part.source === "recalled");
+		expect(recollection).toBeTruthy();
+		expect(JSON.stringify(recollection?.messages)).toContain("older thing");
 	});
 
 	test("assembling twice with recall produces an identical pack", () => {

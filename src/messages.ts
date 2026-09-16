@@ -40,6 +40,12 @@ export interface HarnessMessage {
 
 /** A user prompt and everything the agent produced in response to it. */
 export interface Turn {
+	/**
+	 * Where this Turn sits in its Conversation, when it came from the Thread
+	 * Store. Absent for a Turn reconstructed from the live message array,
+	 * which has no durable identity yet.
+	 */
+	index?: number;
 	/** The prompt's text, for identification and testing. */
 	prompt: string;
 	/** Every message belonging to this turn, prompt first, in order. */

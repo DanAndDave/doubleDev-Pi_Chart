@@ -131,7 +131,7 @@ describeStore("recall against a real store", () => {
 		);
 		await store.ingest("conv-1", CONVERSATION);
 
-		expect(mismatched.embedPending("conv-1")).rejects.toThrow(/dimensions/);
+		await expect(mismatched.embedPending("conv-1")).rejects.toThrow(/dimensions/);
 		await mismatched.close();
 	});
 });

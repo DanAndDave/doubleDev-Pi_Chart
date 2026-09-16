@@ -1,4 +1,4 @@
-import type { HarnessMessage, Turn } from "./messages.ts";
+import { messageText, type HarnessMessage, type Turn } from "./messages.ts";
 import type { RecalledTurn } from "./thread-store.ts";
 
 export interface AssemblerConfig {
@@ -45,13 +45,8 @@ export interface AssembleInput {
  * tail, then the Turn in progress. Pure — no I/O, no clock, no randomness —
  * so the same inputs always produce the same pack.
  */
-export function assemble(
-	input: Turn[] | AssembleInput,
-	config: AssemblerConfig,
-): Pack {
-	const { turns, recalled = [] } = Array.isArray(input)
-		? { turns: input, recalled: [] }
-		: input;
+export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
+	const { turns, recalled = [] } = input;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
@@ -106,10 +101,14 @@ function selectRecollections(
 	budget: number,
 ): RecalledTurn[] {
 	if (budget <= 0) return [];
-	const alreadyCarried = new Set(carried.map((turn) => turn.prompt));
+	// Compared by position, not by wording: two Turns can share a prompt
+	// ("continue", "run the tests") without being the same Turn.
+	const alreadyCarried = new Set(
+		carried.map((turn) => turn.index).filter((index) => index !== undefined),
+	);
 	const chosen: RecalledTurn[] = [];
 	for (const candidate of recalled) {
-		if (alreadyCarried.has(candidate.turn.prompt)) continue;
+		if (alreadyCarried.has(candidate.turnIndex)) continue;
 		chosen.push(candidate);
 		if (chosen.length === budget) break;
 	}
@@ -123,7 +122,7 @@ function selectRecollections(
  */
 function asRecollection(recalled: RecalledTurn): HarnessMessage {
 	const transcript = recalled.turn.messages
-		.map((message) => `${message.role}: ${textOf(message)}`)
+		.map((message) => `${message.role}: ${messageText(message)}`)
 		.filter((line) => line.trim().length > line.indexOf(":") + 1)
 		.join("\n");
 
@@ -132,17 +131,6 @@ function asRecollection(recalled: RecalledTurn): HarnessMessage {
 		content: `[recalled from turn ${recalled.turnIndex} of this conversation]\n${transcript}`,
 		cmRecalled: true,
 	};
-}
-
-function textOf(message: HarnessMessage): string {
-	const content = message.content;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	const parts: string[] = [];
-	for (const block of content) {
-		if ("text" in block && typeof block.text === "string") parts.push(block.text);
-	}
-	return parts.join(" ");
 }
 
 /**

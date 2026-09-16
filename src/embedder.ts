@@ -57,7 +57,14 @@ export class LocalEmbedder implements Embedder {
 	private nextId = 0;
 	private readonly pending = new Map<number, Resolver>();
 
-	constructor(private readonly runtime = process.env.CM_BUN ?? "bun") {}
+	constructor(
+		private readonly runtime = process.env.CM_BUN ?? "bun",
+		/** How long one batch may take, including first-use model load. */
+		private readonly timeoutMs = 120_000,
+		/** The worker to run. A seam: tests substitute a misbehaving one. */
+		private readonly script = new URL("./embedder-worker.ts", import.meta.url)
+			.pathname,
+	) {}
 
 	async embed(texts: string[]): Promise<number[][]> {
 		if (texts.length === 0) return [];
@@ -66,43 +73,93 @@ export class LocalEmbedder implements Embedder {
 		const id = this.nextId++;
 		const { promise, resolve, reject } = Promise.withResolvers<number[][]>();
 		this.pending.set(id, { resolve, reject });
-		worker.stdin.write(JSON.stringify({ id, texts }) + "\n");
 
-		const vectors = await promise;
-		for (const vector of vectors) {
-			if (vector.length !== this.dimensions) {
-				throw new Error(
-					`embedder produced ${vector.length} dimensions, expected ${this.dimensions}`,
-				);
-			}
+		// A dead worker must surface as a failure, never as a promise nobody
+		// settles: the context handler awaits this, so a hang would block the
+		// Turn rather than degrade it.
+		const deadline = setTimeout(() => {
+			this.fail(new Error(`embedder timed out after ${this.timeoutMs}ms`));
+		}, this.timeoutMs);
+		deadline.unref?.();
+
+		try {
+			worker.stdin.write(JSON.stringify({ id, texts }) + "\n");
+		} catch (error) {
+			clearTimeout(deadline);
+			this.fail(error instanceof Error ? error : new Error(String(error)));
 		}
-		return vectors;
+
+		try {
+			const vectors = await promise;
+			for (const vector of vectors) {
+				if (vector.length !== this.dimensions) {
+					throw new Error(
+						`embedder produced ${vector.length} dimensions, expected ${this.dimensions}`,
+					);
+				}
+			}
+			return vectors;
+		} finally {
+			clearTimeout(deadline);
+		}
 	}
 
 	/** Stops the worker. Safe to call when none was started. */
 	close(): void {
 		this.worker?.process.kill();
 		this.worker = undefined;
-		for (const { reject } of this.pending.values()) {
-			reject(new Error("embedder stopped"));
-		}
+		this.settleAll(new Error("embedder stopped"));
+	}
+
+	/** Tears down a worker that cannot serve, failing everything waiting. */
+	private fail(error: Error): void {
+		this.worker?.process.kill();
+		this.worker = undefined;
+		this.settleAll(error);
+	}
+
+	private settleAll(error: Error): void {
+		for (const { reject } of this.pending.values()) reject(error);
 		this.pending.clear();
 	}
 
 	private start(): Worker {
 		if (this.worker) return this.worker;
 
-		const script = new URL("./embedder-worker.ts", import.meta.url).pathname;
-		const child = Bun.spawn([this.runtime, script], {
-			stdin: "pipe",
-			stdout: "pipe",
-			stderr: "ignore",
-		});
+		let child: Bun.Subprocess<"pipe", "pipe", "pipe">;
+		try {
+			child = Bun.spawn([this.runtime, this.script], {
+				stdin: "pipe",
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+		} catch (error) {
+			throw new Error(
+				`could not start the embedder with "${this.runtime}": ` +
+					(error instanceof Error ? error.message : String(error)),
+			);
+		}
 
 		const worker: Worker = { process: child, stdin: child.stdin };
 		this.worker = worker;
 		void this.consume(child.stdout);
+		void this.watch(child);
 		return worker;
+	}
+
+	/** A worker that exits takes every batch waiting on it down with it. */
+	private async watch(
+		child: Bun.Subprocess<"pipe", "pipe", "pipe">,
+	): Promise<void> {
+		const code = await child.exited;
+		if (this.worker?.process !== child) return;
+		this.worker = undefined;
+		const stderr = await new Response(child.stderr).text().catch(() => "");
+		this.settleAll(
+			new Error(
+				`embedder exited with code ${code}${stderr.trim() ? `: ${stderr.trim().split("\n").at(-1)}` : ""}`,
+			),
+		);
 	}
 
 	/** Matches each reply to the batch that asked for it. */

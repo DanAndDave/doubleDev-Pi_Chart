@@ -34,6 +34,8 @@ export interface Dependencies {
 	recall?: TurnRecall;
 	/** Embeds newly ingested Turns. Runs after a Turn, never before one. */
 	embed?: (conversationId: string) => Promise<unknown>;
+	/** Releases whatever the session held open. */
+	close?: () => Promise<void> | void;
 	accounting: AccountingStore;
 	report: (message: string) => void;
 }
@@ -49,6 +51,8 @@ const UNKNOWN_CONVERSATION = "unknown-conversation";
  */
 export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const measuredByConversation = new Map<string, number>();
+	/** One ingest-and-embed sweep per Conversation at a time. */
+	const sweeping = new Map<string, Promise<void>>();
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -132,16 +136,39 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	// makes it the sweep that guarantees a Turn is stored before exit.
 	pi.on("session_shutdown", async (_event, ctx) => {
 		await store(conversationOf(ctx));
+		await deps.close?.();
 	});
 
-	/** Ingests and embeds. Runs after a response, never before a request. */
-	async function store(conversationId: string): Promise<void> {
+	/**
+	 * Ingests and embeds. Runs after a response, never before a request.
+	 *
+	 * One sweep per Conversation at a time: `agent_end` and `session_shutdown`
+	 * overlap on a short run, and two concurrent passes would select the same
+	 * unembedded rows and embed them twice.
+	 */
+	function store(conversationId: string): Promise<void> {
+		const running = sweeping.get(conversationId);
+		if (running) return running;
+
+		const sweep = runSweep(conversationId).finally(() => {
+			sweeping.delete(conversationId);
+		});
+		sweeping.set(conversationId, sweep);
+		return sweep;
+	}
+
+	async function runSweep(conversationId: string): Promise<void> {
 		if (!deps.ingest) return;
 		try {
 			await ingestJournal(conversationId, deps.ingest);
-			await deps.embed?.(conversationId);
 		} catch (error) {
 			deps.report(`Ingest failed: ${describe(error)}`);
+			return;
+		}
+		try {
+			await deps.embed?.(conversationId);
+		} catch (error) {
+			deps.report(`Embedding failed: ${describe(error)}`);
 		}
 	}
 
@@ -308,7 +335,8 @@ export default function contextManager(pi: ExtensionAPI): void {
 		return;
 	}
 
-	const store = PostgresStore.connect(config.databaseUrl, new LocalEmbedder());
+	const embedder = new LocalEmbedder();
+	const store = PostgresStore.connect(config.databaseUrl, embedder);
 	void store.migrate().catch((error: unknown) => {
 		reportToStderr(`Thread Store migration failed: ${describe(error)}`);
 	});
@@ -320,6 +348,9 @@ export default function contextManager(pi: ExtensionAPI): void {
 		ingest: store,
 		recall: store,
 		embed: (conversationId) => embedAll(store, conversationId),
+		close: () => {
+			embedder.close();
+		},
 		accounting: store,
 		report: reportToStderr,
 	});

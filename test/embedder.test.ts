@@ -6,6 +6,8 @@ import {
 	StubEmbedder,
 } from "../src/embedder.ts";
 
+const BUN = process.env.CM_BUN ?? "bun";
+
 function cosine(a: number[], b: number[]): number {
 	let dot = 0;
 	for (const [index, value] of a.entries()) dot += value * (b[index] ?? 0);
@@ -44,6 +46,33 @@ describe("StubEmbedder", () => {
 
 	test("embedding nothing yields nothing", async () => {
 		expect(await new StubEmbedder().embed([])).toEqual([]);
+	});
+});
+
+describe("LocalEmbedder failure", () => {
+	test("a worker that cannot run rejects rather than hanging", async () => {
+		// The context handler awaits embedding, so a promise nobody settles
+		// would block the Turn instead of degrading it.
+		const embedder = new LocalEmbedder("/bin/false", 5_000);
+
+		await expect(embedder.embed(["anything"])).rejects.toThrow(/exited/);
+	});
+
+	test("a worker that never replies rejects on its deadline", async () => {
+		const silent = new URL("./fixtures/silent-worker.ts", import.meta.url)
+			.pathname;
+		const embedder = new LocalEmbedder(BUN, 250, silent);
+
+		await expect(embedder.embed(["anything"])).rejects.toThrow(/timed out/);
+		embedder.close();
+	});
+
+	test("a failure does not poison the embedder for later batches", async () => {
+		const embedder = new LocalEmbedder("/bin/false", 5_000);
+		await expect(embedder.embed(["first"])).rejects.toThrow();
+
+		// A second attempt starts a fresh worker rather than reusing the dead one.
+		await expect(embedder.embed(["second"])).rejects.toThrow(/exited/);
 	});
 });
 
