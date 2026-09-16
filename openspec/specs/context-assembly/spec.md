@@ -26,7 +26,7 @@ The system SHALL supply the model's message input for every Turn by constructing
 
 ### Requirement: Packs carry the prompt and a verbatim tail
 
-A Context Pack SHALL contain the Turn's prompt and the most recent N Turns reproduced verbatim, where N is configurable. Turns in the verbatim tail SHALL retain their original content, including tool calls and their results.
+A Context Pack SHALL contain the Turn's prompt and the most recent N Turns reproduced verbatim, where N is configurable. Turns in the verbatim tail SHALL retain their original content, including tool calls and their results. The tail SHALL be drawn from the Thread Store, so it does not depend on the harness still carrying that history.
 
 #### Scenario: Recent turns are reproduced exactly
 
@@ -42,6 +42,11 @@ A Context Pack SHALL contain the Turn's prompt and the most recent N Turns repro
 
 - **WHEN** a Turn in the verbatim tail contains a tool call and its result
 - **THEN** both SHALL appear in the pack in a form the model can act on
+
+#### Scenario: The tail outlives the conversation being cleared
+
+- **WHEN** the harness's own conversation is cleared and a new prompt is sent within the same Conversation
+- **THEN** the verbatim tail SHALL still carry the Turns that preceded the clear
 
 ### Requirement: Assembly is deterministic
 
