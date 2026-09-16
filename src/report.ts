@@ -1,4 +1,3 @@
-import type { ToolResult } from "./harness.ts";
 import { messageText } from "./messages.ts";
 import type { FoundTurn } from "./thread-store.ts";
 import type {
@@ -96,33 +95,22 @@ export function renderSummary(summary: ConversationSummary): string {
  * Each hit says where it came from: a recollection from another project is
  * only useful if the agent can tell that is what it is.
  */
-export function renderSearch(found: FoundTurn[]): ToolResult {
+export function renderSearch(found: FoundTurn[]): string {
 	if (found.length === 0) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: "No conversation holds anything relevant to that.",
-				},
-			],
-			details: { results: 0 },
-		};
+		return "No conversation holds anything relevant to that.";
 	}
 
-	const lines = found.map((hit) => {
-		const where = hit.codebase ? `${hit.codebase} ` : "";
-		const body = hit.turn.messages
-			.map((message) => `    ${message.role}: ${messageText(message)}`)
-			.filter((line) => line.trim().length > 0)
-			.join("\n");
-		return `- ${where}conversation ${hit.conversationId}, turn ${hit.turnIndex}\n${body}`;
-	});
-
-	return {
-		content: [{ type: "text", text: lines.join("\n\n") }],
-		details: {
-			results: found.length,
-			conversations: [...new Set(found.map((hit) => hit.conversationId))],
-		},
-	};
+	return found
+		.map((hit) => {
+			const where = hit.codebase ? `${hit.codebase} ` : "";
+			// Filtered on the text, before it is decorated with a role: a tool
+			// call renders as empty text, and an empty line helps nobody.
+			const body = hit.turn.messages
+				.map((message) => ({ role: message.role, text: messageText(message) }))
+				.filter((part) => part.text.trim().length > 0)
+				.map((part) => `    ${part.role}: ${part.text}`)
+				.join("\n");
+			return `- ${where}conversation ${hit.conversationId}, turn ${hit.turnIndex}\n${body}`;
+		})
+		.join("\n\n");
 }

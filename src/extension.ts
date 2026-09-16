@@ -25,7 +25,12 @@ import {
 } from "./report.ts";
 import { findJournal, readJournal } from "./journal.ts";
 import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
-import type { BranchEntry, ExtensionAPI, HandlerContext } from "./harness.ts";
+import type {
+	BranchEntry,
+	ExtensionAPI,
+	HandlerContext,
+	ToolResult,
+} from "./harness.ts";
 import { LocalEmbedder } from "./embedder.ts";
 import { PostgresStore } from "./postgres-store.ts";
 import {
@@ -63,6 +68,12 @@ const UNKNOWN_CONVERSATION = "unknown-conversation";
 
 /** How many hits a cross-Conversation search returns when unasked. */
 const DEFAULT_SEARCH_RESULTS = 5;
+/** A ceiling, so one call cannot empty the store into the window. */
+const MAX_SEARCH_RESULTS = 20;
+
+function toolResult(text: string, details: Record<string, unknown>): ToolResult {
+	return { content: [{ type: "text", text }], details };
+}
 
 /**
  * Wires the Assembler into the harness.
@@ -224,7 +235,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	if (pi.registerTool && deps.search) {
-		const search = deps.search;
 		pi.registerTool({
 			name: "recall_across_conversations",
 			label: "Recall across conversations",
@@ -233,41 +243,51 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"Use when the current conversation does not hold the answer and it " +
 				"may have been decided elsewhere. Results say which conversation " +
 				"and codebase they came from.",
-			parameters: {
-				type: "object",
-				properties: {
-					query: { type: "string", description: "What to look for" },
-					limit: { type: "number", description: "Most results to return" },
-				},
-				required: ["query"],
-			},
-			async execute(_id, params) {
-				const query = typeof params.query === "string" ? params.query : "";
-				const limit =
-					typeof params.limit === "number" && params.limit > 0
-						? Math.floor(params.limit)
-						: DEFAULT_SEARCH_RESULTS;
-				try {
-					return renderSearch(
-						await search.searchAll(query, limit, deps.config.recallMaxDistance),
-					);
-				} catch (error) {
-					// The failure is the search's outcome, not the Turn's: the
-					// agent asked a question and deserves an answer it can act on.
-					const reason = describe(error);
-					deps.report(`Cross-conversation search failed: ${reason}`);
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `The search could not run: ${reason}`,
-							},
-						],
-						details: { failed: true },
-					};
-				}
-			},
+			parameters: pi.zod?.object({
+				query: pi.zod.string().describe("What to look for"),
+				limit: pi.zod.number().describe("Most results to return").optional(),
+			}),
+			execute: (_id, params) => searchCorpus(params),
 		});
+	}
+
+	/**
+	 * The wider search, as the agent sees it. A failure is the search's
+	 * outcome rather than the Turn's: the agent asked a question and needs
+	 * an answer it can act on.
+	 */
+	async function searchCorpus(
+		params: Record<string, unknown>,
+	): Promise<ToolResult> {
+		const query = params.query;
+		if (typeof query !== "string" || query.trim().length === 0) {
+			// Searching for nothing would return whatever happens to fall
+			// under the threshold, which is exactly the weak result the
+			// threshold exists to prevent.
+			return toolResult("A query is required to search.", { failed: true });
+		}
+
+		const asked = typeof params.limit === "number" ? Math.floor(params.limit) : 0;
+		const limit = Math.min(
+			Math.max(asked > 0 ? asked : DEFAULT_SEARCH_RESULTS, 1),
+			MAX_SEARCH_RESULTS,
+		);
+
+		try {
+			const found = await (deps.search?.searchAll(
+				query,
+				limit,
+				deps.config.recallMaxDistance,
+			) ?? Promise.resolve([]));
+			return toolResult(renderSearch(found), {
+				results: found.length,
+				conversations: [...new Set(found.map((hit) => hit.conversationId))],
+			});
+		} catch (error) {
+			const reason = describe(error);
+			deps.report(`Cross-conversation search failed: ${reason}`);
+			return toolResult(`The search could not run: ${reason}`, { failed: true });
+		}
 	}
 
 	if (pi.registerCommand) {

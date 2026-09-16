@@ -59,6 +59,18 @@ export interface ToolResult {
 	details?: Record<string, unknown>;
 }
 
+/** The sliver of the harness's schema builder this extension uses. */
+export interface SchemaField {
+	describe(text: string): SchemaField;
+	optional(): SchemaField;
+}
+
+export interface SchemaBuilder {
+	object(shape: Record<string, SchemaField>): unknown;
+	string(): SchemaField;
+	number(): SchemaField;
+}
+
 export interface ToolDefinition {
 	name: string;
 	label: string;
@@ -78,6 +90,6 @@ export interface ExtensionAPI {
 	): void;
 	registerCommand?: (name: string, command: CommandDefinition) => void;
 	registerTool?: (tool: ToolDefinition) => void;
-	/** Schema builder the harness supplies to extensions. */
-	zod?: unknown;
+	/** Schema builder the harness injects; tool parameters are built with it. */
+	zod?: SchemaBuilder;
 }

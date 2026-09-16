@@ -587,17 +587,24 @@ describe("searching across conversations", () => {
 		expect(result?.content[0]?.text).toContain("No conversation holds");
 	});
 
-	test("a pack is identical whether or not the search exists", async () => {
+	test("searching does not change the pack assembled afterwards", async () => {
 		const messages = [{ role: "user", content: "current" }];
 		const without = harness();
-		const with_ = harness({ search: { searchAll: async () => [hit] } });
+		const searching = harness({ search: { searchAll: async () => [hit] } });
 
-		const a = await without.context({ messages }, ctx());
-		const b = await with_.context({ messages }, ctx());
+		const before = await without.context({ messages }, ctx());
+
+		// Search first, then assemble: a future implementation that fed
+		// results back into assembly would diverge here.
+		await searching.tools.recall_across_conversations?.execute("1", {
+			query: "retries",
+		});
+		const after = await searching.context({ messages }, ctx());
 		await without.settle();
-		await with_.settle();
+		await searching.settle();
 
-		expect(b?.messages).toEqual(a?.messages ?? []);
+		expect(after?.messages).toEqual(before?.messages ?? []);
+		expect(JSON.stringify(after?.messages)).not.toContain("other-conversation");
 	});
 
 	test("no tool is offered when there is nothing to search", async () => {

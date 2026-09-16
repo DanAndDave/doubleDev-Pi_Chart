@@ -330,11 +330,41 @@ describeStore("searching every conversation", () => {
 		expect(await store.searchAll("cache the parsed config", 10, 0.01)).toEqual([]);
 	});
 
-	test("returns no more than asked for, nearest first", async () => {
+	test("returns no more than asked for", async () => {
 		const found = await store.searchAll("cache the parsed config", 1, 2);
 
 		expect(found).toHaveLength(1);
 		expect(found[0]?.turn.prompt).toContain("cache");
+	});
+
+	test("returns hits nearest first across conversations", async () => {
+		const found = await store.searchAll("cache the parsed config", 5, 2);
+
+		expect(found.length).toBeGreaterThan(2);
+		// The caching Turns share wording with the query; the banner and
+		// migration Turns do not, so they must rank below.
+		const prompts = found.map((hit) => hit.turn.prompt);
+		const lastCaching = prompts.findLastIndex((prompt) =>
+			prompt.includes("cache"),
+		);
+		const firstOther = prompts.findIndex((prompt) => !prompt.includes("cache"));
+		expect(firstOther).toBeGreaterThan(lastCaching);
+	});
+
+	test("recall excludes a better match that belongs to another conversation", async () => {
+		// conv-3's Turn is a near-exact match for the query; conv-2's recall
+		// must still not see it, however much closer it is.
+		await store.ingest("conv-3", [
+			subject(0, "the definitive answer about caching", "from elsewhere"),
+		]);
+		while ((await store.embedPending("conv-3")) > 0);
+		const query = "the definitive answer about caching";
+
+		const anywhere = await store.searchAll(query, 1, 2);
+		const scoped = await store.similarTurns("conv-2", query, 5, 2);
+
+		expect(anywhere[0]?.conversationId).toBe("conv-3");
+		expect(scoped.turns.every((hit) => hit.turn.prompt !== query)).toBe(true);
 	});
 
 	test("a pack's tail still sees only its own conversation", async () => {

@@ -76,6 +76,26 @@ Same relevance threshold, same behaviour when nothing qualifies: return nothing.
 | Searching is an action, not an assembly step | Extension handler boundary: register the tool, assert a pack assembled with it available is identical to one without. |
 | A search failure is reported, not fatal | Tool boundary with a rejecting store. |
 
+## What it did in a real session
+
+A decision recorded in one project, asked for from another:
+
+```
+$ cd /tmp/cm-projA && omp -p "Record this decision for project A: our retry
+  policy is exponential backoff capped at 30 seconds..."
+
+$ cd /tmp/cm-projB && omp -p "In an earlier conversation, in a different
+  project, we agreed a retry policy. Use your tools to find out what it was."
+```
+
+The agent in project B called `recall_across_conversations` and answered:
+
+> Source: recalled conversation `01a0abba-…` in codebase `/tmp/cm-projA` — user turn: "our retry policy is exponential backoff capped at 30 seconds."
+>
+> Caveats: It was recorded explicitly as a **project A** decision; current cwd is `/tmp/cm-projB`. Not automatically binding here.
+
+The attribution is doing real work: the agent did not merely find the decision, it recognised whose decision it was. That is the argument for carrying the Codebase rather than just the Conversation.
+
 ## Open Questions
 
 None. The threshold's cross-Conversation value is task 1's measurement.
