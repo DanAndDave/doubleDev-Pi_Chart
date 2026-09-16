@@ -14,7 +14,7 @@ import {
 import type { Pack, PackSource } from "./assembler.ts";
 import { PINNED_DIMENSIONS, type Embedder } from "./embedder.ts";
 import type { Concept, TrustTier } from "./concept.ts";
-import type { ConceptHit, ConceptSearch } from "./doc-index.ts";
+import type { ConceptHit, ConceptSearch, IndexResult } from "./doc-index.ts";
 import type { JournalTurn } from "./journal.ts";
 import { splitConcept, type Section } from "./sections.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
@@ -574,9 +574,12 @@ export class PostgresStore implements
 	 * A section's vector is written in the same statement as its new text,
 	 * so a failed embed leaves the previous vector in place: a Concept is
 	 * never made less retrievable by an interrupted re-index.
+	 *
+	 * Deprecated Concepts are not indexed at all, so a superseded decision
+	 * cannot crowd out the one that replaced it.
 	 */
-	async indexConcepts(concepts: Concept[], batch = 32): Promise<number> {
-		if (!this.embedder) return 0;
+	async indexConcepts(concepts: Concept[], batch = 32): Promise<IndexResult> {
+		if (!this.embedder) return { embedded: 0, contested: [] };
 		if (this.embedder.dimensions !== PINNED_DIMENSIONS) {
 			throw new Error(
 				`embedder produces ${this.embedder.dimensions} dimensions, ` +
@@ -585,13 +588,24 @@ export class PostgresStore implements
 		}
 
 		const byIdentity = new Map<string, Concept>();
+		const contested: string[] = [];
 		for (const concept of concepts) {
+			if (!concept.identity) continue;
 			// First file wins a contested identity — the usual cause is a
 			// Concept copied to start another — so one Concept's sections
-			// can never be interleaved with another's under one key.
-			if (concept.identity && !byIdentity.has(concept.identity)) {
-				byIdentity.set(concept.identity, concept);
+			// can never be interleaved with another's under one key. The
+			// loser is named, because a Concept nothing can find is worse
+			// when nobody is told.
+			if (byIdentity.has(concept.identity)) {
+				contested.push(concept.id);
+				continue;
 			}
+			// Deprecated Concepts are kept out of the index entirely, not
+			// merely filtered at query time: sections nothing may return
+			// would otherwise fill the nearest-neighbour window and hide
+			// the Concepts that superseded them.
+			if (concept.status === "deprecated") continue;
+			byIdentity.set(concept.identity, concept);
 		}
 		const sections = [...byIdentity.values()].flatMap(splitConcept);
 
@@ -599,7 +613,8 @@ export class PostgresStore implements
 
 		const known = new Map<string, string>();
 		const rows = (await this.sql`
-			SELECT identity, section_index, hash FROM concept_sections`) as {
+			SELECT identity, section_index, hash FROM concept_sections
+			WHERE embedding IS NOT NULL`) as {
 			identity: string;
 			section_index: number;
 			hash: string;
@@ -615,7 +630,9 @@ export class PostgresStore implements
 				UPDATE concept_sections
 				SET concept_id = ${concept.id}, status = ${concept.status},
 					trust = ${concept.trust}, stale = ${concept.stale}
-				WHERE identity = ${identity}`;
+				WHERE identity = ${identity}
+					AND (concept_id, status, trust, stale) IS DISTINCT FROM
+						(${concept.id}, ${concept.status}, ${concept.trust}, ${concept.stale})`;
 		}
 
 		const changed = sections.filter(
@@ -655,7 +672,7 @@ export class PostgresStore implements
 				embedded++;
 			}
 		}
-		return embedded;
+		return { embedded, contested };
 	}
 
 	/** Drops Concepts the bundle no longer has, and sections an edit removed. */
@@ -663,7 +680,11 @@ export class PostgresStore implements
 		byIdentity: Map<string, Concept>,
 		sections: Section[],
 	): Promise<void> {
+		// Seeded from the bundle, not from the sections: a Concept still
+		// present but no longer yielding any — emptied, or edited into
+		// non-conformance — must lose its rows rather than keep stale ones.
 		const kept = new Map<string, number>();
+		for (const identity of byIdentity.keys()) kept.set(identity, 0);
 		for (const section of sections) {
 			kept.set(section.identity, (kept.get(section.identity) ?? 0) + 1);
 		}
@@ -720,11 +741,20 @@ export class PostgresStore implements
 				FROM nearest
 				WHERE distance <= ${maxDistance} AND status <> 'deprecated'
 				ORDER BY identity, distance ASC
+			),
+			ranked AS (
+				SELECT *,
+					distance > (SELECT min(distance) FROM best) + ${BAND} AS outside
+				FROM best
 			)
 			SELECT concept_id, text, trust, stale, distance
-			FROM best
+			FROM ranked
 			ORDER BY
-				(distance > (SELECT min(distance) FROM best) + ${BAND}) ASC,
+				-- Comparable matches first, ordered by trust and freshness.
+				-- Everything beyond the band is ordered by relevance alone:
+				-- a tie-break must never promote a distant Concept.
+				outside ASC,
+				CASE WHEN outside THEN distance END ASC,
 				stale ASC,
 				(trust = 'human-reviewed') DESC,
 				distance ASC,

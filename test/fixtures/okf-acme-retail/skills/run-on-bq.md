@@ -1,5 +1,4 @@
 ---
-cm_identity: 11740c4e-bd04-4602-a570-1d0958f869ab
 type: Skill
 title: Run an Attested Computation on BigQuery
 description: "Executor skill for `Attested Computation` concepts with `runtime: bigquery`. Binds declared parameters, submits the job, and returns a receipt the attester will verify."

@@ -1,5 +1,3 @@
-import { stat } from "node:fs/promises";
-
 import {
 	MemoryAccounting,
 	type AccountingStore,
@@ -15,7 +13,7 @@ import {
 } from "./assembler.ts";
 import type { Concept } from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
-import { DocStore } from "./doc-store.ts";
+import { readBundle } from "./doc-store.ts";
 import type { ConceptHit, ConceptSearch } from "./doc-index.ts";
 import {
 	comparePacks,
@@ -65,8 +63,11 @@ export interface Dependencies {
 	search?: CorpusSearch;
 	/** The Doc Store's index, searched during assembly. */
 	docs?: ConceptSearch;
-	/** Reads the bundle the index is derived from. */
-	bundle?: () => Promise<Concept[]>;
+	/**
+	 * Reads the bundle the index is derived from, or resolves to `undefined`
+	 * when there is no bundle to read.
+	 */
+	bundle?: () => Promise<Concept[] | undefined>;
 	/** Settles when the schema is ready. Indexing at session start awaits it. */
 	ready?: Promise<unknown>;
 	/** The Codebase this session is working in. */
@@ -122,7 +123,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"Doc Store indexing",
 				(async () => {
 					await ready;
-					await docs.indexConcepts(await bundle());
+					const concepts = await bundle();
+					// No bundle is nothing to do, not a failure: most machines
+					// have no curated knowledge yet.
+					if (!concepts) return;
+					const { contested } = await docs.indexConcepts(concepts);
+					for (const conceptId of contested) {
+						deps.report(
+							`${conceptId} shares its identity with another concept ` +
+								`and was not indexed`,
+						);
+					}
 				})(),
 			);
 		}
@@ -558,17 +569,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		search: store,
 		docs: store,
 		ready,
-		bundle: async () => {
-			// A missing bundle is not an empty one. Reading on would hand
-			// the index an empty corpus, and indexing would then prune every
-			// Concept a working bundle had put there.
-			await stat(config.docBundle);
-			// Identity first: the index keys on it, and a Concept that has
-			// never been given one is not indexable.
-			const docs = new DocStore(config.docBundle);
-			await docs.ensureIdentities();
-			return docs.concepts();
-		},
+		bundle: () => readBundle(config.docBundle),
 		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),
 		close: () => {

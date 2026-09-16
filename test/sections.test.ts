@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { cp, mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { parseConcept, type Concept } from "../src/concept.ts";
 import { DocStore } from "../src/doc-store.ts";
@@ -53,9 +56,15 @@ describe("splitConcept", () => {
 		// The vendored reference bundle uses `# Definition`, `# What changed
 		// in FY2026`, `# Trust and freshness` — the convention the format
 		// itself documents.
-		const bundle = new DocStore(
+		// On a copy: `ensureIdentities` writes, and a test must not edit the
+		// fixtures it reads.
+		const directory = await mkdtemp(join(tmpdir(), "cm-okf-"));
+		await cp(
 			new URL("./fixtures/okf-acme-retail", import.meta.url).pathname,
+			directory,
+			{ recursive: true },
 		);
+		const bundle = new DocStore(directory);
 		await bundle.ensureIdentities();
 		const concepts = await bundle.concepts();
 		const margin = concepts.find((each) => each.id.endsWith("gross-margin"));
@@ -67,6 +76,19 @@ describe("splitConcept", () => {
 		expect(sections.map((section) => section.text).join("\n")).toContain(
 			"Trust and freshness",
 		);
+	});
+
+	test("a hash comment inside a code fence is not a heading", () => {
+		const sections = splitConcept(
+			concept(
+				"## Usage\n\nRun the importer from the repository root.\n\n" +
+					"```bash\n# install first\nbun install\n# then import\nbun run import\n```\n\n" +
+					"## Caveats\n\nThe importer is not idempotent across partitions.",
+			),
+		);
+
+		expect(sections).toHaveLength(2);
+		expect(sections[0]?.text).toContain("bun run import");
 	});
 
 	test("a short section is kept, joined to what precedes it", () => {

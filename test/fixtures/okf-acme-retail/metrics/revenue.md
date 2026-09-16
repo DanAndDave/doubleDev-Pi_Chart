@@ -1,5 +1,4 @@
 ---
-cm_identity: 80c48706-e1e4-4c86-9f32-c27834ef2b11
 type: Metric
 title: Revenue
 description: Recognized revenue for a period, per Acme's FY2026 revenue-recognition policy. Backed by an Attested Computation.

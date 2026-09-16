@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { IDENTITY_KEY } from "../src/concept.ts";
-import { DocStore } from "../src/doc-store.ts";
+import { DocStore, readBundle } from "../src/doc-store.ts";
 
 const BUNDLE = new URL("./fixtures/bundle", import.meta.url).pathname;
 const AT = new Date("2026-09-16T00:00:00Z");
@@ -205,5 +205,25 @@ describe("concept identity", () => {
 		expect(after).toBeTruthy();
 		expect(after?.id).toBe("decisions/testing");
 		expect(after?.id).not.toBe(before?.id);
+	});
+});
+
+describe("reading a bundle for indexing", () => {
+	test("a path that does not exist is nothing to index, not an error", async () => {
+		// Distinct from an empty list: indexing an empty corpus prunes every
+		// Concept the index holds, so a mistyped path must not look like a
+		// bundle whose Concepts were all deleted.
+		expect(await readBundle("/nonexistent/cm-bundle")).toBeUndefined();
+	});
+
+	test("a bundle that is there yields its concepts, with identities", async () => {
+		const directory = await writableBundle();
+
+		const concepts = await readBundle(directory);
+
+		expect(concepts?.length).toBeGreaterThan(0);
+		expect(
+			concepts?.every((concept) => !concept.conformant || concept.identity),
+		).toBe(true);
 	});
 });

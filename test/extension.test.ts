@@ -651,7 +651,7 @@ describe("the doc store in a session", () => {
 				docBundle: "/unused",
 			},
 			docs: {
-				indexConcepts: async () => 0,
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => [hit],
 			},
 		});
@@ -677,7 +677,7 @@ describe("the doc store in a session", () => {
 				docBundle: "/unused",
 			},
 			docs: {
-				indexConcepts: async () => 0,
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => {
 					throw new Error("index offline");
 				},
@@ -701,7 +701,7 @@ describe("the doc store in a session", () => {
 				indexConcepts: async () => {
 					await indexing.promise;
 					indexed++;
-					return 1;
+					return { embedded: 1, contested: [] };
 				},
 				searchConcepts: async () => [],
 			},
@@ -725,7 +725,7 @@ describe("the doc store in a session", () => {
 	test("a bundle that cannot be read is reported, not thrown", async () => {
 		const cm = harness({
 			docs: {
-				indexConcepts: async () => 0,
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => [],
 			},
 			bundle: async () => {
@@ -741,28 +741,69 @@ describe("the doc store in a session", () => {
 });
 
 describe("a bundle that is not there", () => {
-	test("is reported, and nothing is indexed over it", async () => {
+	test("indexes nothing, and says nothing", async () => {
 		let indexed: number | undefined;
 		const cm = harness({
 			docs: {
 				indexConcepts: async (concepts) => {
 					indexed = concepts.length;
-					return 0;
+					return { embedded: 0, contested: [] };
 				},
 				searchConcepts: async () => [],
 			},
-			bundle: async () => {
-				// What the real reader does when the configured path does not
-				// exist: an empty list here would index nothing over a
-				// working index and prune every Concept in it.
-				throw new Error("ENOENT: no such file or directory");
-			},
+			// What the real reader returns for a path that is not there.
+			bundle: async () => undefined,
 		});
 
 		await cm.sessionStart({}, ctx());
 		await cm.settle();
 
+		// Nothing indexed, because an empty corpus would prune the index —
+		// and nothing reported, because most machines have no bundle.
 		expect(indexed).toBeUndefined();
-		expect(cm.reported.join("\n")).toContain("Doc Store indexing");
+		expect(cm.reported.join("\n")).not.toContain("Doc Store");
+	});
+
+	test("a concept that lost its identity race is named", async () => {
+		const cm = harness({
+			docs: {
+				indexConcepts: async () => ({
+					embedded: 0,
+					contested: ["decisions/caching-copy"],
+				}),
+				searchConcepts: async () => [],
+			},
+			bundle: async () => [],
+		});
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).toContain("decisions/caching-copy");
+	});
+
+	test("indexing waits for the schema", async () => {
+		const migrated = Promise.withResolvers<void>();
+		let indexed = false;
+		const cm = harness({
+			docs: {
+				indexConcepts: async () => {
+					indexed = true;
+					return { embedded: 0, contested: [] };
+				},
+				searchConcepts: async () => [],
+			},
+			bundle: async () => [],
+			ready: migrated.promise,
+		});
+
+		await cm.sessionStart({}, ctx());
+		// The table indexing writes to is created by that migration, so
+		// indexing before it lands fails the whole session's Doc Store.
+		expect(indexed).toBe(false);
+
+		migrated.resolve();
+		await cm.settle();
+		expect(indexed).toBe(true);
 	});
 });

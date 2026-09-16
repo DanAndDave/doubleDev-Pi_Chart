@@ -8,6 +8,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readBundle } from "../src/doc-store.ts";
+import { LocalEmbedder } from "../src/embedder.ts";
 import { inspectConversation } from "../src/inspection.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import { journalText, runHeadless } from "./harness.ts";
@@ -171,6 +173,19 @@ describeStore("curated knowledge against a live model", () => {
 				CM_RECALL_TURNS: "0",
 			};
 			if (process.env.CM_BUN) env.CM_BUN = process.env.CM_BUN;
+
+			// Indexed here, awaited, so the runs below measure retrieval
+			// rather than whether background indexing happened to finish.
+			const embedder = new LocalEmbedder(process.env.CM_BUN);
+			const indexer = PostgresStore.connect(databaseUrl ?? "", embedder);
+			try {
+				await indexer.migrate();
+				const concepts = await readBundle(bundle);
+				await indexer.indexConcepts(concepts ?? []);
+			} finally {
+				await indexer.close();
+				await embedder.close();
+			}
 
 			// Control first, in its own empty Codebase: without the Doc Store
 			// the fact is unreachable, so the answer below can only come from

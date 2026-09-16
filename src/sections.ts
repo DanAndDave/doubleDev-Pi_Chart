@@ -60,13 +60,19 @@ export function splitConcept(concept: Concept): Section[] {
 	return sections;
 }
 
+const FENCE = /^\s*(```|~~~)/;
+
 /** The body's pieces: any preamble, then one per top-level heading. */
 function divide(body: string): string[] {
 	const pieces: string[] = [];
 	let current: string[] = [];
+	let fenced = false;
 
 	for (const line of body.split("\n")) {
-		if (HEADING.test(line) && current.length > 0) {
+		// A `# comment` inside a fenced block is shell, not a heading, and
+		// splitting there would cut a script in half.
+		if (FENCE.test(line)) fenced = !fenced;
+		if (!fenced && HEADING.test(line) && current.length > 0) {
 			pieces.push(current.join("\n").trim());
 			current = [];
 		}

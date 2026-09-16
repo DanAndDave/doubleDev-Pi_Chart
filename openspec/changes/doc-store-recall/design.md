@@ -48,7 +48,7 @@ Keyed by the Concept's rename-stable identity rather than its path, which is exa
 
 ### The threshold is measured for prose, and lands in the same place
 
-0.50 was measured on conversational Turns twice. Curated prose is longer, more formal, and more uniform in register, so there was no reason to assume the number transfers. Measured against a corpus built from this repo's own ADRs and glossary:
+0.50 was measured on conversational Turns twice. Curated prose is longer, more formal, and more uniform in register, so there was no reason to assume the number transfers. Measured against a corpus built from this repo's own ADRs and glossary by `scripts/measure-doc-threshold.ts`, which rebuilds the corpus and reprints this table:
 
 | query | best section | best whole Concept |
 | --- | --- | --- |
@@ -61,6 +61,8 @@ Keyed by the Concept's rename-stable identity rather than its path, which is exa
 Genuine 0.244–0.419, unrelated 0.610–0.653 — a wider gap than conversation gave (0.399 to 0.549), because prose says more per document. **0.50** again, measured separately and kept, with its own setting so the two Stores can diverge when evidence says they should.
 
 The same measurement undercuts half the case for sections: they win on focused documents (0.255 against 0.280) and lose slightly on list-shaped ones like the glossary (0.419 against 0.405). Sections stay, but on the functional argument alone — a query matching one section must retrieve its Concept — not on a distance improvement that does not reliably exist.
+
+The threshold is also checked against the real model in the test suite, so the number cannot drift away from the model that justified it.
 
 ### Concepts enter the pack as attributed knowledge
 

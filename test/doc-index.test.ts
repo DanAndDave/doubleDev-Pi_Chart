@@ -9,6 +9,8 @@ import { join } from "node:path";
 
 import { parseConcept, type Concept } from "../src/concept.ts";
 import { DocStore } from "../src/doc-store.ts";
+import { SQL } from "bun";
+
 import { LocalEmbedder, StubEmbedder } from "../src/embedder.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
@@ -49,14 +51,17 @@ const BANNER = concept(
 
 describeStore("the concept index", () => {
 	let store: PostgresStore;
+	let sql: SQL;
 
 	beforeAll(async () => {
 		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
 		await store.migrate();
+		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
 		await store?.close();
+		await sql?.close();
 	});
 
 	beforeEach(async () => {
@@ -117,9 +122,9 @@ describeStore("the concept index", () => {
 	});
 
 	test("indexing an unchanged bundle embeds nothing the second time", async () => {
-		expect(await store.indexConcepts([CACHING, BANNER])).toBeGreaterThan(0);
+		expect((await store.indexConcepts([CACHING, BANNER])).embedded).toBeGreaterThan(0);
 
-		expect(await store.indexConcepts([CACHING, BANNER])).toBe(0);
+		expect((await store.indexConcepts([CACHING, BANNER])).embedded).toBe(0);
 	});
 
 	test("an edited concept is findable by its new content", async () => {
@@ -131,7 +136,7 @@ describeStore("the concept index", () => {
 			"type: Decision\ntitle: Caching parsed configuration",
 		);
 
-		expect(await store.indexConcepts([edited])).toBeGreaterThan(0);
+		expect((await store.indexConcepts([edited])).embedded).toBeGreaterThan(0);
 
 		const found = await store.searchConcepts("reload every request", 5, 2);
 		expect(found[0]?.text).toContain("reload configuration on every request");
@@ -144,6 +149,62 @@ describeStore("the concept index", () => {
 
 		const found = await store.searchConcepts("muted green banner", 5, 2);
 		expect(found.map((hit) => hit.conceptId)).not.toContain("standards/banner");
+	});
+
+	test("a concept edited into nothing leaves the index", async () => {
+		await store.indexConcepts([CACHING]);
+		const emptied = concept("decisions/caching", "id-caching", "", "type: Decision");
+
+		await store.indexConcepts([emptied]);
+
+		const found = await store.searchConcepts("parsed configuration", 5, 2);
+		expect(found.map((hit) => hit.conceptId)).not.toContain("decisions/caching");
+	});
+
+	test("a section that lost its vector is embedded again", async () => {
+		await store.indexConcepts([CACHING]);
+		// The state an interrupted index leaves behind: text and hash
+		// current, vector gone.
+		await sql`UPDATE concept_sections SET embedding = NULL`;
+
+		const { embedded } = await store.indexConcepts([CACHING]);
+
+		expect(embedded).toBeGreaterThan(0);
+		const found = await store.searchConcepts("parsed configuration memory", 5, 0.5);
+		expect(found.map((hit) => hit.conceptId)).toContain("decisions/caching");
+	});
+
+	test("a concept that has been deprecated leaves the index", async () => {
+		await store.indexConcepts([CACHING]);
+		const superseded = concept(
+			"decisions/caching",
+			"id-caching",
+			CACHING.body,
+			"type: Decision\ntitle: Caching\nstatus: deprecated",
+		);
+
+		await store.indexConcepts([superseded]);
+
+		// Not merely filtered at query time: a superseded Concept still in
+		// the index would fill the candidate window ahead of its successor.
+		const rows = (await sql`
+			SELECT count(*)::int AS count FROM concept_sections`) as {
+			count: number;
+		}[];
+		expect(rows[0]?.count).toBe(0);
+	});
+
+	test("a concept that copied another's identity is named, not swallowed", async () => {
+		const copy = concept(
+			"decisions/caching-copy",
+			"id-caching",
+			"## Decision\n\nA copy that never had its identity replaced.",
+			"type: Decision\ntitle: Caching copy",
+		);
+
+		const { contested } = await store.indexConcepts([CACHING, copy]);
+
+		expect(contested).toEqual(["decisions/caching-copy"]);
 	});
 
 	test("sections an edit removed leave the index", async () => {
@@ -166,16 +227,55 @@ describeStore("the concept index", () => {
 	});
 });
 
+/**
+ * The query this file's ranking tests search with, and the vectors `place`
+ * positions around it. Distances are set directly because no wording puts
+ * two Concepts a chosen distance apart.
+ */
+const PROBE = "anchor";
+
+async function place(
+	sql: SQL,
+	rows: { conceptId: string; distance: number; stale: boolean }[],
+): Promise<void> {
+	const [probe] = await new StubEmbedder().embed([PROBE]);
+	if (!probe) throw new Error("no probe vector");
+	// A vector at cosine distance d from the probe: rotate towards an axis
+	// the probe does not use.
+	const axis = probe.map((_, index) => (index === probe.length - 1 ? 1 : 0));
+	for (const [index, row] of rows.entries()) {
+		const cos = 1 - row.distance;
+		const sin = Math.sqrt(1 - cos * cos);
+		const vector = probe.map(
+			(value, at) => value * cos + (axis[at] ?? 0) * sin,
+		);
+		await sql`
+			INSERT INTO concept_sections
+				(identity, section_index, concept_id, status, trust, stale, hash,
+				 text, embedding)
+			VALUES (
+				${`id-${index}`}, 0, ${row.conceptId}, 'stable', 'unverified',
+				${row.stale}, ${`hash-${index}`}, ${`text for ${row.conceptId}`},
+				${JSON.stringify(vector)}::vector
+			)`;
+	}
+}
+
 describeStore("lifecycle and trust in retrieval", () => {
 	let store: PostgresStore;
+	let sql: SQL;
 
 	beforeAll(async () => {
 		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
 		await store.migrate();
+		// Its own connection: placing vectors by hand is a fixture concern,
+		// not something the Store's interface should expose.
+		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
 		await store?.close();
+		await sql?.close();
 	});
 
 	beforeEach(async () => {
@@ -299,6 +399,43 @@ describeStore("lifecycle and trust in retrieval", () => {
 		expect(found[0]?.conceptId).toBe("decisions/z-retries");
 	});
 
+	test("a distant concept never outranks a nearer one on trust alone", async () => {
+		// Placed by hand at 0.10, 0.20 and 0.50 from the query: crafting
+		// those distances through text is not possible, and the ordering is
+		// exactly what this checks. The nearest is current, the middle one
+		// stale, the furthest current — so any rule that lets trust outrank
+		// relevance puts the furthest second.
+		await place(sql, [
+			{ conceptId: "decisions/nearest", distance: 0.1, stale: false },
+			{ conceptId: "decisions/middle", distance: 0.2, stale: true },
+			{ conceptId: "decisions/furthest", distance: 0.5, stale: false },
+		]);
+
+		const found = await store.searchConcepts(PROBE, 3, 2);
+
+		expect(found.map((hit) => hit.conceptId)).toEqual([
+			"decisions/nearest",
+			"decisions/middle",
+			"decisions/furthest",
+		]);
+	});
+
+	test("within the band, trust outranks a slightly better match", async () => {
+		// 0.02 apart — inside the band — so the fresher Concept wins even
+		// though the stale one matches marginally better.
+		await place(sql, [
+			{ conceptId: "decisions/stale-best", distance: 0.2, stale: true },
+			{ conceptId: "decisions/current", distance: 0.22, stale: false },
+		]);
+
+		const found = await store.searchConcepts(PROBE, 2, 2);
+
+		expect(found.map((hit) => hit.conceptId)).toEqual([
+			"decisions/current",
+			"decisions/stale-best",
+		]);
+	});
+
 	test("nothing relevant returns nothing", async () => {
 		await store.indexConcepts([CACHING]);
 
@@ -334,7 +471,7 @@ describeStore("indexing a bundle from disk", () => {
 		const bundle = new DocStore(directory);
 		await bundle.ensureIdentities();
 
-		const embedded = await store.indexConcepts(await bundle.concepts());
+		const { embedded } = await store.indexConcepts(await bundle.concepts());
 
 		expect(embedded).toBeGreaterThan(0);
 	});

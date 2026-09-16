@@ -1,5 +1,4 @@
 ---
-cm_identity: cb97fc2b-7caf-4ae0-b186-1d6b2d33a518
 type: Attested Computation
 title: Gross margin for a period
 description: Sanctioned SQL that produces the gross-margin figure for a period, per Acme's FY2026 Cost Allocation Standard (full COGS = product + fulfillment + shipping + payment fees).

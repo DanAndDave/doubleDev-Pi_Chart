@@ -1,5 +1,4 @@
 ---
-cm_identity: 58ce05d9-e42b-4f6d-a984-5652b825da40
 type: Attested Computation
 title: Revenue for a fiscal year
 description: Sanctioned SQL that produces the recognized-revenue figure for a given fiscal year, per Acme's FY2026 Revenue Recognition Policy.

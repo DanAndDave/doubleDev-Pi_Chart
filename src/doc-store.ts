@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -239,4 +239,28 @@ function withIdentity(source: string, identity: string): string | undefined {
 	const match = /^---\r?\n/.exec(source);
 	if (!match) return undefined;
 	return `${match[0]}${IDENTITY_KEY}: ${identity}\n${source.slice(match[0].length)}`;
+}
+
+/**
+ * The bundle at `root`, ready to index, or `undefined` when there is no
+ * bundle there.
+ *
+ * The distinction matters: indexing an empty corpus prunes every Concept the
+ * index holds, so a mistyped path or an unmounted drive would quietly
+ * discard the whole index. A machine with no curated knowledge yet is not an
+ * error, though, so absence is reported as nothing to do rather than as a
+ * failure.
+ */
+export async function readBundle(root: string): Promise<Concept[] | undefined> {
+	try {
+		await stat(root);
+	} catch {
+		return undefined;
+	}
+
+	const store = new DocStore(root);
+	// Identity first: the index keys on it, and a Concept that has never
+	// been given one is not indexable.
+	await store.ensureIdentities();
+	return store.concepts();
 }
