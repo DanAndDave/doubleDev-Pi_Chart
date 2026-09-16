@@ -120,7 +120,7 @@ The system SHALL embed Turns that were ingested before embedding was available, 
 
 ### Requirement: Retrieval ranks turns by similarity to the prompt
 
-The system SHALL return the Turns most similar in meaning to a given prompt, most similar first, limited to a requested count. Retrieval SHALL remain scoped to the current Conversation.
+The system SHALL return the Turns most similar in meaning to a given prompt, most similar first, limited to a requested count. Retrieval SHALL remain scoped to the current Conversation. A Turn SHALL be returned only when its similarity meets a configured minimum, so that retrieval returns what is relevant rather than merely what is nearest.
 
 #### Scenario: The most relevant turn comes first
 
@@ -141,3 +141,23 @@ The system SHALL return the Turns most similar in meaning to a given prompt, mos
 
 - **WHEN** retrieval runs against a Conversation whose Turns have no vectors yet
 - **THEN** it SHALL return no Turns and SHALL NOT raise
+
+#### Scenario: A turn below the threshold is not returned
+
+- **WHEN** the nearest Turn to a prompt is still less similar than the minimum
+- **THEN** it SHALL NOT be returned, even though nothing ranks above it
+
+#### Scenario: A conversation with nothing relevant returns nothing
+
+- **WHEN** no Turn in a Conversation meets the minimum for a prompt
+- **THEN** retrieval SHALL return no Turns rather than its least-irrelevant ones
+
+#### Scenario: The threshold does not disturb ranking
+
+- **WHEN** several Turns meet the minimum
+- **THEN** they SHALL be returned in the same order they would have been without it
+
+#### Scenario: Retrieval reports what the threshold excluded
+
+- **WHEN** retrieval rejects Turns for being below the minimum
+- **THEN** it SHALL report how many it rejected, so the minimum can be judged
