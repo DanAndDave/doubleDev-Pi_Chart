@@ -34,6 +34,7 @@ function view(overrides: Partial<CallView> = {}): CallView {
 		floorTokens: 26_000,
 		floorShare: 26_000 / 30_000,
 		unassembled: false,
+		rejected: 0,
 		...overrides,
 	};
 }
@@ -187,5 +188,35 @@ describe("rendering relevance", () => {
 		);
 
 		expect(text).toContain("3 dropped");
+	});
+});
+
+describe("rendering a call that recalled nothing", () => {
+	test("says how many were rejected even with no recalled part", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					{
+						source: "current-turn",
+						approximateTokens: 18,
+						carried: 1,
+						turnIndices: [4],
+						trimmed: false,
+						dropped: 0,
+						irrelevant: 0,
+					},
+				],
+				rejected: 6,
+			}),
+		);
+
+		expect(text).toContain("recalled");
+		expect(text).toContain("6 not relevant enough");
+	});
+
+	test("stays quiet when nothing was rejected", () => {
+		const text = renderCall(view({ rejected: 0 }));
+
+		expect(text).not.toContain("not relevant enough");
 	});
 });

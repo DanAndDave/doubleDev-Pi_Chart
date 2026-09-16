@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
 import { MemoryAccounting, type TurnAccounting } from "../src/accounting.ts";
-import { DEFAULT_TAIL_TURNS, setBudget, type Config } from "../src/config.ts";
+import {
+	DEFAULT_RECALL_MAX_DISTANCE,
+	DEFAULT_TAIL_TURNS,
+	loadConfig,
+	setBudget,
+	type Config,
+} from "../src/config.ts";
 import { assemble } from "../src/assembler.ts";
 import {
 	comparePacks,
@@ -419,5 +425,25 @@ describe("relevance against budget", () => {
 		expect(part?.trimmed).toBe(true);
 		expect(part?.dropped).toBe(2);
 		expect(part?.irrelevant).toBe(2);
+	});
+});
+
+describe("configuration of the threshold", () => {
+	test("an unset threshold falls back to the measured default", () => {
+		expect(loadConfig({}).recallMaxDistance).toBe(DEFAULT_RECALL_MAX_DISTANCE);
+	});
+
+	test("a usable threshold is taken as given", () => {
+		expect(loadConfig({ CM_RECALL_MAX_DISTANCE: "0.35" }).recallMaxDistance).toBe(
+			0.35,
+		);
+	});
+
+	test("an unusable threshold falls back rather than disabling recall", () => {
+		for (const value of ["tight", "-1", "5", ""]) {
+			expect(loadConfig({ CM_RECALL_MAX_DISTANCE: value }).recallMaxDistance).toBe(
+				DEFAULT_RECALL_MAX_DISTANCE,
+			);
+		}
 	});
 });

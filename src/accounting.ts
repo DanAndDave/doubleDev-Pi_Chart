@@ -29,6 +29,8 @@ export interface CallAccounting extends CallAddress {
 	tailSource?: TailSource;
 	/** The Budgets in force for this Call, recorded even when unused. */
 	budgets?: { tail: number; recall: number };
+	/** Candidates refused as not relevant enough, even when none survived. */
+	rejected?: number;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -172,6 +174,7 @@ export class MemoryAccounting implements AccountingStore {
 		call.approximateTokens = pack.approximateTokens;
 		call.tailSource = tailSource;
 		call.budgets = pack.budgets;
+		call.rejected = pack.rejected;
 	}
 
 	async recordUnassembled(

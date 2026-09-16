@@ -37,6 +37,12 @@ export interface CallView {
 	unassembled: boolean;
 	/** The Budgets in force, recorded even where a part carried nothing. */
 	budgets?: { tail: number; recall: number };
+	/**
+	 * Candidates refused as not relevant enough. Reported on the Call, so it
+	 * survives the case where nothing was relevant and there is no recalled
+	 * part to carry it.
+	 */
+	rejected: number;
 }
 
 /** What changed between two Calls' packs. */
@@ -87,6 +93,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		floorShare,
 		unassembled: call.unassembled === true,
 		budgets: call.budgets,
+		rejected: call.rejected ?? 0,
 	};
 }
 

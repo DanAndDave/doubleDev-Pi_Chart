@@ -196,7 +196,7 @@ describeStore("per-part detail round-trips", () => {
 	});
 });
 
-describeStore("the relevance floor", () => {
+describeStore("the relevance threshold", () => {
 	let store: PostgresStore;
 
 	beforeAll(async () => {
@@ -221,24 +221,27 @@ describeStore("the relevance floor", () => {
 		expect(turns).toEqual([]);
 	});
 
-	test("nothing relevant yields nothing, not the least-irrelevant turns", async () => {
-		const { turns } = await store.similarTurns(
-			"conv-1",
-			"an utterly unrelated subject",
-			3,
-			0.01,
-		);
+	test("rejections are counted from the turns that would have competed", async () => {
+		// Only the nearest `limit` are contenders, so the count describes
+		// this retrieval rather than the length of the Conversation.
+		const { rejected } = await store.similarTurns("conv-1", "caching", 2, 0.01);
 
-		expect(turns).toEqual([]);
+		expect(rejected).toBe(2);
 	});
 
-	test("a permissive floor returns the same turns in the same order", async () => {
-		const withFloor = await store.similarTurns("conv-1", "caching", 3, PERMISSIVE);
-		const wideOpen = await store.similarTurns("conv-1", "caching", 3, 2);
+	test("a threshold that admits everything does not disturb the ranking", async () => {
+		// A probe sharing wording with one Turn, so the order is meaningful
+		// rather than a tie-break; 1.0 admits this whole corpus without being
+		// the maximum, so the comparison is against a different query.
+		const probe = "cache the parsed config";
+		const withThreshold = await store.similarTurns("conv-1", probe, 3, 1);
+		const wideOpen = await store.similarTurns("conv-1", probe, 3, 2);
 
-		expect(withFloor.turns.map((each) => each.turnIndex)).toEqual(
+		expect(withThreshold.turns.map((each) => each.turnIndex)).toEqual(
 			wideOpen.turns.map((each) => each.turnIndex),
 		);
+		expect(withThreshold.turns.length).toBeGreaterThan(1);
+		expect(withThreshold.turns[0]?.turnIndex).toBe(0);
 	});
 
 	test("retrieval reports how many it refused", async () => {

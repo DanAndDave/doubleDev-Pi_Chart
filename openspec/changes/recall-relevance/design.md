@@ -42,9 +42,9 @@ Genuine hits land at 0.30–0.39, same-Conversation noise at 0.43–0.49, unrela
 
 The separation is real but not wide, and it is a property of this model on Turns of this length. That is why the number is configurable and why retrieval reports what it rejected.
 
-### The floor is a distance, applied in SQL
+### The threshold is a distance, applied in SQL
 
-pgvector's `<=>` yields cosine distance in `[0, 2]`; smaller is nearer. The query gains `WHERE embedding <=> $vector < $maxDistance`, so the database rejects what it was already measuring and returns less over the wire. The alternative — filtering in the Assembler — would mean transporting and de-serialising Turns solely to discard them.
+pgvector's `<=>` yields cosine distance in `[0, 2]`; smaller is nearer. The query gains `WHERE embedding <=> $vector <= $maxDistance`, so the database rejects what it was already measuring and returns less over the wire. The alternative — filtering in the Assembler — would mean transporting and de-serialising Turns solely to discard them.
 
 Distance, not similarity, because that is what the index computes and what the operator returns. Converting to a friendlier 0-to-1 similarity at the boundary would introduce a second number meaning the same thing, and those diverge.
 
@@ -79,6 +79,20 @@ When everything falls below the floor there is no recalled part, exactly as with
 | Irrelevance is distinguished from a budget | Inspection API boundary, with a part that was neither trimmed nor full. |
 
 The stub embedder makes distances predictable enough to assert ordering and exclusion without a model; one gated test confirms the default threshold does the intended thing with the real model, since that is the only place the number means anything.
+
+## What changed in practice
+
+The scenario that exposed the defect, re-run at the default threshold with a tail of 2 and a recall Budget of 3:
+
+```
+recalled       ~41 tokens (1 of 3, 1 not relevant enough) turns 1
+verbatim-tail  ~47 tokens (2 of 2) turns 2, 3
+current-turn   ~18 tokens turns 4
+```
+
+Asked about retries it recalls turn 1 — the retries decision — and nothing else; the river and the colour are gone, and the agent still answers "Retries use exponential backoff, capped at 30 seconds."
+
+Note this is the corpus the measurement section says does *not* separate on an absolute distance. It works here because what the threshold removes is the tail of the ranking, and turn 1 happened to sit above 0.50's cut while the noise sat below it. Read as evidence that the threshold helps on this shape of Conversation, not that 0.50 is a general constant.
 
 ## Open Questions
 

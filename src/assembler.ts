@@ -54,6 +54,12 @@ export interface Pack {
 	parts: PackPart[];
 	/** The Budgets in force for this Call, whether or not a part used them. */
 	budgets: { tail: number; recall: number };
+	/**
+	 * Candidates retrieval refused as not relevant enough. A Call-level fact,
+	 * not a part's: when everything is refused there is no recalled part to
+	 * hang it on, and that is exactly the case worth explaining.
+	 */
+	rejected: number;
 	/** Sum of the parts' approximations. Approximate, for attribution only. */
 	approximateTokens: number;
 }
@@ -135,6 +141,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		messages,
 		parts,
 		budgets: { tail: config.tailTurns, recall: config.recallTurns },
+		rejected,
 		approximateTokens: total,
 	};
 }

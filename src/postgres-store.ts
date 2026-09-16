@@ -81,6 +81,14 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS budgets JSONB`,
 		],
 	},
+	{
+		// A separate version: three is already recorded as applied on any
+		// store that has run this code, so adding to it would never execute.
+		version: 4,
+		statements: [
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS rejected INTEGER`,
+		],
+	},
 ];
 
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
@@ -103,6 +111,7 @@ interface AccountingRow {
 	unassembled: boolean;
 	tail_source: TailSource | null;
 	budgets: JsonColumn;
+	rejected: number | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -261,25 +270,30 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		if (!vector) return empty;
 
 		const embedding = JSON.stringify(vector);
-		// The floor is applied in the database, which was measuring the
-		// distance anyway, so rejected Turns never cross the wire. Applied
-		// before the limit, so over-fetching still returns only what is
-		// relevant.
+		// One scan: distance is computed once, the threshold filters, and the
+		// rejects are counted from the same scored set. Counting separately
+		// would re-score every Turn without the index, and the two scans
+		// could disagree if embedding ran between them.
+		//
+		// Only candidates that would have competed are counted: the nearest
+		// `limit` of them. Reporting every distant Turn in a long
+		// Conversation would say more about its length than its relevance.
 		const rows = (await this.sql`
-			SELECT turn_index, prompt
-			FROM turns
-			WHERE conversation_id = ${conversationId}
-				AND embedding IS NOT NULL
-				AND (embedding <=> ${embedding}::vector) <= ${maxDistance}
-			ORDER BY embedding <=> ${embedding}::vector ASC, turn_index ASC
-			LIMIT ${limit}`) as { turn_index: number; prompt: string }[];
-
-		const [counted] = (await this.sql`
-			SELECT count(*)::int AS rejected
-			FROM turns
-			WHERE conversation_id = ${conversationId}
-				AND embedding IS NOT NULL
-				AND (embedding <=> ${embedding}::vector) > ${maxDistance}`) as {
+			WITH scored AS (
+				SELECT turn_index, embedding <=> ${embedding}::vector AS distance
+				FROM turns
+				WHERE conversation_id = ${conversationId} AND embedding IS NOT NULL
+			),
+			contenders AS (
+				SELECT * FROM scored ORDER BY distance ASC, turn_index ASC LIMIT ${limit}
+			)
+			SELECT turn_index,
+				(SELECT count(*)::int FROM contenders WHERE distance > ${maxDistance})
+					AS rejected
+			FROM contenders
+			WHERE distance <= ${maxDistance}
+			ORDER BY distance ASC, turn_index ASC`) as {
+			turn_index: number;
 			rejected: number;
 		}[];
 
@@ -288,6 +302,18 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 			const turn = await this.turnAt(conversationId, row.turn_index);
 			if (turn) turns.push({ turnIndex: row.turn_index, turn });
 		}
+
+		// With no surviving row the subquery has nothing to ride on, so the
+		// count is asked for directly — the case that matters most to explain.
+		if (rows.length > 0) return { turns, rejected: rows[0]?.rejected ?? 0 };
+
+		const [counted] = (await this.sql`
+			SELECT count(*)::int AS rejected FROM (
+				SELECT embedding <=> ${embedding}::vector AS distance
+				FROM turns
+				WHERE conversation_id = ${conversationId} AND embedding IS NOT NULL
+				ORDER BY distance ASC LIMIT ${limit}
+			) contenders WHERE distance > ${maxDistance}`) as { rejected: number }[];
 		return { turns, rejected: counted?.rejected ?? 0 };
 	}
 
@@ -354,11 +380,11 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		await this.sql`
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
-				 approximate_tokens, unassembled, tail_source, budgets)
+				 approximate_tokens, unassembled, tail_source, budgets, rejected)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
-				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb
+				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -367,7 +393,8 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 				approximate_tokens = EXCLUDED.approximate_tokens,
 				unassembled = FALSE,
 				tail_source = EXCLUDED.tail_source,
-				budgets = EXCLUDED.budgets`;
+				budgets = EXCLUDED.budgets,
+				rejected = EXCLUDED.rejected`;
 	}
 
 	async recordUnassembled(
@@ -406,7 +433,8 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 	async readAccounting(conversationId: string): Promise<TurnAccounting[]> {
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
-			       pack_tokens, floor_tokens, unassembled, tail_source, budgets
+			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
+			       rejected
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -430,6 +458,7 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 				row.budgets,
 				undefined,
 			),
+			rejected: row.rejected ?? undefined,
 		}));
 
 		return groupByTurn(conversationId, calls);

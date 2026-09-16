@@ -26,6 +26,14 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
+	// Said once, on the Call, because a Call that recalled nothing has no
+	// part to say it on — and that is the case worth explaining.
+	if (view.rejected > 0 && !view.parts.some((part) => part.source === "recalled")) {
+		lines.push(
+			`  recalled       nothing (${view.rejected} not relevant enough)`,
+		);
+	}
+
 	if (view.floorTokens === undefined || view.packTokens === undefined) {
 		lines.push("  window        not reported yet");
 		return lines.join("\n");
