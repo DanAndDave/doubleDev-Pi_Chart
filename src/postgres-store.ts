@@ -16,7 +16,13 @@ import { PINNED_DIMENSIONS, type Embedder } from "./embedder.ts";
 import type { JournalTurn } from "./journal.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
 import { messageText } from "./messages.ts";
-import type { RecalledTurn, TurnRecall, TurnSink, TurnSource } from "./thread-store.ts";
+import type {
+	Recollections,
+	RecalledTurn,
+	TurnRecall,
+	TurnSink,
+	TurnSource,
+} from "./thread-store.ts";
 
 /**
  * Forward-only schema. Each entry runs once, in order, recorded by version;
@@ -247,24 +253,42 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		conversationId: string,
 		prompt: string,
 		limit: number,
-	): Promise<RecalledTurn[]> {
-		if (!this.embedder || limit <= 0) return [];
+		maxDistance: number,
+	): Promise<Recollections> {
+		const empty: Recollections = { turns: [], rejected: 0 };
+		if (!this.embedder || limit <= 0) return empty;
 		const [vector] = await this.embedder.embed([prompt]);
-		if (!vector) return [];
+		if (!vector) return empty;
 
+		const embedding = JSON.stringify(vector);
+		// The floor is applied in the database, which was measuring the
+		// distance anyway, so rejected Turns never cross the wire. Applied
+		// before the limit, so over-fetching still returns only what is
+		// relevant.
 		const rows = (await this.sql`
 			SELECT turn_index, prompt
 			FROM turns
-			WHERE conversation_id = ${conversationId} AND embedding IS NOT NULL
-			ORDER BY embedding <=> ${JSON.stringify(vector)}::vector ASC, turn_index ASC
+			WHERE conversation_id = ${conversationId}
+				AND embedding IS NOT NULL
+				AND (embedding <=> ${embedding}::vector) <= ${maxDistance}
+			ORDER BY embedding <=> ${embedding}::vector ASC, turn_index ASC
 			LIMIT ${limit}`) as { turn_index: number; prompt: string }[];
 
-		const recalled: RecalledTurn[] = [];
+		const [counted] = (await this.sql`
+			SELECT count(*)::int AS rejected
+			FROM turns
+			WHERE conversation_id = ${conversationId}
+				AND embedding IS NOT NULL
+				AND (embedding <=> ${embedding}::vector) > ${maxDistance}`) as {
+			rejected: number;
+		}[];
+
+		const turns: RecalledTurn[] = [];
 		for (const row of rows) {
 			const turn = await this.turnAt(conversationId, row.turn_index);
-			if (turn) recalled.push({ turnIndex: row.turn_index, turn });
+			if (turn) turns.push({ turnIndex: row.turn_index, turn });
 		}
-		return recalled;
+		return { turns, rejected: counted?.rejected ?? 0 };
 	}
 
 	private async turnAt(

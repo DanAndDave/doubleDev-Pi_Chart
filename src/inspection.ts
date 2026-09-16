@@ -20,6 +20,8 @@ export interface PartView {
 	trimmed: boolean;
 	/** How many candidates the Budget excluded. */
 	dropped: number;
+	/** How many were refused as insufficiently relevant, before any Budget. */
+	irrelevant: number;
 }
 
 /** What one Call's Context Window was made of. */
@@ -57,6 +59,8 @@ export interface ConversationSummary {
 	budgetUse: {
 		source: PackSource;
 		averageCarried: number;
+		/** How many candidates were typically refused as irrelevant. */
+		averageIrrelevant: number;
 		budget?: number;
 		timesTrimmed: number;
 	}[];
@@ -102,9 +106,11 @@ function viewPart(part: RecordedPart): PartView {
 		turnIndices,
 		budget: part.budget,
 		candidates,
-		// Trimmed means the Budget bound it, not merely that supply ran out.
+		// Trimmed means the Budget bound it, not merely that supply ran out
+		// or that nothing was relevant enough to carry.
 		trimmed: dropped > 0 && part.budget !== undefined && carried >= part.budget,
 		dropped,
+		irrelevant: part.irrelevant ?? 0,
 	};
 }
 
@@ -185,6 +191,7 @@ function budgetUse(calls: CallView[]): ConversationSummary["budgetUse"] {
 	return [...bySource.entries()].map(([source, parts]) => ({
 		source,
 		averageCarried: mean(parts.map((part) => part.carried)),
+		averageIrrelevant: mean(parts.map((part) => part.irrelevant)),
 		// The Budget most recently in force: an average across a mid-session
 		// change would describe a Budget that never existed.
 		budget: parts.findLast((part) => part.budget !== undefined)?.budget,

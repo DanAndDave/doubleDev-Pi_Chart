@@ -23,6 +23,25 @@ See `proposal.md` for motivation and the two delta specs for the contract.
 
 ## Decisions
 
+### The default is measured, not chosen
+
+Two corpora were measured before any constant was written.
+
+The five-Turn synthetic session that exposed the defect does **not** separate: the genuine hit sat at 0.475 while an unrelated probe ("deployment pipeline") reached 0.410 against a Turn it had nothing to do with. Any constant keeping the hit admits that noise. Reported here because it is the honest limit of this approach on short, boilerplate-heavy Turns — "Name a colour. One word, no tools." is mostly instruction, and instructions look alike.
+
+A real session of ten substantial Turns separates cleanly:
+
+| probe | nearest | next |
+| --- | --- | --- |
+| "How did we get the docker daemon working?" | **0.389** (the docker Turn) | 0.465 |
+| "What did we decide about the OKF document store?" | **0.305** (the OKF Turn) | 0.431 |
+| "What is the best recipe for sourdough bread?" | 0.591 | — |
+| "Explain the offside rule in football" | 0.514 | — |
+
+Genuine hits land at 0.30–0.39, same-Conversation noise at 0.43–0.49, unrelated probes at 0.51 and above. **The default is 0.50**: it keeps every genuine hit measured, rejects the noise that prompted this slice, and rejects both unrelated probes. Not 0.45, which would reject the docker hit's neighbours but sits uncomfortably close to the 0.431 noise; not 0.55, which admits the offside probe.
+
+The separation is real but not wide, and it is a property of this model on Turns of this length. That is why the number is configurable and why retrieval reports what it rejected.
+
 ### The floor is a distance, applied in SQL
 
 pgvector's `<=>` yields cosine distance in `[0, 2]`; smaller is nearer. The query gains `WHERE embedding <=> $vector < $maxDistance`, so the database rejects what it was already measuring and returns less over the wire. The alternative — filtering in the Assembler — would mean transporting and de-serialising Turns solely to discard them.

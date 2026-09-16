@@ -11,10 +11,13 @@ export function renderCall(view: CallView): string {
 	];
 
 	for (const part of view.parts) {
+		const excluded = part.trimmed
+			? `, ${part.dropped} dropped`
+			: part.irrelevant > 0
+				? `, ${part.irrelevant} not relevant enough`
+				: "";
 		const budget =
-			part.budget === undefined
-				? ""
-				: ` of ${part.budget}${part.trimmed ? `, ${part.dropped} dropped` : ""}`;
+			part.budget === undefined ? "" : ` of ${part.budget}${excluded}`;
 		const turns =
 			part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
 		lines.push(
@@ -63,9 +66,13 @@ export function renderSummary(summary: ConversationSummary): string {
 
 	for (const use of summary.budgetUse) {
 		const budget = use.budget === undefined ? "" : ` of ${use.budget}`;
+		const irrelevant =
+			use.averageIrrelevant > 0
+				? `, ${use.averageIrrelevant} rejected as irrelevant on average`
+				: "";
 		lines.push(
 			`  ${use.source.padEnd(14)} carried ${use.averageCarried}${budget} on average` +
-				`, trimmed ${use.timesTrimmed} times`,
+				`, trimmed ${use.timesTrimmed} times${irrelevant}`,
 		);
 	}
 

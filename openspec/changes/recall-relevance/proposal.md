@@ -1,6 +1,6 @@
 # Proposal: Recall earns its place
 
-Triage: needs-triage
+Triage: ready-for-agent
 Blocked by: None (pack-inspector is archived)
 
 ## Why

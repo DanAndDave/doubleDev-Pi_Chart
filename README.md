@@ -47,12 +47,13 @@ The extension checks this at session start and reports loudly if it is still act
 | --- | --- | --- |
 | `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
 | `CM_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
+| `CM_RECALL_MAX_DISTANCE` | `0.5` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: genuine hits land at 0.30–0.39 and unrelated prompts at 0.51+ on the pinned model. |
 | `CM_DATABASE_URL` | unset | Thread Store connection. Unset means run with no store: the tail falls back to the harness's own history. |
 | `CM_BUN` | `bun` | The Bun used to run the embedding worker. Set it to an absolute path when `bun` is not on the harness's `PATH`. |
 
 ## Recall
 
-Ingested Turns are embedded with a pinned local model, so a decision made far outside the verbatim tail can still reach the model. Recalled Turns arrive as an attributed recollection — `[recalled from turn N of this conversation]` — under their own Budget, and can never displace the verbatim tail or the current prompt.
+Ingested Turns are embedded with a pinned local model, so a decision made far outside the verbatim tail can still reach the model. A Turn is recalled only when it is similar enough to be worth carrying, so a Conversation with nothing relevant to say contributes nothing rather than its least-irrelevant Turns. Recalled Turns arrive as an attributed recollection — `[recalled from turn N of this conversation]` — under their own Budget, and can never displace the verbatim tail or the current prompt.
 
 The model runs **out of process**, under the project's own Bun. The harness's bundled runtime cannot load the model's native dependencies (`Could not load the "sharp" module`), so the worker is spawned on first use and reused for the session. Nothing leaves the machine and no API key is needed; the first run downloads the model and caches it.
 

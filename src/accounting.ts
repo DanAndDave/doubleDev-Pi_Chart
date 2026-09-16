@@ -45,6 +45,8 @@ export interface RecordedPart {
 	budget?: number;
 	/** How many candidates it chose from. */
 	candidates?: number;
+	/** How many were refused as insufficiently relevant. */
+	irrelevant?: number;
 }
 
 /** Everything recorded for one Turn, which is one or more Calls. */
@@ -92,6 +94,7 @@ export function recordPart(part: {
 	turnIndices?: number[];
 	budget?: number;
 	candidates?: number;
+	irrelevant?: number;
 }): RecordedPart {
 	return {
 		source: part.source,
@@ -101,6 +104,7 @@ export function recordPart(part: {
 		turnIndices: part.turnIndices,
 		budget: part.budget,
 		candidates: part.candidates,
+		irrelevant: part.irrelevant,
 	};
 }
 

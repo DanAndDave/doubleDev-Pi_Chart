@@ -17,6 +17,7 @@ function view(overrides: Partial<CallView> = {}): CallView {
 				candidates: 5,
 				trimmed: false,
 				dropped: 3,
+				irrelevant: 0,
 			},
 			{
 				source: "verbatim-tail",
@@ -26,6 +27,7 @@ function view(overrides: Partial<CallView> = {}): CallView {
 				budget: 2,
 				trimmed: false,
 				dropped: 0,
+				irrelevant: 0,
 			},
 		],
 		packTokens: 4_000,
@@ -72,6 +74,7 @@ describe("rendering a call", () => {
 						budget: 8,
 						trimmed: false,
 						dropped: 0,
+						irrelevant: 0,
 					},
 				],
 			}),
@@ -116,7 +119,7 @@ describe("rendering a summary", () => {
 		averageFloorTokens: 25_588,
 		averageFloorShare: 0.868,
 		budgetUse: [
-			{ source: "recalled", averageCarried: 2.25, budget: 3, timesTrimmed: 0 },
+			{ source: "recalled", averageCarried: 2.25, averageIrrelevant: 0, budget: 3, timesTrimmed: 0 },
 		],
 	};
 
@@ -137,5 +140,52 @@ describe("rendering a summary", () => {
 		});
 
 		expect(text).toBe("Nothing recorded for this conversation yet.");
+	});
+});
+
+describe("rendering relevance", () => {
+	test("a part that found little says so rather than reading as trimmed", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					{
+						source: "recalled",
+						approximateTokens: 40,
+						carried: 1,
+						turnIndices: [2],
+						budget: 3,
+						candidates: 1,
+						trimmed: false,
+						dropped: 0,
+						irrelevant: 4,
+					},
+				],
+			}),
+		);
+
+		expect(text).toContain("not relevant enough");
+		expect(text).not.toContain("dropped");
+	});
+
+	test("a trimmed part still reads as trimmed", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					{
+						source: "recalled",
+						approximateTokens: 40,
+						carried: 2,
+						turnIndices: [1, 2],
+						budget: 2,
+						candidates: 5,
+						trimmed: true,
+						dropped: 3,
+						irrelevant: 1,
+					},
+				],
+			}),
+		);
+
+		expect(text).toContain("3 dropped");
 	});
 });

@@ -270,7 +270,12 @@ function missing(): never {
 
 describe("changing a budget", () => {
 	function config(): Config {
-		return { tailTurns: DEFAULT_TAIL_TURNS, recallTurns: 4, docBundle: "/unused" };
+		return {
+			tailTurns: DEFAULT_TAIL_TURNS,
+			recallTurns: 4,
+			recallMaxDistance: 0.5,
+			docBundle: "/unused",
+		};
 	}
 
 	test("a valid budget replaces the one in force", () => {
@@ -362,5 +367,57 @@ describe("parts whose turns have no recorded position", () => {
 
 		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
 		expect(view.budgets).toEqual({ tail: 5, recall: 3 });
+	});
+});
+
+describe("relevance against budget", () => {
+	test("a part that found little is not reported as trimmed", async () => {
+		const store = new MemoryAccounting();
+		const pack = assemble(
+			{ turns: CONVERSATION, recalled: recalled(7), rejected: 4 },
+			{ tailTurns: 2, recallTurns: 3 },
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+
+		const part = inspectCall(
+			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
+		).parts.find((each) => each.source === "recalled");
+
+		expect(part?.carried).toBe(1);
+		expect(part?.trimmed).toBe(false);
+		expect(part?.irrelevant).toBe(4);
+	});
+
+	test("a call where everything was rejected records the count with no recalled part", async () => {
+		const store = new MemoryAccounting();
+		const pack = assemble(
+			{ turns: CONVERSATION, recalled: [], rejected: 6 },
+			{ tailTurns: 2, recallTurns: 3 },
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+
+		const view = inspectCall(
+			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
+		);
+
+		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
+		expect(view.budgets).toEqual({ tail: 2, recall: 3 });
+	});
+
+	test("trimming still outranks irrelevance when both happened", async () => {
+		const store = new MemoryAccounting();
+		const pack = assemble(
+			{ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 },
+			{ tailTurns: 2, recallTurns: 2 },
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+
+		const part = inspectCall(
+			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
+		).parts.find((each) => each.source === "recalled");
+
+		expect(part?.trimmed).toBe(true);
+		expect(part?.dropped).toBe(2);
+		expect(part?.irrelevant).toBe(2);
 	});
 });

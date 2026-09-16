@@ -25,7 +25,7 @@ import { LocalEmbedder } from "./embedder.ts";
 import { PostgresStore } from "./postgres-store.ts";
 import {
 	MemoryTurnSource,
-	type RecalledTurn,
+	type Recollections,
 	type TurnRecall,
 	type TurnSink,
 	type TurnSource,
@@ -110,7 +110,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const recalled = await recallFor(conversationId, current);
 
 			const pack = deps.assemble(
-				{ turns: current ? [...tail, current] : tail, recalled },
+				{
+					turns: current ? [...tail, current] : tail,
+					recalled: recalled.turns,
+					rejected: recalled.rejected,
+				},
 				{
 					tailTurns: deps.config.tailTurns,
 					recallTurns: deps.config.recallTurns,
@@ -256,8 +260,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function recallFor(
 		conversationId: string,
 		current: Turn | undefined,
-	): Promise<RecalledTurn[]> {
-		if (!deps.recall || !current || deps.config.recallTurns <= 0) return [];
+	): Promise<Recollections> {
+		const none: Recollections = { turns: [], rejected: 0 };
+		if (!deps.recall || !current || deps.config.recallTurns <= 0) return none;
 		try {
 			// Over-fetch: the Assembler drops what the verbatim tail already
 			// carries, and only it knows what that is.
@@ -265,10 +270,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				conversationId,
 				current.prompt,
 				deps.config.recallTurns + deps.config.tailTurns,
+				deps.config.recallMaxDistance,
 			);
 		} catch (error) {
 			deps.report(`Recall unavailable, pack assembled without it: ${describe(error)}`);
-			return [];
+			return none;
 		}
 	}
 

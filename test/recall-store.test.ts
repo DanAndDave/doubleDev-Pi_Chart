@@ -11,6 +11,9 @@ import { PostgresStore } from "../src/postgres-store.ts";
 const databaseUrl = process.env.CM_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
+/** Wide enough to admit everything: these cases are about ranking, not relevance. */
+const PERMISSIVE = 2;
+
 function subject(index: number, prompt: string, answer: string): JournalTurn {
 	return {
 		turnIndex: index,
@@ -48,21 +51,19 @@ describeStore("recall against a real store", () => {
 	test("an ingested turn becomes retrievable once embedded", async () => {
 		await store.ingest("conv-1", CONVERSATION);
 
-		expect(await store.similarTurns("conv-1", "caching", 3)).toHaveLength(0);
+		expect((await store.similarTurns("conv-1", "caching", 3, PERMISSIVE)).turns).toHaveLength(0);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		expect((await store.similarTurns("conv-1", "caching", 3)).length).toBeGreaterThan(0);
+		expect((await store.similarTurns("conv-1", "caching", 3, PERMISSIVE)).turns.length).toBeGreaterThan(0);
 	});
 
 	test("the turn on the matching subject ranks first", async () => {
 		await store.ingest("conv-1", CONVERSATION);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		const [closest] = await store.similarTurns(
-			"conv-1",
-			"cache the parsed config",
-			3,
-		);
+		const [closest] = (
+			await store.similarTurns("conv-1", "cache the parsed config", 3, PERMISSIVE)
+		).turns;
 
 		expect(closest?.turnIndex).toBe(0);
 	});
@@ -71,7 +72,7 @@ describeStore("recall against a real store", () => {
 		await store.ingest("conv-1", CONVERSATION);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		const [closest] = await store.similarTurns("conv-1", "migrations", 1);
+		const [closest] = (await store.similarTurns("conv-1", "migrations", 1, PERMISSIVE)).turns;
 
 		expect(closest?.turn.messages.map((message) => message.role)).toEqual([
 			"user",
@@ -84,7 +85,7 @@ describeStore("recall against a real store", () => {
 		await store.ingest("conv-2", [subject(0, "how should we cache parsed config", "theirs")]);
 		while ((await store.embedPending()) > 0);
 
-		const found = await store.similarTurns("conv-2", "cache the parsed config", 10);
+		const { turns: found } = await store.similarTurns("conv-2", "cache the parsed config", 10, PERMISSIVE);
 
 		expect(found).toHaveLength(1);
 		expect(found[0]?.turn.messages[1]?.content).toBe("theirs");
@@ -103,7 +104,7 @@ describeStore("recall against a real store", () => {
 	test("a conversation with no vectors retrieves nothing rather than failing", async () => {
 		await store.ingest("conv-1", CONVERSATION);
 
-		expect(await store.similarTurns("conv-1", "anything", 5)).toEqual([]);
+		expect((await store.similarTurns("conv-1", "anything", 5, PERMISSIVE)).turns).toEqual([]);
 	});
 
 	test("equally similar turns come back in a stable order", async () => {
@@ -116,8 +117,8 @@ describeStore("recall against a real store", () => {
 		]);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		const first = await store.similarTurns("conv-1", "the same words exactly", 3);
-		const second = await store.similarTurns("conv-1", "the same words exactly", 3);
+		const { turns: first } = await store.similarTurns("conv-1", "the same words exactly", 3, PERMISSIVE);
+		const { turns: second } = await store.similarTurns("conv-1", "the same words exactly", 3, PERMISSIVE);
 
 		expect(first.map((each) => each.turnIndex)).toEqual([0, 1, 2]);
 		expect(second.map((each) => each.turnIndex)).toEqual(
@@ -192,5 +193,66 @@ describeStore("per-part detail round-trips", () => {
 		expect(part?.source).toBe("verbatim-tail");
 		expect(part?.turnIndices).toBeUndefined();
 		expect(part?.approximate).toBe(true);
+	});
+});
+
+describeStore("the relevance floor", () => {
+	let store: PostgresStore;
+
+	beforeAll(async () => {
+		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+		await store.ingest("conv-1", CONVERSATION);
+		while ((await store.embedPending("conv-1")) > 0);
+	});
+
+	test("a turn below the threshold is absent even when nothing ranks above it", async () => {
+		// Nothing can be this near: the floor, not the ranking, decides.
+		const { turns } = await store.similarTurns("conv-1", "caching", 3, 0.01);
+
+		expect(turns).toEqual([]);
+	});
+
+	test("nothing relevant yields nothing, not the least-irrelevant turns", async () => {
+		const { turns } = await store.similarTurns(
+			"conv-1",
+			"an utterly unrelated subject",
+			3,
+			0.01,
+		);
+
+		expect(turns).toEqual([]);
+	});
+
+	test("a permissive floor returns the same turns in the same order", async () => {
+		const withFloor = await store.similarTurns("conv-1", "caching", 3, PERMISSIVE);
+		const wideOpen = await store.similarTurns("conv-1", "caching", 3, 2);
+
+		expect(withFloor.turns.map((each) => each.turnIndex)).toEqual(
+			wideOpen.turns.map((each) => each.turnIndex),
+		);
+	});
+
+	test("retrieval reports how many it refused", async () => {
+		const strict = await store.similarTurns("conv-1", "caching", 3, 0.01);
+		const permissive = await store.similarTurns("conv-1", "caching", 3, 2);
+
+		expect(strict.rejected).toBe(CONVERSATION.length);
+		expect(permissive.rejected).toBe(0);
+	});
+
+	test("the floor applies before the limit, so over-fetching stays relevant", async () => {
+		// Asking for more than exists must not drag in rejected Turns.
+		const { turns } = await store.similarTurns("conv-1", "caching", 100, 0.01);
+
+		expect(turns).toEqual([]);
 	});
 });

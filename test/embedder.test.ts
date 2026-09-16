@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { DEFAULT_RECALL_MAX_DISTANCE } from "../src/config.ts";
 import {
 	LocalEmbedder,
 	PINNED_DIMENSIONS,
@@ -96,6 +97,31 @@ describeModel("LocalEmbedder", () => {
 			expect(cosine(subject ?? [], paraphrase ?? [])).toBeGreaterThan(
 				cosine(subject ?? [], unrelated ?? []),
 			);
+		},
+		300_000,
+	);
+});
+
+// The threshold's default only means anything against the real model, so this
+// is where the measured number is checked rather than assumed.
+describeModel("the default relevance threshold", () => {
+	test(
+		"keeps a paraphrase and rejects an unrelated turn",
+		async () => {
+			const embedder = new LocalEmbedder(BUN);
+			const [prompt, paraphrase, unrelated] = await embedder.embed([
+				"what did we decide about caching parsed configuration",
+				"we keep the parsed configuration in memory instead of re-reading it",
+				"name a river, one word only",
+			]);
+
+			// Cosine distance is what pgvector's <=> returns and what the
+			// threshold is expressed in.
+			const near = 1 - cosine(prompt ?? [], paraphrase ?? []);
+			const far = 1 - cosine(prompt ?? [], unrelated ?? []);
+
+			expect(near).toBeLessThan(DEFAULT_RECALL_MAX_DISTANCE);
+			expect(far).toBeGreaterThan(DEFAULT_RECALL_MAX_DISTANCE);
 		},
 		300_000,
 	);

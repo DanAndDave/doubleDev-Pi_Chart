@@ -36,6 +36,12 @@ export interface PackPart {
 	/** The Budget that bounded this part, where one did. */
 	budget?: number;
 	/**
+	 * How many candidates were refused for being insufficiently relevant, as
+	 * opposed to excluded by the Budget. A part that carried little because
+	 * little was relevant is a different fact from one that was trimmed.
+	 */
+	irrelevant?: number;
+	/**
 	 * How many candidates the part chose from. Larger than what it carried
 	 * means the Budget was the binding constraint — the cheapest signal that
 	 * a Budget is too small.
@@ -57,6 +63,8 @@ export interface AssembleInput {
 	turns: Turn[];
 	/** Turns found by meaning, most relevant first. */
 	recalled?: RecalledTurn[];
+	/** How many candidates retrieval refused as not relevant enough. */
+	rejected?: number;
 }
 
 /**
@@ -65,7 +73,7 @@ export interface AssembleInput {
  * so the same inputs always produce the same pack.
  */
 export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
-	const { turns, recalled = [] } = input;
+	const { turns, recalled = [], rejected = 0 } = input;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
@@ -88,6 +96,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			turnIndices: recollections.map((each) => each.turnIndex),
 			budget: config.recallTurns,
 			candidates: eligible.length,
+			irrelevant: rejected,
 		});
 	}
 

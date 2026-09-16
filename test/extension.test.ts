@@ -90,6 +90,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		config: {
 			tailTurns: DEFAULT_TAIL_TURNS,
 			recallTurns: 0,
+			recallMaxDistance: 1,
 			docBundle: "/unused",
 		},
 		assemble,
@@ -427,17 +428,20 @@ describe("recall wiring", () => {
 
 	test("a pack draws recall from the store, attributed as its own part", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, docBundle: "/unused" },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docBundle: "/unused" },
 			recall: {
-				similarTurns: async () => [
-					{
-						turnIndex: 3,
-						turn: {
-							prompt: "we decided to cache",
-							messages: [{ role: "user", content: "we decided to cache" }],
+				similarTurns: async () => ({
+					turns: [
+						{
+							turnIndex: 3,
+							turn: {
+								prompt: "we decided to cache",
+								messages: [{ role: "user", content: "we decided to cache" }],
+							},
 						},
-					},
-				],
+					],
+					rejected: 0,
+				}),
 			},
 		});
 
@@ -451,7 +455,7 @@ describe("recall wiring", () => {
 
 	test("a retrieval failure costs the recollections, not the turn", async () => {
 		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, docBundle: "/unused" },
+			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docBundle: "/unused" },
 			recall: {
 				similarTurns: () => Promise.reject(new Error("index offline")),
 			},
@@ -470,7 +474,7 @@ describe("recall wiring", () => {
 			recall: {
 				similarTurns: async () => {
 					asked = true;
-					return [];
+					return { turns: [], rejected: 0 };
 				},
 			},
 		});
@@ -486,20 +490,23 @@ describe("the pack command", () => {
 	const prompt = [{ role: "user", content: "current" }];
 
 	test("changing a budget applies to the next call", async () => {
-		const config = { tailTurns: 8, recallTurns: 0, docBundle: "/unused" };
+		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docBundle: "/unused" };
 		const cm = harness({
 			config,
 			recall: {
-				similarTurns: async () => [
-					{
-						turnIndex: 3,
-						turn: {
-							index: 3,
-							prompt: "older decision",
-							messages: [{ role: "user", content: "older decision" }],
+				similarTurns: async () => ({
+					turns: [
+						{
+							turnIndex: 3,
+							turn: {
+								index: 3,
+								prompt: "older decision",
+								messages: [{ role: "user", content: "older decision" }],
+							},
 						},
-					},
-				],
+					],
+					rejected: 0,
+				}),
 			},
 		});
 
@@ -520,7 +527,7 @@ describe("the pack command", () => {
 	});
 
 	test("an invalid budget is reported and nothing changes", async () => {
-		const config = { tailTurns: 8, recallTurns: 4, docBundle: "/unused" };
+		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docBundle: "/unused" };
 		const cm = harness({ config });
 
 		await cm.commands.pack?.handler("budget recall plenty", {});

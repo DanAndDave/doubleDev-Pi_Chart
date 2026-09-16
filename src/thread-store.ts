@@ -24,13 +24,21 @@ export interface RecalledTurn {
 	turn: Turn;
 }
 
+/** What retrieval found, and what it refused as not relevant enough. */
+export interface Recollections {
+	turns: RecalledTurn[];
+	/** Turns near enough to rank but too distant to be worth carrying. */
+	rejected: number;
+}
+
 /** Finds Turns by meaning rather than recency. */
 export interface TurnRecall {
 	similarTurns(
 		conversationId: string,
 		prompt: string,
 		limit: number,
-	): Promise<RecalledTurn[]>;
+		maxDistance: number,
+	): Promise<Recollections>;
 }
 
 /** A Turn source backed by memory, for tests and for fixtures. */
