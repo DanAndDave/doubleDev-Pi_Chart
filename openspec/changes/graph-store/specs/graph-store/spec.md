@@ -26,7 +26,7 @@ The Graph Store SHALL derive a Codebase's programmatic structure using graphify,
 
 ### Requirement: Only programmatic connections are carried
 
-The Graph Store SHALL carry connections that a parser established — calls, imports, inheritance, containment — and SHALL exclude anything inferred, semantic, or drawn from documentation. A connection SHALL be carried only if the extraction states it was extracted rather than guessed.
+The Graph Store SHALL carry connections that a parser established — calls, imports, re-exports, inheritance, implementation, mixing in, embedding, dependency, containment, membership, and resolved references — and SHALL exclude anything inferred, semantic, or drawn from documentation. A connection SHALL be carried only if the extraction states it was extracted rather than guessed.
 
 #### Scenario: An inferred edge is excluded
 
@@ -80,6 +80,8 @@ The Graph Store SHALL read graphify's output through an adapter that states what
 
 The Graph Store SHALL find the symbols a prompt refers to by matching the identifiers in it against the names in the graph, without embeddings: a symbol's name is exact, and a structural question has one correct answer.
 
+An ordinary word that matches only a member's name SHALL be disregarded when the prompt also names something unambiguously, since a prompt is written in prose and prose contains words that happen to be method names.
+
 #### Scenario: A symbol named in the prompt
 
 - **WHEN** a prompt names a symbol the graph knows
@@ -94,3 +96,13 @@ The Graph Store SHALL find the symbols a prompt refers to by matching the identi
 
 - **WHEN** a prompt names a symbol using different capitalisation or punctuation than the graph records
 - **THEN** the symbol SHALL still be found
+
+#### Scenario: A prose word that happens to name a method
+
+- **WHEN** a prompt names a symbol unambiguously and also contains an ordinary word matching a member's name
+- **THEN** the unambiguous symbol SHALL be found and the ordinary word SHALL be disregarded
+
+#### Scenario: Two symbols, differently written
+
+- **WHEN** a prompt names one symbol plainly and another as a compound
+- **THEN** both SHALL be found

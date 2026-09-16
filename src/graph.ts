@@ -39,9 +39,11 @@ const PROGRAMMATIC = new Set([
 	"calls",
 	"imports",
 	"imports_from",
+	"re_exports",
 	"implements",
 	"inherits",
 	"mixes_in",
+	"embeds",
 	"depends_on",
 	"method",
 	"contains",
@@ -72,10 +74,10 @@ export function readGraph(source: string): CodeGraph {
 		);
 	}
 
-	if (typeof document !== "object" || document === null) {
+	if (!isRecord(document)) {
 		throw new GraphFormatError("graph is not an object");
 	}
-	const root: Record<string, unknown> = { ...document };
+	const root = document;
 
 	const nodes = root.nodes;
 	if (!Array.isArray(nodes)) {
@@ -88,50 +90,69 @@ export function readGraph(source: string): CodeGraph {
 	}
 
 	const symbols = new Map<string, GraphSymbol>();
+	const declared = new Set<string>();
 	for (const [index, entry] of nodes.entries()) {
-		const node = asRecord(entry);
-		if (!node) throw new GraphFormatError(`node ${index} is not an object`);
-
-		const id = node.id;
+		if (!isRecord(entry)) {
+			throw new GraphFormatError(`node ${index} is not an object`);
+		}
+		const id = entry.id;
 		if (typeof id !== "string") {
 			throw new GraphFormatError(`node ${index} has no string "id"`);
 		}
+		declared.add(id);
 		// Documentation, external references and concepts are not code, and
 		// their connections are not programmatic.
-		if (node.file_type !== CODE) continue;
+		if (entry.file_type !== CODE) continue;
 
 		symbols.set(id, {
 			id,
-			label: typeof node.label === "string" ? node.label : id,
-			file: typeof node.source_file === "string" ? node.source_file : "",
+			label: typeof entry.label === "string" ? entry.label : id,
+			file: typeof entry.source_file === "string" ? entry.source_file : "",
 			position:
-				typeof node.source_location === "string"
-					? node.source_location
+				typeof entry.source_location === "string"
+					? entry.source_location
 					: undefined,
 		});
 	}
 
+	// A graph with nodes but no code in it is a schema that moved, not a
+	// Codebase without code: silently returning nothing would turn a rename
+	// of `file_type` into permanent, invisible zero recall.
+	if (nodes.length > 0 && symbols.size === 0) {
+		throw new GraphFormatError(
+			`no node is marked "file_type": "${CODE}"; the schema has moved`,
+		);
+	}
+
 	const edges: GraphEdge[] = [];
 	for (const [index, entry] of links.entries()) {
-		const link = asRecord(entry);
-		if (!link) throw new GraphFormatError(`link ${index} is not an object`);
-
-		const source = link.source;
-		const target = link.target;
+		if (!isRecord(entry)) {
+			throw new GraphFormatError(`link ${index} is not an object`);
+		}
+		const source = entry.source;
+		const target = entry.target;
 		if (typeof source !== "string" || typeof target !== "string") {
 			throw new GraphFormatError(
 				`link ${index} has no string "source" and "target"`,
 			);
 		}
-		const relation = link.relation;
+		const relation = entry.relation;
 		if (typeof relation !== "string") {
 			throw new GraphFormatError(`link ${index} has no string "relation"`);
+		}
+
+		// A link to an id no node declares is a broken document, not a
+		// filtered one, and must not look like the latter.
+		if (!declared.has(source) || !declared.has(target)) {
+			throw new GraphFormatError(
+				`link ${index} names a node the graph does not declare`,
+			);
 		}
 
 		// Three conditions, because each excludes something the others do
 		// not: confidence catches inferred calls, the relation list catches
 		// citations, and the node kind catches documentation.
-		if (link.confidence !== EXTRACTED) continue;
+		if (entry.confidence !== EXTRACTED) continue;
 		if (!PROGRAMMATIC.has(relation)) continue;
 		const from = symbols.get(source);
 		const to = symbols.get(target);
@@ -143,7 +164,7 @@ export function readGraph(source: string): CodeGraph {
 	return { symbols: [...symbols.values()], edges };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-	if (typeof value !== "object" || value === null) return undefined;
-	return { ...value };
+/** Narrowing, not copying: a graph has hundreds of thousands of entries. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

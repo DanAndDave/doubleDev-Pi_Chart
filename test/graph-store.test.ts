@@ -25,13 +25,19 @@ function store(options: {
 	present?: string[];
 	fails?: string;
 	graph?: string;
+	/** What the installed graphify reports. Defaults to the pinned version. */
+	version?: string;
+	/** When the extraction last changed; a new value invalidates the cache. */
+	changedAt?: () => number | undefined;
 }): { store: GraphStore; ran: Recorded[] } {
 	const ran: Recorded[] = [];
 	const present = new Set(options.present ?? []);
+	const extracted = [...present].some((each) => each.endsWith("graph.json"));
 	const graphStore = new GraphStore({
 		home: "/home/test/.context-manager/graphify",
-		exists: async (path) =>
-			[...present].some((each) => path.endsWith(each)),
+		exists: async (path) => [...present].some((each) => path.endsWith(each)),
+		changedAt: async () =>
+			options.changedAt ? options.changedAt() : extracted ? 1 : undefined,
 		read: async () => options.graph ?? FIXTURE,
 		makeDirectory: async () => {},
 		run: async (command, args): Promise<CommandResult> => {
@@ -39,6 +45,12 @@ function store(options: {
 			const failing = options.fails;
 			if (failing && `${command} ${args.join(" ")}`.includes(failing)) {
 				return { ok: false, output: `${failing} exploded` };
+			}
+			if (args[0] === "--version") {
+				return {
+					ok: true,
+					output: `graphify ${options.version ?? PINNED_GRAPHIFY}`,
+				};
 			}
 			return { ok: true, output: "" };
 		},
@@ -61,12 +73,29 @@ describe("obtaining graphify", () => {
 		expect(ran[1]?.args).toContain(`graphifyy==${PINNED_GRAPHIFY}`);
 	});
 
-	test("installs nothing when it is already there", async () => {
+	test("installs nothing when the pinned version is already there", async () => {
 		const { store: graphStore, ran } = store({ present: ["bin/graphify"] });
 
 		await graphStore.install();
 
-		expect(ran).toEqual([]);
+		expect(ran.map((each) => each.args[0])).toEqual(["--version"]);
+	});
+
+	test("reinstalls when the installed version is not the pinned one", async () => {
+		// Otherwise moving the pin after a schema change is a no-op on every
+		// machine that ever ran an older build.
+		const { store: graphStore, ran } = store({
+			present: ["bin/graphify"],
+			version: "0.9.1",
+		});
+
+		await graphStore.install();
+
+		expect(ran.map((each) => each.args[0])).toEqual([
+			"--version",
+			"-m",
+			"install",
+		]);
 	});
 
 	test("installation comes before extraction", async () => {
@@ -79,6 +108,20 @@ describe("obtaining graphify", () => {
 			"install",
 			"extract",
 		]);
+	});
+
+	test("two sessions starting together extract once", async () => {
+		const { store: graphStore, ran } = store({ present: ["bin/graphify"] });
+
+		await Promise.all([
+			graphStore.refresh("/work/project"),
+			graphStore.refresh("/work/project"),
+		]);
+
+		// graphify does not lock `graphify-out/`, so two extractions would
+		// write the same tree at the same time.
+		const extractions = ran.filter((each) => each.args[0] === "extract");
+		expect(extractions).toHaveLength(1);
 	});
 
 	test("a failure to install says why", async () => {
@@ -102,20 +145,26 @@ describe("keeping a codebase's graph current", () => {
 
 		await graphStore.refresh("/work/project");
 
-		expect(ran).toHaveLength(1);
-		expect(ran[0]?.args).toEqual(["extract", "/work/project", "--code-only"]);
+		// The version check, then the extraction: nothing else.
+		expect(ran.map((each) => each.args[0])).toEqual(["--version", "extract"]);
+		expect(ran[1]?.args).toEqual(["extract", "/work/project", "--code-only"]);
 	});
 
-	test("a codebase that already has one is refreshed, not rebuilt", async () => {
+	test("a codebase that already has one is extracted the same way", async () => {
 		const { store: graphStore, ran } = store({
 			present: ["bin/graphify", "graphify-out/graph.json"],
 		});
 
 		await graphStore.refresh("/work/project");
 
-		// Refreshing re-extracts only what changed; extracting again would
-		// pay for the whole corpus.
-		expect(ran[0]?.args).toEqual(["update", "/work/project"]);
+		// The same command either way: extraction is incremental, and
+		// graphify's `update` drops --code-only, which would widen the
+		// artifact in the user's repository to their documentation.
+		expect(ran.at(-1)?.args).toEqual([
+			"extract",
+			"/work/project",
+			"--code-only",
+		]);
 	});
 
 	test("a failed extraction says which codebase and why", async () => {
@@ -135,6 +184,50 @@ describe("reading a codebase's graph", () => {
 		const { store: graphStore } = store({ present: ["bin/graphify"] });
 
 		expect(await graphStore.graph("/work/project")).toBeUndefined();
+	});
+
+	test("an unchanged extraction is parsed once", async () => {
+		let reads = 0;
+		const graphStore = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => 42,
+			read: async () => {
+				reads++;
+				return FIXTURE;
+			},
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		await graphStore.graph("/work/project");
+		await graphStore.graph("/work/project");
+
+		// Parsing runs on the request path, and a real graph is tens of
+		// megabytes.
+		expect(reads).toBe(1);
+	});
+
+	test("a changed extraction is parsed again", async () => {
+		let reads = 0;
+		let at = 1;
+		const graphStore = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => at,
+			read: async () => {
+				reads++;
+				return FIXTURE;
+			},
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		await graphStore.graph("/work/project");
+		at = 2;
+		await graphStore.graph("/work/project");
+
+		expect(reads).toBe(2);
 	});
 
 	test("an extracted codebase yields its programmatic connections", async () => {

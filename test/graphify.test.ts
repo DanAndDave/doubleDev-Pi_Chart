@@ -41,7 +41,17 @@ describeReal("against the real graphify", () => {
 			);
 
 			expect(found.map((symbol) => symbol.label)).toContain("assemble()");
-			expect(partners.join("\n")).toContain("assemble()");
+			// The counterpart, not the symbol itself: every edge here names
+			// `assemble()` by construction, so only an edge arriving from
+			// something else proves a caller was found.
+			expect(
+				(around?.edges ?? []).some(
+					(edge) =>
+						edge.to.label === "assemble()" &&
+						edge.from.label !== "assemble()",
+				),
+			).toBe(true);
+			expect(partners.length).toBeGreaterThan(1);
 		},
 		TIMEOUT,
 	);
@@ -71,14 +81,12 @@ describeReal("against the real graphify", () => {
 	);
 
 	test(
-		"refreshing an extracted codebase re-extracts only what changed",
+		"refreshing after an edit brings the graph up to date",
 		async () => {
 			const root = await codebase();
 			const commands: string[][] = [];
-			// The real executable, watched: what matters is that the second
-			// pass takes the incremental path and that graphify agrees it
-			// only re-extracted the edited file.
-			const outputs: string[] = [];
+			// The real executable, watched, so the test can see which
+			// commands ran as well as what they left behind.
 			const store = new GraphStore({
 				run: async (command, args) => {
 					commands.push(args);
@@ -91,20 +99,32 @@ describeReal("against the real graphify", () => {
 						new Response(spawned.stderr).text(),
 						spawned.exited,
 					]);
-					outputs.push(`${stdout}${stderr}`);
 					return { ok: code === 0, output: `${stdout}${stderr}` };
 				},
 			});
 
 			await store.refresh(root);
+			const before = await store.graph(root);
 			const file = join(root, "src", "sections.ts");
-			await writeFile(file, `${await Bun.file(file).text()}\n// edited\n`);
+			await writeFile(
+				file,
+				`${await Bun.file(file).text()}\nexport function probeAfterEdit() {\n\treturn splitConcept;\n}\n`,
+			);
 			await store.refresh(root);
 
-			expect(commands[0]?.[0]).toBe("extract");
-			expect(commands.at(-1)?.[0]).toBe("update");
-			const graph = await store.graph(root);
-			expect(graph?.edges.length).toBeGreaterThan(0);
+			// The graph must actually have moved: asserting the command ran
+			// would pass even if refreshing did nothing.
+			const after = await store.graph(root);
+			expect(
+				before?.symbols.some((each) => each.label.includes("probeAfterEdit")),
+			).toBe(false);
+			expect(
+				after?.symbols.some((each) => each.label.includes("probeAfterEdit")),
+			).toBe(true);
+			// Only the graphify invocations: `run` also carries the version
+			// check and, on a machine without the venv, the install.
+			const extractions = commands.filter((args) => args[0] === "extract");
+			expect(extractions).toHaveLength(2);
 		},
 		TIMEOUT,
 	);
@@ -133,9 +153,9 @@ describeReal("against the real graphify", () => {
 			await store.refresh(root);
 			await store.refresh(root);
 
-			// graphify reports its own decision, which is the only honest
-			// evidence that nothing was rebuilt.
-			expect(last).toContain("No code-graph topology changes detected");
+			// graphify reports its own cache decision, which is the only
+			// honest evidence that the corpus was not re-parsed.
+			expect(last).toContain("0 re-extracted");
 		},
 		TIMEOUT,
 	);

@@ -1,6 +1,6 @@
 import { messageText, type HarnessMessage, type Turn } from "./messages.ts";
 import type { ConceptHit } from "./doc-index.ts";
-import { describeEdge, type Neighbourhood } from "./symbols.ts";
+import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
 import type { RecalledTurn } from "./thread-store.ts";
 
 export interface AssemblerConfig {
@@ -157,7 +157,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			messages,
 			approximateTokens: approximateTokens(messages),
 			carried: carriedStructure.length,
-			symbols: carriedStructure.map((each) => each.symbol.label),
+			symbols: carriedStructure.map((each) => qualify(each.symbol)),
 			budget: config.graphSymbols,
 			candidates: structure.length,
 		});
@@ -235,9 +235,14 @@ function eligibleRecollections(
  */
 function asStructure(around: Neighbourhood): HarnessMessage {
 	const lines = around.edges.map(describeEdge);
+	// Saying how many were left out matters: silence would read as "this
+	// symbol connects to twelve things", which for a hub is false.
+	if (around.dropped > 0) {
+		lines.push(`… and ${around.dropped} more connections`);
+	}
 	return {
 		role: "user",
-		content: `[codebase structure: ${around.symbol.label}]\n${lines.join("\n")}`,
+		content: `[codebase structure: ${qualify(around.symbol)}]\n${lines.join("\n")}`,
 		cmStructure: true,
 	};
 }

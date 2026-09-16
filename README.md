@@ -91,7 +91,9 @@ Only what a parser established is carried. Three separate conditions, because ea
 
 A relation the adapter does not recognise is left out rather than assumed harmless, and output that does not meet what the adapter requires raises an error naming the missing field. A moving schema should cost recall, never correctness.
 
-Symbols are matched by name, ignoring case and punctuation, so `recordPack`, `record_pack` and `.recordPack()` are one name. When a prompt contains something unmistakably code — a compound name, or a word written as `read()` or `.read` — ordinary English words that happen to match method names are dropped: measured live, "do not read, grep, or list any files" was spending 457 tokens on `.read()` and `.list()` for a question about something else.
+Symbols are matched by name, ignoring case and punctuation, so `recordPack`, `record_pack` and `.recordPack()` are one name. A bare English word that matches only a *method* name is dropped when the prompt also names something unambiguously — measured live, "do not read, grep, or list any files" was spending 457 tokens on `.read()` and `.list()` for a question about something else. A bare word matching a function or a type is kept, because nothing in ordinary prose looks like `assemble`.
+
+A symbol contributes at most twelve connections and says how many it left out, so one hub cannot swallow the Budget: measured over this repository, a neighbourhood is 72 tokens at the median and 305 at worst.
 
 ## Start the Thread Store
 

@@ -78,6 +78,8 @@ export interface Dependencies {
 	bundle?: () => Promise<Concept[] | undefined>;
 	/** Settles when the schema is ready. Indexing at session start awaits it. */
 	ready?: Promise<unknown>;
+	/** Notified of background work, so a test can wait for it. */
+	background?: (work: Promise<void>) => void;
 	/** The Codebase this session is working in. */
 	codebase?: string;
 	accounting: AccountingStore;
@@ -114,9 +116,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * writes are started and not awaited. Failures are reported.
 	 */
 	function inBackground(what: string, work: Promise<void>): void {
-		void work.catch((error: unknown) => {
+		const reported = work.catch((error: unknown) => {
 			deps.report(`${what} failed: ${describe(error)}`);
 		});
+		// Handed to whoever is watching — the tests — so background work is
+		// awaitable without a timer. Nothing waits on it in production.
+		deps.background?.(reported);
 	}
 
 	pi.on("session_start", async (_event, ctx) => {

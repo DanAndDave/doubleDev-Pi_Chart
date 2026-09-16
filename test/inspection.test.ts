@@ -59,7 +59,7 @@ async function record(options: {
 			tailTurns: options.tailTurns,
 			recallTurns: options.recallTurns,
 			docConcepts: 0,
-		graphSymbols: 0,
+			graphSymbols: 0,
 		},
 	);
 	await store.recordPack("conv-1", address, pack, "thread-store");
@@ -610,8 +610,32 @@ describe("the structure part in accounting", () => {
 
 		const structure = view.parts.find((part) => part.source === "structure");
 		expect(structure?.symbols).toEqual(["assemble()"]);
-		expect(structure?.carried).toBeLessThanOrEqual(structure?.budget ?? 0);
 		expect(renderCall(view)).toContain("symbols assemble()");
+		// Two candidates, one carried, a Budget of three: supply ran out,
+		// the Budget did not bind, and the inspector must not claim it did.
+		expect(structure?.trimmed).toBe(false);
+		expect(structure?.dropped).toBe(1);
+	});
+
+	test("a structure part the budget bound is reported as trimmed", () => {
+		const view = inspectCall({
+			turnIndex: 1,
+			callIndex: 0,
+			parts: [
+				recordPart({
+					source: "structure",
+					approximateTokens: 200,
+					carried: 2,
+					symbols: ["a()", "b()"],
+					budget: 2,
+					candidates: 4,
+				}),
+			],
+		});
+
+		const structure = view.parts.find((part) => part.source === "structure");
+		expect(structure?.trimmed).toBe(true);
+		expect(structure?.dropped).toBe(2);
 	});
 
 	test("a symbol that entered or left is visible in a diff", () => {

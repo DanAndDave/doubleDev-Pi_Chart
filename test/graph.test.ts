@@ -184,6 +184,18 @@ describe("finding the symbols in play", () => {
 		expect(found.map((symbol) => symbol.label)).toEqual(["parseConcept()"]);
 	});
 
+	test("a plainly written symbol is kept beside a compound one", () => {
+		// Found in review: filtering on how the prompt writes a name lost
+		// `assemble` whenever the prompt also said something like
+		// `recordPack`, though the prompt names both.
+		const found = symbolsInPlay(graph, "does recordPack call assemble?");
+
+		expect(found.map((symbol) => symbol.label).sort()).toEqual([
+			".recordPack()",
+			"assemble()",
+		]);
+	});
+
 	test("a type named by its capitalised name is not an ordinary word", () => {
 		// `Pack` has no case boundary, so only its capital distinguishes it
 		// from a word like `read`.
@@ -258,6 +270,34 @@ describe("the neighbourhood of a symbol", () => {
 		if (!first) throw new Error("no edge");
 
 		expect(describeEdge(first)).toContain("src/assembler.ts:L92");
+	});
+
+	test("a symbol with more connections than a pack holds says so", () => {
+		const nodes = [
+			{ id: "hub", label: "hub()", file_type: "code", source_file: "a.ts" },
+		];
+		const links = [];
+		for (let index = 0; index < 20; index++) {
+			nodes.push({
+				id: `n${index}`,
+				label: `n${index}()`,
+				file_type: "code",
+				source_file: "b.ts",
+			});
+			links.push({
+				source: "hub",
+				target: `n${index}`,
+				relation: "calls",
+				confidence: "EXTRACTED",
+			});
+		}
+		const big = readGraph(JSON.stringify({ nodes, links }));
+
+		const [around] = neighbourhoods(big, symbolsInPlay(big, "tell me about hub"));
+
+		// A hub's degree is unbounded; a pack's budget is not.
+		expect(around?.edges.length).toBeLessThan(20);
+		expect(around?.dropped).toBe(20 - (around?.edges.length ?? 0));
 	});
 
 	test("a symbol with no connections yields nothing", () => {

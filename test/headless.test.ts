@@ -4,12 +4,13 @@
 // They call a real model, so they run only under CM_LIVE=1.
 
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { cp, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readBundle } from "../src/doc-store.ts";
 import { LocalEmbedder } from "../src/embedder.ts";
+import { GraphStore } from "../src/graph-store.ts";
 import { inspectConversation } from "../src/inspection.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import { journalText, runHeadless } from "./harness.ts";
@@ -227,6 +228,84 @@ describeStore("curated knowledge against a live model", () => {
 					"decisions/0001-settlement-window",
 				);
 				expect(curated[0]?.carried).toBeLessThanOrEqual(curated[0]?.budget ?? 0);
+			} finally {
+				await store.close();
+			}
+		},
+		TIMEOUT,
+	);
+});
+
+/**
+ * A Codebase the agent has never seen, holding this project's own source, so
+ * the only way to answer a structural question is the graph.
+ */
+async function freshCodebase(): Promise<string> {
+	const root = await mkdtemp(join(tmpdir(), "cm-live-graph-"));
+	await cp(new URL("../src", import.meta.url).pathname, join(root, "src"), {
+		recursive: true,
+	});
+	return root;
+}
+
+const describeGraph =
+	live && databaseUrl && process.env.CM_GRAPHIFY === "1"
+		? describe
+		: describe.skip;
+
+describeGraph("codebase structure against a live model", () => {
+	test(
+		"a caller question is answered from the graph, with no file read",
+		async () => {
+			const cwd = await freshCodebase();
+			const env: Record<string, string> = {
+				CM_DATABASE_URL: databaseUrl ?? "",
+				CM_RECALL_TURNS: "0",
+				CM_DOC_CONCEPTS: "0",
+			};
+			if (process.env.CM_BUN) env.CM_BUN = process.env.CM_BUN;
+
+			// Extracted here and awaited, so the run measures retrieval
+			// rather than whether background extraction finished in time.
+			await new GraphStore().refresh(cwd);
+
+			const run = await runHeadless({
+				cwd,
+				prompt:
+					"Which functions call parseConcept, and in which file do they live? " +
+					"Answer only from what is already in your context: do not read, " +
+					"grep, or list any files. If context does not say, reply UNKNOWN.",
+				extensions: [EXTENSION],
+				env,
+			});
+
+			// Both callers, from src/doc-store.ts, are edges a parser
+			// established — and nothing else in the Turn could supply them.
+			expect(run.stdout).toContain("ensureIdentities");
+			expect(run.stdout).toContain("doc-store.ts");
+			expect(run.stdout).not.toContain("UNKNOWN");
+
+			const conversationId = run.journalPath
+				.split("/")
+				.pop()
+				?.replace(/\.jsonl$/, "")
+				.split("_")
+				.pop();
+			const store = PostgresStore.connect(databaseUrl ?? "");
+			try {
+				const structure = inspectConversation(
+					await store.readAccounting(conversationId ?? ""),
+				)
+					.flatMap((call) => call.parts)
+					.filter((part) => part.source === "structure");
+
+				expect(structure.length).toBeGreaterThan(0);
+				expect(structure[0]?.symbols?.join(" ")).toContain(
+					"parseConcept() (src/concept.ts",
+				);
+				expect(structure[0]?.carried).toBeLessThanOrEqual(
+					structure[0]?.budget ?? 0,
+				);
 			} finally {
 				await store.close();
 			}

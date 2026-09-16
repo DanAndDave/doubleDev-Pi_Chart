@@ -198,7 +198,7 @@ describe("curated knowledge in a pack", () => {
 			tailTurns: 2,
 			recallTurns: 0,
 			docConcepts: 2,
-		graphSymbols: 0,
+			graphSymbols: 0,
 		});
 
 		expect(off.parts.some((part) => part.source === "curated")).toBe(false);
@@ -216,6 +216,7 @@ describe("codebase structure in a pack", () => {
 				relation: "calls",
 			},
 		],
+		dropped: 0,
 	});
 
 	test("structure reaches the model as its own part", () => {
@@ -226,7 +227,7 @@ describe("codebase structure in a pack", () => {
 
 		const part = pack.parts.find((each) => each.source === "structure");
 		expect(part?.carried).toBe(1);
-		expect(part?.symbols).toEqual(["assemble()"]);
+		expect(part?.symbols).toEqual(["assemble() (src/a.ts:L10)"]);
 	});
 
 	test("a connection says where both ends are", () => {
@@ -238,6 +239,56 @@ describe("codebase structure in a pack", () => {
 		const text = JSON.stringify(pack.parts);
 		expect(text).toContain("src/a.ts:L10");
 		expect(text).toContain("src/b.ts:L20");
+	});
+
+	test("a truncated neighbourhood says how many connections it left out", () => {
+		const pack = assemble(
+			{
+				turns: reconstructTurns(conversation(1)),
+				structure: [{ ...around("hub()", "other()"), dropped: 18 }],
+			},
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 },
+		);
+
+		// Silence would read as "this symbol connects to one thing".
+		expect(JSON.stringify(pack.parts)).toContain("18 more connections");
+	});
+
+	test("two symbols of the same name are named apart", () => {
+		const pack = assemble(
+			{
+				turns: reconstructTurns(conversation(1)),
+				structure: [
+					{
+						symbol: {
+							id: "a",
+							label: ".recordPack()",
+							file: "src/accounting.ts",
+							position: "L160",
+						},
+						edges: [],
+						dropped: 0,
+					},
+					{
+						symbol: {
+							id: "b",
+							label: ".recordPack()",
+							file: "src/postgres-store.ts",
+							position: "L440",
+						},
+						edges: [],
+						dropped: 0,
+					},
+				],
+			},
+			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 },
+		);
+
+		const part = pack.parts.find((each) => each.source === "structure");
+		expect(part?.symbols).toEqual([
+			".recordPack() (src/accounting.ts:L160)",
+			".recordPack() (src/postgres-store.ts:L440)",
+		]);
 	});
 
 	test("the structure budget bounds what is carried, and records what was offered", () => {

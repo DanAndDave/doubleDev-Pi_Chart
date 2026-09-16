@@ -10,7 +10,7 @@ graphify (`graphifyy` on PyPI, CLI `graphify`) parses ~40 languages with tree-si
 | Re-extraction, nothing changed | 0.45s, "18 cached/unchanged, 0 re-extracted" |
 | Refresh after editing one file | 0.67s |
 | `graph.json` | 273 KB, about 15 KB per file |
-| One symbol's neighbourhood | 4 edges, ~63 tokens |
+| One symbol's neighbourhood | 4 edges for `assemble()`; across all 269, median 72 tokens, p90 249, worst 305 |
 
 Two findings from that measurement shaped the design, and both contradict what the tool's flags suggest.
 
@@ -63,17 +63,29 @@ Identifiers in the prompt are matched against node labels after both are reduced
 | "where is embedPending used?" | `.embedPending()` |
 | "what is the capital of Peru" | none |
 
-Running it against a live agent changed the rule once more. Asked "which functions call parseConcept ... do not read, grep, or list any files", the pack carried `parseConcept()`, `.read()` and `.list()` — 457 tokens, two thirds of it spent on English words that happen to name methods. So only the strongest evidence in a prompt counts: an unmistakable name (`parseConcept`, `record_pack`, `.read`, `read()`) outranks a capitalised one (`Pack`), which outranks a plain word (`read`), and weaker tiers are dropped rather than merely ordered behind. The same question then carried one symbol and 220 tokens, with the same answer.
+Running it against a live agent changed the rule once. Asked "which functions call parseConcept ... do not read, grep, or list any files", the pack carried `parseConcept()`, `.read()` and `.list()` — 457 tokens, two thirds of it spent on English words that happen to name methods.
+
+The first fix was too broad: dropping every plainly-written word whenever the prompt contained a compound one also lost `assemble` from "does recordPack call assemble?", which the requirement says must be found. The distinction that actually holds is narrower. A bare word matching a **member** — `.read()`, `.list()` — is ambiguous, because prose is full of verbs that are also method names. A bare word matching a function or a type is not: nothing in ordinary English looks like `assemble` in a sentence about a Codebase. So only member matches need the prompt to say "code", by a compound name, a capital, or punctuation such as `.read` or `read()`, and they are dropped only when something unambiguous was also found.
+
+The same question then carried one symbol and 220 tokens, with the same answer.
 
 No embedding is involved. A name is exact, and the Thread Store already owns the case where the agent does not know what something is called.
 
 ### Refreshing happens on session start, in the background
 
-`graphify update <path>` re-extracts only changed files, so the refresh costs the edit rather than the corpus — 0.67s against 0.64s cold on a small tree, and the gap widens with size. It runs where indexing already runs: at session start, behind the schema, off the request path.
+`graphify extract --code-only` is itself incremental: it hashes each file's content and reports "21 files cached/unchanged, 0 re-extracted" on a tree nothing touched, so a refresh costs the edit rather than the corpus. It runs where indexing already runs: at session start, off the request path.
 
-### One vector-free neighbourhood per symbol
+graphify also offers `update`, and the first version of this used it. Measured, that was a mistake: `update` takes no `--code-only`, and on a Codebase with a README the artifact went from 269 code nodes and no documents to 14 document nodes — silently widening the directory written into the user's repository beyond what was promised. One command, always the same one.
 
-A carried symbol brings its direct connections, both directions, each naming the file and line of the other end. One hop, because two hops on a hub symbol is the whole Codebase, and 63 tokens for a hop means the Budget can be generous in symbols rather than stingy in depth.
+The parsed graph is then cached against the extraction's modification time. A graph for a few thousand source files is tens of megabytes; parsing it per Call was measured at about 370ms on a 50k-node graph, on the path a prompt waits for.
+
+### One vector-free neighbourhood per symbol, bounded in both directions
+
+A carried symbol brings its direct connections, both directions, each naming the file and line of the other end. One hop, because two hops on a hub symbol is the whole Codebase.
+
+A symbol's degree is unbounded, though, and that broke the first version of this rule: `register()` has 30 incident edges and rendered to about 630 tokens, and three such symbols filled the default Budget with 1,528. A Budget counted only in symbols would admit anything between a hundred tokens and several thousand, which no other part of this system does. So a neighbourhood carries at most twelve connections and says how many it left out — silence would read as "this symbol connects to twelve things", which for a hub is false. With that cap the same corpus measures a median of 72 tokens, a 90th percentile of 249, and a worst case of 305.
+
+Symbols are recorded by label *and* location, because labels are not unique: this repository has three distinct `.recordPack()` and five `.constructor()`. An inspector that printed `symbols .recordPack(), .recordPack(), .recordPack()` would name nothing, and a diff keyed on the label would be blind to the set changing.
 
 ## Risks / Trade-offs
 

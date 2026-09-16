@@ -14,6 +14,11 @@ A Context Pack SHALL be able to carry the programmatic neighbourhood of the symb
 - **WHEN** a connection enters a pack
 - **THEN** it SHALL carry the file and position of what it connects
 
+#### Scenario: A symbol with more connections than a pack can hold
+
+- **WHEN** a symbol has more connections than the pack carries
+- **THEN** the pack SHALL say how many it left out rather than present what it carried as complete
+
 #### Scenario: The structure budget is independent of the others
 
 - **WHEN** the Graph Store Budget is exhausted
@@ -27,4 +32,4 @@ A Context Pack SHALL be able to carry the programmatic neighbourhood of the symb
 #### Scenario: The pack is accounted for by part
 
 - **WHEN** a pack carries structure alongside its other parts
-- **THEN** the accounting for that Call SHALL attribute it separately, naming the symbols it carried
+- **THEN** the accounting for that Call SHALL attribute it separately, naming the symbols it carried distinguishably from others of the same name

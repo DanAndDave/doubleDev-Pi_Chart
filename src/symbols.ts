@@ -5,7 +5,19 @@ export interface Neighbourhood {
 	symbol: GraphSymbol;
 	/** Direct connections, both directions. One hop: two is the Codebase. */
 	edges: GraphEdge[];
+	/** Connections left out because the symbol has more than one pack can hold. */
+	dropped: number;
 }
+
+/**
+ * How many connections one symbol may contribute.
+ *
+ * A symbol's degree is unbounded and wildly variable: measured on this
+ * repository, `register()` has 30 incident edges and renders to about 630
+ * tokens while `.start()` renders to 77. A Budget counted only in symbols
+ * would admit anything from a hundred tokens to several thousand.
+ */
+const MAX_EDGES = 12;
 
 /** An identifier, with whatever punctuation marks it as code around it. */
 const IDENTIFIER = /(\.?)([A-Za-z_][A-Za-z0-9_]{2,})(\s*\()?/g;
@@ -34,48 +46,48 @@ export function symbolsInPlay(graph: CodeGraph, prompt: string): GraphSymbol[] {
 		byName.set(key, [...(byName.get(key) ?? []), symbol]);
 	}
 
-	const found = new Map<string, { symbol: GraphSymbol; written: number }>();
-	const remember = (symbol: GraphSymbol, written: number) => {
+	const found = new Map<string, { symbol: GraphSymbol; named: boolean }>();
+	const remember = (symbol: GraphSymbol, code: boolean) => {
+		// A bare English word that happens to match a *method* name is the
+		// one ambiguous case: measured live, "do not read, grep, or list
+		// any files" matched `.read()` and `.list()` and spent 457 tokens
+		// on them. A bare word matching a function or a type is not
+		// ambiguous in the same way — nothing else in a prompt looks like
+		// `assemble` — so only members need the prompt to say "code".
+		const named = code || !symbol.label.startsWith(".");
 		const seen = found.get(symbol.id);
-		if (!seen || written > seen.written) found.set(symbol.id, { symbol, written });
+		if (!seen || (named && !seen.named)) found.set(symbol.id, { symbol, named });
 	};
 
 	for (const match of prompt.matchAll(IDENTIFIER)) {
 		const [, member, identifier = "", call] = match;
-		// How strongly the prompt says this word is code rather than
-		// English. `parseConcept`, `record_pack`, `.read` and `read()` say
-		// it outright; `Pack` suggests it; `read` in "do not read any
-		// files" does not, even though some class has that method.
-		const written =
-			COMPOUND.test(identifier) || member !== "" || call !== undefined
-				? 2
-				: CAPITALISED.test(identifier)
-					? 1
-					: 0;
+		// Does the prompt itself say this is code? `parseConcept`,
+		// `record_pack`, `.read` and `read()` do; `Pack` does by its
+		// capital; `read` in "do not read any files" does not.
+		const code =
+			COMPOUND.test(identifier) ||
+			member !== "" ||
+			call !== undefined ||
+			CAPITALISED.test(identifier);
 
 		const whole = byName.get(canonical(identifier));
 		if (whole) {
-			for (const symbol of whole) remember(symbol, written);
+			for (const symbol of whole) remember(symbol, code);
 			continue;
 		}
 		for (const part of identifier.match(WORD_PART) ?? []) {
 			if (part.length <= 2) continue;
 			for (const symbol of byName.get(canonical(part)) ?? []) {
-				remember(symbol, written);
+				remember(symbol, code);
 			}
 		}
 	}
 
-	// Only the strongest evidence in the prompt counts. When something is
-	// unmistakably code, ordinary English words that happen to name methods
-	// are noise — measured live, they spent 457 tokens on `.read()` and
-	// `.list()` for a question about something else. When there is nothing
-	// stronger, plain words are all there is to go on.
+	// Ambiguous matches are dropped only when something unambiguous was
+	// found; with nothing else to go on they are all there is.
 	const matches = [...found.values()];
-	const strongest = Math.max(0, ...matches.map((each) => each.written));
-	return matches
-		.filter((each) => each.written === strongest)
-		.map((each) => each.symbol);
+	const named = matches.filter((each) => each.named);
+	return (named.length > 0 ? named : matches).map((each) => each.symbol);
 }
 
 /**
@@ -104,9 +116,20 @@ export function neighbourhoods(
 	for (const symbol of symbols) {
 		const edges = around.get(symbol.id);
 		if (!edges || edges.length === 0) continue;
-		result.push({ symbol, edges });
+		result.push({
+			symbol,
+			edges: edges.slice(0, MAX_EDGES),
+			dropped: Math.max(edges.length - MAX_EDGES, 0),
+		});
 	}
 	return result;
+}
+
+/** A symbol as the accounting names it: two `.recordPack()` are not one. */
+export function qualify(symbol: GraphSymbol): string {
+	return symbol.position
+		? `${symbol.label} (${symbol.file}:${symbol.position})`
+		: `${symbol.label} (${symbol.file})`;
 }
 
 /** One connection, as the agent reads it: names, direction, and where. */

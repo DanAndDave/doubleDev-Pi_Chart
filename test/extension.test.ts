@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-import { GraphStore } from "../src/graph-store.ts";
+import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
 
 import {
 	MemoryAccounting,
@@ -96,6 +96,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 	};
 
 	register(pi, {
+		background: (work) => track(work),
 		config: {
 			tailTurns: DEFAULT_TAIL_TURNS,
 			recallTurns: 0,
@@ -830,6 +831,7 @@ describe("the graph store in a session", () => {
 			exists: async (path) =>
 				path.endsWith("bin/graphify") ||
 				(options.graph !== undefined && path.endsWith("graph.json")),
+			changedAt: async () => (options.graph === undefined ? undefined : 1),
 			read: async () => {
 				if (options.fails) throw new Error("graph unreadable");
 				return options.graph ?? graphJson;
@@ -864,7 +866,7 @@ describe("the graph store in a session", () => {
 		);
 
 		expect(JSON.stringify(result?.messages)).toContain(
-			"[codebase structure: assemble()]",
+			"[codebase structure: assemble() (src/assembler.ts:L92)]",
 		);
 		expect(JSON.stringify(result?.messages)).toContain("src/extension.ts:L520");
 	});
@@ -905,7 +907,33 @@ describe("the graph store in a session", () => {
 		await cm.sessionStart({}, ctx());
 		await cm.settle();
 
-		expect(refreshed).toContain("update /work/project");
+		expect(refreshed).toContain("extract /work/project --code-only");
+	});
+
+	test("a failure to extract is reported and the session goes on", async () => {
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => undefined,
+			read: async () => graphJson,
+			makeDirectory: async () => {},
+			run: async (_command, args) =>
+				args[0] === "--version"
+					? { ok: true, output: `graphify ${PINNED_GRAPHIFY}` }
+					: { ok: false, output: "tree-sitter exploded" },
+		});
+		const cm = harness({ config: config(2, true), graph: store });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "hello" }] },
+			ctx(),
+		);
+
+		expect(cm.reported.join("\n")).toContain("Graph Store extraction failed");
+		expect(cm.reported.join("\n")).toContain("tree-sitter exploded");
+		expect(result?.messages).toHaveLength(1);
 	});
 
 	test("extraction is declined when it is switched off", async () => {

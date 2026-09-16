@@ -34,6 +34,8 @@ export interface GraphStoreOptions {
 	read?: (path: string) => Promise<string>;
 	exists?: (path: string) => Promise<boolean>;
 	makeDirectory?: (path: string) => Promise<void>;
+	/** When the extraction last changed, for caching what was parsed. */
+	changedAt?: (path: string) => Promise<number | undefined>;
 }
 
 /**
@@ -49,6 +51,15 @@ export class GraphStore {
 	private readonly read: (path: string) => Promise<string>;
 	private readonly exists: (path: string) => Promise<boolean>;
 	private readonly makeDirectory: (path: string) => Promise<void>;
+	private readonly changedAt: (path: string) => Promise<number | undefined>;
+	/** Parsed graphs, by Codebase, valid while the extraction is untouched. */
+	private readonly parsed = new Map<
+		string,
+		{ changedAt: number; graph: CodeGraph }
+	>();
+	/** Refreshes in flight, so concurrent sessions do not collide. */
+	private readonly refreshing = new Map<string, Promise<void>>();
+	private installing?: Promise<void>;
 
 	constructor(options: GraphStoreOptions = {}) {
 		this.run = options.run ?? runProcess;
@@ -57,6 +68,7 @@ export class GraphStore {
 		this.read = options.read ?? readText;
 		this.exists = options.exists ?? pathExists;
 		this.makeDirectory = options.makeDirectory ?? makeDirectory;
+		this.changedAt = options.changedAt ?? changedAt;
 	}
 
 	/** The graphify executable inside the private environment. */
@@ -68,29 +80,57 @@ export class GraphStore {
 	 * Brings a Codebase's graph up to date, installing graphify first if the
 	 * machine does not have it.
 	 *
-	 * A Codebase that already has a graph is refreshed rather than rebuilt,
-	 * so keeping it current costs about as much as the change that made it
-	 * stale.
+	 * Always the same command: `extract --code-only` is itself incremental,
+	 * skipping files whose content hash is unchanged, so it costs the edit
+	 * rather than the corpus. graphify's `update` is no cheaper and drops
+	 * `--code-only`, which quietly widens the artifact in the user's
+	 * repository to include their documentation.
 	 */
 	async refresh(codebase: string): Promise<void> {
+		// One at a time per Codebase: two sessions opened together would
+		// otherwise run two extractions over one `graphify-out/`, which
+		// graphify does not lock.
+		const running = this.refreshing.get(codebase);
+		if (running) return running;
+
+		const started = this.extract(codebase).finally(() => {
+			this.refreshing.delete(codebase);
+		});
+		this.refreshing.set(codebase, started);
+		return started;
+	}
+
+	private async extract(codebase: string): Promise<void> {
 		await this.install();
 
-		const extracted = await this.exists(join(codebase, OUTPUT));
-		const [command, ...rest] = extracted
-			? ["update", codebase]
-			: ["extract", codebase, "--code-only"];
-
-		const result = await this.run(this.executable, [command ?? "", ...rest]);
+		const result = await this.run(this.executable, [
+			"extract",
+			codebase,
+			"--code-only",
+		]);
 		if (!result.ok) {
 			throw new Error(
-				`graphify ${command} failed for ${codebase}: ${result.output}`,
+				`graphify extract failed for ${codebase}: ${result.output}`,
 			);
 		}
 	}
 
-	/** Installs graphify at the pinned version, unless it is already there. */
+	/** Installs graphify at the pinned version, unless that is already there. */
 	async install(): Promise<void> {
-		if (await this.exists(this.executable)) return;
+		this.installing ??= this.installOnce().finally(() => {
+			this.installing = undefined;
+		});
+		return this.installing;
+	}
+
+	private async installOnce(): Promise<void> {
+		// The version, not merely the file: checking only that something is
+		// installed makes moving the pin a no-op on every machine that ever
+		// ran an older build, which is exactly when the pin has to bind.
+		if (await this.exists(this.executable)) {
+			const installed = await this.run(this.executable, ["--version"]);
+			if (installed.ok && installed.output.includes(PINNED_GRAPHIFY)) return;
+		}
 
 		await this.makeDirectory(this.home);
 		const created = await this.run("python3", ["-m", "venv", this.home]);
@@ -108,11 +148,24 @@ export class GraphStore {
 		}
 	}
 
-	/** The Codebase's graph, or `undefined` when it has never been extracted. */
+	/**
+	 * The Codebase's graph, or `undefined` when it has never been extracted.
+	 *
+	 * Parsed once and kept until the extraction changes: this runs on the
+	 * request path, and a graph for a few thousand source files is tens of
+	 * megabytes — hundreds of milliseconds no prompt should pay twice.
+	 */
 	async graph(codebase: string): Promise<CodeGraph | undefined> {
 		const path = join(codebase, OUTPUT);
-		if (!(await this.exists(path))) return undefined;
-		return readGraph(await this.read(path));
+		const at = await this.changedAt(path);
+		if (at === undefined) return undefined;
+
+		const cached = this.parsed.get(codebase);
+		if (cached && cached.changedAt === at) return cached.graph;
+
+		const graph = readGraph(await this.read(path));
+		this.parsed.set(codebase, { changedAt: at, graph });
+		return graph;
 	}
 }
 
@@ -136,6 +189,14 @@ async function runProcess(
 
 async function makeDirectory(path: string): Promise<void> {
 	await mkdir(path, { recursive: true });
+}
+
+async function changedAt(path: string): Promise<number | undefined> {
+	try {
+		return (await stat(path)).mtimeMs;
+	} catch {
+		return undefined;
+	}
 }
 
 async function readText(path: string): Promise<string> {
