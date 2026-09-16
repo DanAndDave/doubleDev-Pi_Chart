@@ -10,9 +10,11 @@ import {
 	type TurnAccounting,
 } from "./accounting.ts";
 import type { Pack, PackSource } from "./assembler.ts";
+import { PINNED_DIMENSIONS, type Embedder } from "./embedder.ts";
 import type { JournalTurn } from "./journal.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
-import type { TurnSink, TurnSource } from "./thread-store.ts";
+import { messageText } from "./messages.ts";
+import type { RecalledTurn, TurnRecall, TurnSink, TurnSource } from "./thread-store.ts";
 
 /**
  * Forward-only schema. Each entry runs once, in order, recorded by version;
@@ -54,6 +56,17 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			)`,
 		],
 	},
+	{
+		version: 2,
+		statements: [
+			// Width is pinned with the schema: a model change invalidates every
+			// stored vector, so a mismatch must be an error, not a silently
+			// wrong nearest neighbour.
+			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS embedding vector(${PINNED_DIMENSIONS})`,
+			`CREATE INDEX IF NOT EXISTS turns_embedding_idx
+				ON turns USING hnsw (embedding vector_cosine_ops)`,
+		],
+	},
 ];
 
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
@@ -91,11 +104,14 @@ function decode<T>(value: JsonColumn, fallback: T): T {
  * (ADR-0002). Holds the Turns the Assembler reads its verbatim tail from, and
  * the accounting that describes each Context Window.
  */
-export class PostgresStore implements TurnSource, TurnSink, AccountingStore {
-	constructor(private readonly sql: SQL) {}
+export class PostgresStore implements TurnSource, TurnSink, TurnRecall, AccountingStore {
+	constructor(
+		private readonly sql: SQL,
+		private readonly embedder?: Embedder,
+	) {}
 
-	static connect(url: string): PostgresStore {
-		return new PostgresStore(new SQL(url));
+	static connect(url: string, embedder?: Embedder): PostgresStore {
+		return new PostgresStore(new SQL(url), embedder);
 	}
 
 	async migrate(): Promise<void> {
@@ -145,6 +161,117 @@ export class PostgresStore implements TurnSource, TurnSink, AccountingStore {
 						is_error = EXCLUDED.is_error`;
 			}
 		}
+	}
+
+	/**
+	 * Embeds Turns that have no vector yet. Runs after ingest and never on a
+	 * request's path; running it again is how a Conversation ingested before
+	 * embeddings existed catches up, so backfill and keeping-up are one path.
+	 */
+	async embedPending(conversationId?: string, batch = 32): Promise<number> {
+		if (!this.embedder) return 0;
+		if (this.embedder.dimensions !== PINNED_DIMENSIONS) {
+			throw new Error(
+				`embedder produces ${this.embedder.dimensions} dimensions, ` +
+					`but the schema stores ${PINNED_DIMENSIONS}`,
+			);
+		}
+
+		const pending = (await this.sql`
+			SELECT conversation_id, turn_index, prompt
+			FROM turns
+			WHERE embedding IS NULL
+				${conversationId ? this.sql`AND conversation_id = ${conversationId}` : this.sql``}
+			ORDER BY conversation_id, turn_index
+			LIMIT ${batch}`) as {
+			conversation_id: string;
+			turn_index: number;
+			prompt: string;
+		}[];
+		if (pending.length === 0) return 0;
+
+		const texts = await Promise.all(
+			pending.map((row) => this.turnText(row.conversation_id, row.turn_index)),
+		);
+		const vectors = await this.embedder.embed(texts);
+
+		for (const [index, row] of pending.entries()) {
+			const vector = vectors[index];
+			if (!vector) continue;
+			await this.sql`
+				UPDATE turns SET embedding = ${JSON.stringify(vector)}::vector
+				WHERE conversation_id = ${row.conversation_id}
+					AND turn_index = ${row.turn_index}`;
+		}
+		return pending.length;
+	}
+
+	/** What a Turn is embedded as: its prompt and everything answering it. */
+	private async turnText(
+		conversationId: string,
+		turnIndex: number,
+	): Promise<string> {
+		const rows = (await this.sql`
+			SELECT message FROM turn_messages
+			WHERE conversation_id = ${conversationId} AND turn_index = ${turnIndex}
+			ORDER BY ordinal ASC`) as { message: JsonColumn }[];
+
+		const parts: string[] = [];
+		for (const row of rows) {
+			const message = decode<HarnessMessage | undefined>(row.message, undefined);
+			if (message) parts.push(messageText(message));
+		}
+		return parts.filter(Boolean).join("\n");
+	}
+
+	/**
+	 * The Turns closest in meaning to a prompt, nearest first. Ties break on
+	 * Turn order so that repeated assembly cannot reorder them, which is what
+	 * keeps the determinism guarantee true through a retrieval step.
+	 */
+	async similarTurns(
+		conversationId: string,
+		prompt: string,
+		limit: number,
+	): Promise<RecalledTurn[]> {
+		if (!this.embedder || limit <= 0) return [];
+		const [vector] = await this.embedder.embed([prompt]);
+		if (!vector) return [];
+
+		const rows = (await this.sql`
+			SELECT turn_index, prompt
+			FROM turns
+			WHERE conversation_id = ${conversationId} AND embedding IS NOT NULL
+			ORDER BY embedding <=> ${JSON.stringify(vector)}::vector ASC, turn_index ASC
+			LIMIT ${limit}`) as { turn_index: number; prompt: string }[];
+
+		const recalled: RecalledTurn[] = [];
+		for (const row of rows) {
+			const turn = await this.turnAt(conversationId, row.turn_index);
+			if (turn) recalled.push({ turnIndex: row.turn_index, turn });
+		}
+		return recalled;
+	}
+
+	private async turnAt(
+		conversationId: string,
+		turnIndex: number,
+	): Promise<Turn | undefined> {
+		const rows = (await this.sql`
+			SELECT m.turn_index, t.prompt, m.message
+			FROM turn_messages m
+			JOIN turns t ON t.conversation_id = m.conversation_id
+				AND t.turn_index = m.turn_index
+			WHERE m.conversation_id = ${conversationId} AND m.turn_index = ${turnIndex}
+			ORDER BY m.ordinal ASC`) as TurnMessageRow[];
+		if (rows.length === 0) return undefined;
+
+		const messages: HarnessMessage[] = [];
+		for (const row of rows) {
+			const message = decode<HarnessMessage | undefined>(row.message, undefined);
+			if (message) messages.push(message);
+		}
+		return { prompt: rows[0]?.prompt ?? "", messages };
 	}
 
 	async recentTurns(conversationId: string, limit: number): Promise<Turn[]> {

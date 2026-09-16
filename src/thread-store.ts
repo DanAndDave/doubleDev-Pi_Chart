@@ -18,6 +18,21 @@ export interface TurnSink {
 	ingest(conversationId: string, turns: JournalTurn[]): Promise<void>;
 }
 
+/** A Turn found by meaning, with where it sits in the Conversation. */
+export interface RecalledTurn {
+	turnIndex: number;
+	turn: Turn;
+}
+
+/** Finds Turns by meaning rather than recency. */
+export interface TurnRecall {
+	similarTurns(
+		conversationId: string,
+		prompt: string,
+		limit: number,
+	): Promise<RecalledTurn[]>;
+}
+
 /** A Turn source backed by memory, for tests and for fixtures. */
 export class MemoryTurnSource implements TurnSource, TurnSink {
 	private readonly byConversation = new Map<string, Map<number, Turn>>();

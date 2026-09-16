@@ -22,10 +22,19 @@ const EXTENSION = new URL("../src/extension.ts", import.meta.url).pathname;
 const CODEWORD = "falcon";
 const TIMEOUT = 240_000;
 
-/** A two-turn conversation whose second turn cannot see the first. */
+/**
+ * A two-turn conversation whose second turn cannot see the first.
+ *
+ * Recall is switched off deliberately: it exists to bring exactly this
+ * content back, so leaving it on would test the opposite of the claim here,
+ * which is that content the pack omits does not reach the model.
+ */
 async function forgetfulConversation() {
 	const cwd = await mkdtemp(join(tmpdir(), "cm-live-"));
-	const env: Record<string, string> = { CM_TAIL_TURNS: "0" };
+	const env: Record<string, string> = {
+		CM_TAIL_TURNS: "0",
+		CM_RECALL_TURNS: "0",
+	};
 	if (databaseUrl) env.CM_DATABASE_URL = databaseUrl;
 
 	const first = await runHeadless({

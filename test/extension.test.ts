@@ -79,7 +79,11 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 	};
 
 	register(pi, {
-		config: { tailTurns: DEFAULT_TAIL_TURNS, docBundle: "/unused" },
+		config: {
+			tailTurns: DEFAULT_TAIL_TURNS,
+			recallTurns: 0,
+			docBundle: "/unused",
+		},
 		assemble,
 		turns: new MemoryTurnSource(),
 		accounting,
@@ -404,5 +408,65 @@ describe("the verbatim tail", () => {
 
 		expect(result?.messages).toHaveLength(1);
 		expect(cm.reported).toEqual([]);
+	});
+});
+
+describe("recall wiring", () => {
+	const conversation = [{ role: "user", content: "what did we decide" }];
+
+	test("a pack draws recall from the store, attributed as its own part", async () => {
+		const cm = harness({
+			config: { tailTurns: 8, recallTurns: 2, docBundle: "/unused" },
+			recall: {
+				similarTurns: async () => [
+					{
+						turnIndex: 3,
+						turn: {
+							prompt: "we decided to cache",
+							messages: [{ role: "user", content: "we decided to cache" }],
+						},
+					},
+				],
+			},
+		});
+
+		await cm.context({ messages: conversation }, ctx());
+		await cm.settle();
+
+		const sources = cm.recorded[0]?.pack?.parts.map((part) => part.source);
+		expect(sources).toContain("recalled");
+		expect(sources).toContain("current-turn");
+	});
+
+	test("a retrieval failure costs the recollections, not the turn", async () => {
+		const cm = harness({
+			config: { tailTurns: 8, recallTurns: 2, docBundle: "/unused" },
+			recall: {
+				similarTurns: () => Promise.reject(new Error("index offline")),
+			},
+		});
+
+		const result = await cm.context({ messages: conversation }, ctx());
+		await cm.settle();
+
+		expect(result?.messages).toHaveLength(1);
+		expect(cm.reported.join()).toContain("index offline");
+	});
+
+	test("no recall is requested when its budget is zero", async () => {
+		let asked = false;
+		const cm = harness({
+			recall: {
+				similarTurns: async () => {
+					asked = true;
+					return [];
+				},
+			},
+		});
+
+		await cm.context({ messages: conversation }, ctx());
+		await cm.settle();
+
+		expect(asked).toBe(false);
 	});
 });

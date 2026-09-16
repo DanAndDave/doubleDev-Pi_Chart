@@ -1,12 +1,20 @@
 import type { HarnessMessage, Turn } from "./messages.ts";
+import type { RecalledTurn } from "./thread-store.ts";
 
 export interface AssemblerConfig {
 	/** How many completed Turns are carried verbatim ahead of the current one. */
 	tailTurns: number;
+	/**
+	 * How many recalled Turns a pack may carry. Measured in Turns rather than
+	 * tokens: the only token count available here is the local approximation,
+	 * and a budget enforced with a number known to be wrong is worse than one
+	 * honestly named. `pack-inspector` makes tokens the unit.
+	 */
+	recallTurns: number;
 }
 
 /** Where a slice of a Context Pack came from. */
-export type PackSource = "verbatim-tail" | "current-turn";
+export type PackSource = "verbatim-tail" | "current-turn" | "recalled";
 
 export interface PackPart {
 	source: PackSource;
@@ -25,17 +33,44 @@ export interface Pack {
 	approximateTokens: number;
 }
 
+export interface AssembleInput {
+	/** Turns to carry verbatim: the recent ones, current Turn last. */
+	turns: Turn[];
+	/** Turns found by meaning, most relevant first. */
+	recalled?: RecalledTurn[];
+}
+
 /**
- * Builds the Context Pack for one Turn: the Turn in progress, preceded by the
- * last `tailTurns` completed Turns verbatim. Pure — no I/O, no clock, no
- * randomness — so the same inputs always produce the same pack.
+ * Builds the Context Pack for one Call: recalled Turns, then the verbatim
+ * tail, then the Turn in progress. Pure — no I/O, no clock, no randomness —
+ * so the same inputs always produce the same pack.
  */
-export function assemble(turns: Turn[], config: AssemblerConfig): Pack {
+export function assemble(
+	input: Turn[] | AssembleInput,
+	config: AssemblerConfig,
+): Pack {
+	const { turns, recalled = [] } = Array.isArray(input)
+		? { turns: input, recalled: [] }
+		: input;
+
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
 	const tail = config.tailTurns > 0 ? completed.slice(-config.tailTurns) : [];
 
 	const parts: PackPart[] = [];
+
+	// Recall goes first: it is background for the exchange that follows, and
+	// it is trimmed to its own budget so it can never crowd out the tail.
+	const carried = tail.concat(current ? [current] : []);
+	const recollections = selectRecollections(recalled, carried, config.recallTurns);
+	if (recollections.length > 0) {
+		const messages = recollections.map(asRecollection);
+		parts.push({
+			source: "recalled",
+			messages,
+			approximateTokens: approximateTokens(messages),
+		});
+	}
 
 	const tailMessages = tail.flatMap((turn) => turn.messages);
 	if (tailMessages.length > 0) {
@@ -59,6 +94,55 @@ export function assemble(turns: Turn[], config: AssemblerConfig): Pack {
 	for (const part of parts) total += part.approximateTokens;
 
 	return { messages, parts, approximateTokens: total };
+}
+
+/**
+ * The strongest matches that fit the budget, minus anything the pack already
+ * carries verbatim — a Turn must never appear twice in one window.
+ */
+function selectRecollections(
+	recalled: RecalledTurn[],
+	carried: Turn[],
+	budget: number,
+): RecalledTurn[] {
+	if (budget <= 0) return [];
+	const alreadyCarried = new Set(carried.map((turn) => turn.prompt));
+	const chosen: RecalledTurn[] = [];
+	for (const candidate of recalled) {
+		if (alreadyCarried.has(candidate.turn.prompt)) continue;
+		chosen.push(candidate);
+		if (chosen.length === budget) break;
+	}
+	return chosen;
+}
+
+/**
+ * A recalled Turn enters the window as one attributed message, not as a
+ * replayed exchange: the model must be able to tell what was said just now
+ * from what is being remembered.
+ */
+function asRecollection(recalled: RecalledTurn): HarnessMessage {
+	const transcript = recalled.turn.messages
+		.map((message) => `${message.role}: ${textOf(message)}`)
+		.filter((line) => line.trim().length > line.indexOf(":") + 1)
+		.join("\n");
+
+	return {
+		role: "user",
+		content: `[recalled from turn ${recalled.turnIndex} of this conversation]\n${transcript}`,
+		cmRecalled: true,
+	};
+}
+
+function textOf(message: HarnessMessage): string {
+	const content = message.content;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	const parts: string[] = [];
+	for (const block of content) {
+		if ("text" in block && typeof block.text === "string") parts.push(block.text);
+	}
+	return parts.join(" ");
 }
 
 /**

@@ -19,7 +19,7 @@ describe("assemble", () => {
 	test("carries the current prompt and the last N turns, dropping older ones", () => {
 		const turns = reconstructTurns(conversation(5));
 
-		const pack = assemble(turns, { tailTurns: 2 });
+		const pack = assemble(turns, { tailTurns: 2, recallTurns: 0 });
 		const texts = pack.messages.map((message) => message.content);
 
 		expect(texts).toEqual([
@@ -34,7 +34,7 @@ describe("assemble", () => {
 	test("a shorter conversation is carried whole", () => {
 		const turns = reconstructTurns(conversation(1));
 
-		const pack = assemble(turns, { tailTurns: 10 });
+		const pack = assemble(turns, { tailTurns: 10, recallTurns: 0 });
 
 		expect(pack.messages).toHaveLength(3);
 	});
@@ -42,7 +42,7 @@ describe("assemble", () => {
 	test("keeps tool calls and their results intact in the tail", async () => {
 		const turns = reconstructTurns(await fixture("tool-turn"));
 
-		const pack = assemble(turns, { tailTurns: 5 });
+		const pack = assemble(turns, { tailTurns: 5, recallTurns: 0 });
 
 		expect(pack.messages.map((message) => message.role)).toEqual([
 			"user",
@@ -57,7 +57,7 @@ describe("assemble", () => {
 		const turns = reconstructTurns(conversation(5));
 
 		const counts = [0, 1, 3].map(
-			(tailTurns) => assemble(turns, { tailTurns }).messages.length,
+			(tailTurns) => assemble(turns, { tailTurns, recallTurns: 0 }).messages.length,
 		);
 
 		expect(counts).toEqual([1, 3, 7]);
@@ -66,7 +66,7 @@ describe("assemble", () => {
 	test("the pack does not grow as the conversation does", () => {
 		const sizes = [20, 200, 2000].map(
 			(turnCount) =>
-				assemble(reconstructTurns(conversation(turnCount)), { tailTurns: 3 })
+				assemble(reconstructTurns(conversation(turnCount)), { tailTurns: 3, recallTurns: 0 })
 					.messages.length,
 		);
 
@@ -75,12 +75,8 @@ describe("assemble", () => {
 
 	test("assembling the same conversation twice produces an identical pack", async () => {
 		// Two independent parses, so nothing is shared by reference.
-		const first = assemble(reconstructTurns(await fixture("multi-turn")), {
-			tailTurns: 2,
-		});
-		const second = assemble(reconstructTurns(await fixture("multi-turn")), {
-			tailTurns: 2,
-		});
+		const first = assemble(reconstructTurns(await fixture("multi-turn")), { tailTurns: 2, recallTurns: 0 });
+		const second = assemble(reconstructTurns(await fixture("multi-turn")), { tailTurns: 2, recallTurns: 0 });
 
 		expect(first).toEqual(second);
 	});
@@ -88,8 +84,8 @@ describe("assemble", () => {
 	test("a different budget is the only thing that changes the pack", async () => {
 		const turns = reconstructTurns(await fixture("multi-turn"));
 
-		const narrow = assemble(turns, { tailTurns: 1 });
-		const wide = assemble(turns, { tailTurns: 2 });
+		const narrow = assemble(turns, { tailTurns: 1, recallTurns: 0 });
+		const wide = assemble(turns, { tailTurns: 2, recallTurns: 0 });
 
 		expect(narrow).not.toEqual(wide);
 		expect(wide.messages.length).toBeGreaterThan(narrow.messages.length);
@@ -98,7 +94,7 @@ describe("assemble", () => {
 	test("parts account for every message in the pack, in order", () => {
 		const turns = reconstructTurns(conversation(3));
 
-		const pack = assemble(turns, { tailTurns: 2 });
+		const pack = assemble(turns, { tailTurns: 2, recallTurns: 0 });
 		const fromParts = pack.parts.flatMap((part) => part.messages);
 
 		expect(fromParts).toEqual(pack.messages);

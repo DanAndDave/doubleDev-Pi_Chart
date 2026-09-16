@@ -46,7 +46,15 @@ The extension checks this at session start and reports loudly if it is still act
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
+| `CM_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
 | `CM_DATABASE_URL` | unset | Thread Store connection. Unset means run with no store: the tail falls back to the harness's own history. |
+| `CM_BUN` | `bun` | The Bun used to run the embedding worker. Set it to an absolute path when `bun` is not on the harness's `PATH`. |
+
+## Recall
+
+Ingested Turns are embedded with a pinned local model, so a decision made far outside the verbatim tail can still reach the model. Recalled Turns arrive as an attributed recollection — `[recalled from turn N of this conversation]` — under their own Budget, and can never displace the verbatim tail or the current prompt.
+
+The model runs **out of process**, under the project's own Bun. The harness's bundled runtime cannot load the model's native dependencies (`Could not load the "sharp" module`), so the worker is spawned on first use and reused for the session. Nothing leaves the machine and no API key is needed; the first run downloads the model and caches it.
 
 ## Start the Thread Store
 
@@ -83,6 +91,9 @@ CM_DATABASE_URL=postgres://context_manager:context_manager@localhost:55432/threa
 
 # Live: real sessions against a real model
 CM_LIVE=1 bun test test/headless.test.ts
+
+# Model: exercises the pinned embedding model rather than the stub
+CM_EMBED=1 bun test test/embedder.test.ts
 ```
 
 Two suites are gated, for two different reasons. The store-backed tests need real Postgres because "the schema applies" and "SQL returns Turns in order" mean nothing against a fake. The live tests need a provider because they cover the claims that are only true when the harness and the model agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported.

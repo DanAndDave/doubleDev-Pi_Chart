@@ -4,6 +4,8 @@ import { join } from "node:path";
 export interface Config {
 	/** Completed Turns carried verbatim ahead of the current one. */
 	tailTurns: number;
+	/** How many recalled Turns a pack may carry. Zero disables recall. */
+	recallTurns: number;
 	/** Thread Store connection. Absent means run without a store. */
 	databaseUrl?: string;
 	/** Where the machine-wide Doc Store bundle lives. */
@@ -11,15 +13,20 @@ export interface Config {
 }
 
 export const DEFAULT_TAIL_TURNS = 8;
+export const DEFAULT_RECALL_TURNS = 4;
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
-	const raw = env.CM_TAIL_TURNS;
-	const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
 	return {
-		tailTurns:
-			Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_TAIL_TURNS,
+		tailTurns: count(env.CM_TAIL_TURNS, DEFAULT_TAIL_TURNS),
+		recallTurns: count(env.CM_RECALL_TURNS, DEFAULT_RECALL_TURNS),
 		databaseUrl: env.CM_DATABASE_URL,
 		docBundle:
 			env.CM_DOC_BUNDLE ?? join(homedir(), ".context-manager", "bundle"),
 	};
+}
+
+/** A non-negative count, or the default when unset or unusable. */
+function count(raw: string | undefined, fallback: number): number {
+	const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
+	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }

@@ -47,5 +47,8 @@ export type LifecycleHandler = (
 
 export interface ExtensionAPI {
 	on(event: "context", handler: ContextHandler): void;
-	on(event: "session_start" | "agent_end", handler: LifecycleHandler): void;
+	on(
+		event: "session_start" | "agent_end" | "session_shutdown",
+		handler: LifecycleHandler,
+	): void;
 }

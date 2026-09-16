@@ -7,6 +7,7 @@ import {
 } from "./accounting.ts";
 import {
 	assemble as defaultAssemble,
+	type AssembleInput,
 	type AssemblerConfig,
 	type Pack,
 } from "./assembler.ts";
@@ -14,15 +15,25 @@ import { loadConfig, type Config } from "./config.ts";
 import { findJournal, readJournal } from "./journal.ts";
 import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
 import type { BranchEntry, ExtensionAPI, HandlerContext } from "./harness.ts";
+import { LocalEmbedder } from "./embedder.ts";
 import { PostgresStore } from "./postgres-store.ts";
-import { MemoryTurnSource, type TurnSink, type TurnSource } from "./thread-store.ts";
+import {
+	MemoryTurnSource,
+	type RecalledTurn,
+	type TurnRecall,
+	type TurnSink,
+	type TurnSource,
+} from "./thread-store.ts";
 import { reconstructTurns } from "./turns.ts";
 
 export interface Dependencies {
 	config: Config;
-	assemble: (turns: Turn[], config: AssemblerConfig) => Pack;
+	assemble: (input: AssembleInput, config: AssemblerConfig) => Pack;
 	turns: TurnSource;
 	ingest?: TurnSink;
+	recall?: TurnRecall;
+	/** Embeds newly ingested Turns. Runs after a Turn, never before one. */
+	embed?: (conversationId: string) => Promise<unknown>;
 	accounting: AccountingStore;
 	report: (message: string) => void;
 }
@@ -81,9 +92,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.config.tailTurns,
 			);
 
+			const recalled = await recallFor(conversationId, current);
+
 			const pack = deps.assemble(
-				current ? [...tail, current] : tail,
-				{ tailTurns: deps.config.tailTurns },
+				{ turns: current ? [...tail, current] : tail, recalled },
+				{
+					tailTurns: deps.config.tailTurns,
+					recallTurns: deps.config.recallTurns,
+				},
 			);
 
 			inBackground(
@@ -108,10 +124,26 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	pi.on("agent_end", async (_event, ctx) => {
 		const conversationId = conversationOf(ctx);
 		reconcile(conversationId, ctx.sessionManager?.getBranch?.() ?? []);
-		if (deps.ingest) {
-			inBackground("Ingest", ingestJournal(conversationId, deps.ingest));
-		}
+		await store(conversationId);
 	});
+
+	// `agent_end` is notification-only: the harness does not wait for it, so a
+	// headless run can exit mid-ingest. `session_shutdown` is awaited, which
+	// makes it the sweep that guarantees a Turn is stored before exit.
+	pi.on("session_shutdown", async (_event, ctx) => {
+		await store(conversationOf(ctx));
+	});
+
+	/** Ingests and embeds. Runs after a response, never before a request. */
+	async function store(conversationId: string): Promise<void> {
+		if (!deps.ingest) return;
+		try {
+			await ingestJournal(conversationId, deps.ingest);
+			await deps.embed?.(conversationId);
+		} catch (error) {
+			deps.report(`Ingest failed: ${describe(error)}`);
+		}
+	}
 
 	/**
 	 * The verbatim tail, from the store when it can be reached. Falling back to
@@ -133,6 +165,30 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// An empty store is not a failure: a Conversation's first Turns predate
 		// any ingest, and the harness still has them.
 		return { tail: live.slice(0, -1), tailSource: "harness-fallback" };
+	}
+
+	/**
+	 * Turns recalled by meaning. A retrieval failure costs the recollections,
+	 * never the Turn: the pack is assembled without them and the failure is
+	 * reported.
+	 */
+	async function recallFor(
+		conversationId: string,
+		current: Turn | undefined,
+	): Promise<RecalledTurn[]> {
+		if (!deps.recall || !current || deps.config.recallTurns <= 0) return [];
+		try {
+			// Over-fetch: the Assembler drops what the verbatim tail already
+			// carries, and only it knows what that is.
+			return await deps.recall.similarTurns(
+				conversationId,
+				current.prompt,
+				deps.config.recallTurns + deps.config.tailTurns,
+			);
+		} catch (error) {
+			deps.report(`Recall unavailable, pack assembled without it: ${describe(error)}`);
+			return [];
+		}
 	}
 
 	async function ingestJournal(
@@ -252,7 +308,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		return;
 	}
 
-	const store = PostgresStore.connect(config.databaseUrl);
+	const store = PostgresStore.connect(config.databaseUrl, new LocalEmbedder());
 	void store.migrate().catch((error: unknown) => {
 		reportToStderr(`Thread Store migration failed: ${describe(error)}`);
 	});
@@ -262,9 +318,18 @@ export default function contextManager(pi: ExtensionAPI): void {
 		assemble: defaultAssemble,
 		turns: store,
 		ingest: store,
+		recall: store,
+		embed: (conversationId) => embedAll(store, conversationId),
 		accounting: store,
 		report: reportToStderr,
 	});
+}
+
+/** Embeds everything still lacking a vector, a batch at a time. */
+async function embedAll(store: PostgresStore, conversationId: string): Promise<void> {
+	while ((await store.embedPending(conversationId)) > 0) {
+		// Each pass takes the next batch; zero means nothing is left.
+	}
 }
 
 function reportToStderr(message: string): void {
