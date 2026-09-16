@@ -79,7 +79,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 	};
 
 	register(pi, {
-		config: { tailTurns: DEFAULT_TAIL_TURNS },
+		config: { tailTurns: DEFAULT_TAIL_TURNS, docBundle: "/unused" },
 		assemble,
 		turns: new MemoryTurnSource(),
 		accounting,

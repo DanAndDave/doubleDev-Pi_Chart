@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rename } from "node:fs/promises";
+import { chmod, cp, mkdtemp, readFile, rename } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,7 +10,7 @@ const BUNDLE = new URL("./fixtures/bundle", import.meta.url).pathname;
 const AT = new Date("2026-09-16T00:00:00Z");
 
 function store(path = BUNDLE): DocStore {
-	return new DocStore(path, () => AT);
+	return new DocStore(path, { now: () => AT });
 }
 
 /** The identity path writes, so those tests work on a copy. */
@@ -66,32 +66,59 @@ describe("reading a bundle", () => {
 	test("a bundle that does not exist yields no concepts and no error", async () => {
 		expect(await store("/nonexistent/bundle").concepts()).toEqual([]);
 	});
+
+	test("a bundle that exists but holds no concepts is empty, not an error", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "cm-empty-bundle-"));
+
+		expect(await new DocStore(directory, { now: () => AT }).concepts()).toEqual([]);
+	});
+
+	test("a concept that cannot be read is reported, not dropped", async () => {
+		const directory = await writableBundle();
+		// Present to the scan, unreadable when opened — distinct from missing.
+		await chmod(join(directory, "decisions/minimal.md"), 0o000);
+
+		const concepts = await new DocStore(directory, { now: () => AT }).concepts();
+
+		const unreadable = concepts.find((c) => c.id === "decisions/minimal");
+		expect(unreadable?.conformant).toBe(false);
+		expect(unreadable?.problem).toBeTruthy();
+	});
+
+	test("provenance is read when the concept records it", async () => {
+		const concepts = await store().concepts();
+
+		const testing = concepts.find((c) => c.id === "standards/testing");
+		expect(testing?.generated?.by).toBe("reference_agent/gemini-2.5-pro");
+	});
 });
 
 describe("walking a level", () => {
 	test("lists the concepts and sub-levels directly beneath it", async () => {
 		const level = await store().list("");
 
-		expect(level.levels).toEqual(["decisions", "standards"]);
+		expect(level.levels).toEqual(["decisions", "empty-level", "standards"]);
 		expect(level.concepts).toEqual([]);
 	});
 
-	test("a listing carries each concept's description", async () => {
+	test("a curated listing supplies the order and wording its author chose", async () => {
+		// standards/index.md lists testing before naming; the filesystem is the
+		// other way round, so an alphabetical result would mean it was ignored.
 		const level = await store().list("standards");
 
+		expect(level.curated).toBe(true);
 		expect(level.concepts.map((entry) => entry.id)).toEqual([
-			"standards/naming",
 			"standards/testing",
+			"standards/naming",
 		]);
-		expect(
-			level.concepts.find((entry) => entry.id === "standards/testing")?.description,
-		).toBe("When a test earns its place in the suite.");
+		expect(level.concepts[0]?.description).toBe("when a test earns its place");
 	});
 
-	test("a level with no listing file of its own still lists", async () => {
+	test("a level with no listing file of its own is synthesised", async () => {
 		// decisions/ has no index.md in the fixture bundle.
 		const level = await store().list("decisions");
 
+		expect(level.curated).toBe(false);
 		expect(level.concepts.map((entry) => entry.id).sort()).toEqual([
 			"decisions/broken",
 			"decisions/extended",
@@ -100,9 +127,25 @@ describe("walking a level", () => {
 		]);
 	});
 
+	test("a synthesised listing carries each concept's own description", async () => {
+		const level = await store().list("decisions");
+
+		expect(
+			level.concepts.find((entry) => entry.id === "decisions/extended")?.description,
+		).toBe("Carries keys the reader has no meaning for.");
+	});
+
+	test("a sub-level holding no concepts of its own is still walkable", async () => {
+		const level = await store().list("");
+
+		// empty-level/ contains only a listing file; progressive disclosure
+		// must not dead-end there.
+		expect(level.levels).toContain("empty-level");
+	});
+
 	test("listing a level does not read concepts deeper in the tree", async () => {
 		const opened: string[] = [];
-		const watched = new DocStore(BUNDLE, () => AT, (path) => opened.push(path));
+		const watched = new DocStore(BUNDLE, { now: () => AT, onRead: (path: string) => opened.push(path) });
 
 		await watched.list("");
 
@@ -114,7 +157,7 @@ describe("concept identity", () => {
 	test("a concept with no identity is given one, persisted to the file", async () => {
 		const directory = await writableBundle();
 
-		const [concept] = await new DocStore(directory, () => AT).ensureIdentities();
+		const [concept] = await new DocStore(directory, { now: () => AT }).ensureIdentities();
 
 		expect(concept?.identity).toBeTruthy();
 		const onDisk = await readFile(join(directory, "decisions/extended.md"), "utf8");
@@ -124,9 +167,9 @@ describe("concept identity", () => {
 	test("assigning identity leaves the rest of the frontmatter alone", async () => {
 		const directory = await writableBundle();
 
-		await new DocStore(directory, () => AT).ensureIdentities();
+		await new DocStore(directory, { now: () => AT }).ensureIdentities();
 
-		const reread = await new DocStore(directory, () => AT).concepts();
+		const reread = await new DocStore(directory, { now: () => AT }).concepts();
 		const extended = reread.find((c) => c.id === "decisions/extended");
 		expect(extended?.type).toBe("Some Type Nobody Has Seen");
 		expect(extended?.frontmatter.house_rule).toBe("keep it boring");
@@ -135,7 +178,7 @@ describe("concept identity", () => {
 
 	test("identity is assigned once, not rewritten on every read", async () => {
 		const directory = await writableBundle();
-		const docs = new DocStore(directory, () => AT);
+		const docs = new DocStore(directory, { now: () => AT });
 		await docs.ensureIdentities();
 		const first = (await docs.concepts()).find((c) => c.id === "standards/testing");
 
@@ -147,7 +190,7 @@ describe("concept identity", () => {
 
 	test("a moved concept is still the same concept, at a new path", async () => {
 		const directory = await writableBundle();
-		const docs = new DocStore(directory, () => AT);
+		const docs = new DocStore(directory, { now: () => AT });
 		await docs.ensureIdentities();
 		const before = (await docs.concepts()).find((c) => c.id === "standards/testing");
 
@@ -156,10 +199,11 @@ describe("concept identity", () => {
 			join(directory, "decisions/testing.md"),
 		);
 
-		const after = (await docs.concepts()).find(
-			(concept) => concept.identity === before?.identity,
-		);
+		// Resolved through the store's own lookup, not by the test joining on
+		// identity itself, so a caller can genuinely follow a moved Concept.
+		const after = await docs.byIdentity(before?.identity ?? "");
 		expect(after).toBeTruthy();
 		expect(after?.id).toBe("decisions/testing");
+		expect(after?.id).not.toBe(before?.id);
 	});
 });

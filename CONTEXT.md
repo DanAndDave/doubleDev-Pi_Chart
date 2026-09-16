@@ -76,3 +76,7 @@ _Avoid_: metrics, telemetry, stats, log
 **Concept**:
 One unit of knowledge in the Doc Store: a single markdown file with frontmatter, per OKF. Its identifier is its path within the bundle.
 _Avoid_: document, note, entry
+
+**Level**:
+One directory of the Doc Store, listing the Concepts and sub-Levels directly beneath it. The unit of progressive disclosure: read a Level, decide what to open.
+_Avoid_: folder, directory, section, index

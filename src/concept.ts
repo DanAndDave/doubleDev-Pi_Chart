@@ -6,10 +6,16 @@ export type ConceptStatus = "draft" | "stable" | "deprecated";
 /** Derived from who has verified a Concept, never stored in the file. */
 export type TrustTier = "unverified" | "machine-confirmed" | "human-reviewed";
 
+/** Who produced a Concept, and when it last meaningfully changed. */
+export interface Provenance {
+	by?: string;
+	at?: string;
+}
+
 export interface Concept {
 	/** Bundle-relative path without the extension. */
 	id: string;
-	/** Stable across a move within the bundle; assigned on first read. */
+	/** Stable across a move within the bundle; assigned by `ensureIdentities`. */
 	identity?: string;
 	type?: string;
 	title?: string;
@@ -18,6 +24,7 @@ export interface Concept {
 	status: ConceptStatus;
 	stale: boolean;
 	trust: TrustTier;
+	generated?: Provenance;
 	/** Everything the file declared, including keys with no meaning here. */
 	frontmatter: Record<string, unknown>;
 	body: string;
@@ -31,10 +38,6 @@ export const IDENTITY_KEY = "cm_identity";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
-interface Verification {
-	by?: unknown;
-}
-
 /**
  * Reads one Concept.
  *
@@ -47,9 +50,7 @@ export function parseConcept(id: string, source: string, now: Date): Concept {
 	const match = FRONTMATTER.exec(source);
 	const body = match ? source.slice(match[0].length) : source;
 
-	if (!match) {
-		return nonConformant(id, body, "no frontmatter block");
-	}
+	if (!match) return nonConformant(id, body, "no frontmatter block");
 
 	let parsed: unknown;
 	try {
@@ -67,26 +68,21 @@ export function parseConcept(id: string, source: string, now: Date): Concept {
 	}
 
 	const frontmatter = parsed as Record<string, unknown>;
-	const type = typeof frontmatter.type === "string" ? frontmatter.type : undefined;
+	const type = readString(frontmatter.type);
 
 	const concept: Concept = {
 		id,
-		identity:
-			typeof frontmatter[IDENTITY_KEY] === "string"
-				? (frontmatter[IDENTITY_KEY] as string)
-				: undefined,
+		identity: readString(frontmatter[IDENTITY_KEY]),
 		type,
-		title: typeof frontmatter.title === "string" ? frontmatter.title : undefined,
-		description:
-			typeof frontmatter.description === "string"
-				? frontmatter.description
-				: undefined,
+		title: readString(frontmatter.title),
+		description: readString(frontmatter.description),
 		tags: Array.isArray(frontmatter.tags)
 			? frontmatter.tags.filter((tag): tag is string => typeof tag === "string")
 			: [],
 		status: readStatus(frontmatter.status),
 		stale: isStale(frontmatter.stale_after, now),
 		trust: readTrust(frontmatter.verified),
+		generated: readProvenance(frontmatter.generated),
 		frontmatter,
 		body,
 		conformant: type !== undefined && type.length > 0,
@@ -96,7 +92,12 @@ export function parseConcept(id: string, source: string, now: Date): Concept {
 	return concept;
 }
 
-function nonConformant(id: string, body: string, problem: string): Concept {
+/** A Concept that could not be read, described rather than thrown. */
+export function nonConformant(
+	id: string,
+	body: string,
+	problem: string,
+): Concept {
 	return {
 		id,
 		tags: [],
@@ -110,8 +111,18 @@ function nonConformant(id: string, body: string, problem: string): Concept {
 	};
 }
 
+function readString(value: unknown): string | undefined {
+	return typeof value === "string" ? value : undefined;
+}
+
 function readStatus(value: unknown): ConceptStatus {
 	return value === "draft" || value === "deprecated" ? value : "stable";
+}
+
+function readProvenance(value: unknown): Provenance | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const record = value as Record<string, unknown>;
+	return { by: readString(record.by), at: readString(record.at) };
 }
 
 /** A Concept is stale once the moment it names has passed. */
@@ -132,17 +143,17 @@ function readInstant(value: unknown): Date | undefined {
  * no verifier at all means unverified. The format records signals, not verdicts.
  */
 function readTrust(value: unknown): TrustTier {
-	const entries: Verification[] = Array.isArray(value)
-		? (value as Verification[])
+	const entries: unknown[] = Array.isArray(value)
+		? value
 		: value && typeof value === "object"
-			? [value as Verification]
+			? [value]
 			: [];
 
 	if (entries.length === 0) return "unverified";
 	for (const entry of entries) {
-		if (typeof entry?.by === "string" && entry.by.startsWith("human:")) {
-			return "human-reviewed";
-		}
+		if (!entry || typeof entry !== "object") continue;
+		const by = (entry as Record<string, unknown>).by;
+		if (typeof by === "string" && by.startsWith("human:")) return "human-reviewed";
 	}
 	return "machine-confirmed";
 }
