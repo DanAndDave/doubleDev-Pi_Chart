@@ -7,7 +7,7 @@ Holding what happened in a Conversation — Turns, tool calls, results, and arti
 
 ### Requirement: The Journal is ingested into the store
 
-The system SHALL ingest the harness's Journal into the Thread Store: each Turn's prompt, the agent's responses, every tool call with its result, and any artifact produced. Ingested content SHALL be addressed by Conversation, Turn, and Call.
+The system SHALL ingest the harness's Journal into the Thread Store: each Turn's prompt, the agent's responses, every tool call with its result, and any artifact produced. Ingested content SHALL be addressed by Conversation, Turn, and Call, and SHALL record the Codebase the Conversation belongs to, so content found later can be attributed to where it came from.
 
 #### Scenario: A real session becomes queryable
 
@@ -29,6 +29,16 @@ The system SHALL ingest the harness's Journal into the Thread Store: each Turn's
 - **WHEN** a Conversation grows after an earlier ingest
 - **THEN** ingesting again SHALL add only what is new
 
+#### Scenario: A conversation records where it happened
+
+- **WHEN** a Conversation is ingested from a Codebase
+- **THEN** its Turns SHALL be retrievable with that Codebase
+
+#### Scenario: Turns stored before this was recorded remain readable
+
+- **WHEN** Turns ingested before the Codebase was recorded are read
+- **THEN** they SHALL be returned with the Codebase absent rather than failing
+
 ### Requirement: The store is derived and rebuildable
 
 The Thread Store SHALL be a derived index over the Journal, never the record of what happened. Discarding the store and re-ingesting from the Journal SHALL restore equivalent content.
@@ -45,7 +55,7 @@ The Thread Store SHALL be a derived index over the Journal, never the record of 
 
 ### Requirement: Retrieval is scoped to one Conversation
 
-Retrieval SHALL return content from the current Conversation only. Content from other Conversations SHALL NOT appear without an explicit request naming a wider scope, which this capability does not yet offer.
+Retrieval SHALL return content from the current Conversation only. Content from other Conversations SHALL NOT appear unless a search explicitly asks for a wider scope, and no Context Pack SHALL be assembled from content outside the current Conversation.
 
 #### Scenario: Another conversation's turns stay out
 
@@ -56,6 +66,11 @@ Retrieval SHALL return content from the current Conversation only. Content from 
 
 - **WHEN** the most recent Turns are retrieved for a Conversation
 - **THEN** they SHALL be returned in Turn order, each with its messages in the order they occurred
+
+#### Scenario: Recall into a pack stays within the conversation
+
+- **WHEN** another Conversation holds a Turn more relevant to the prompt than anything in this one
+- **THEN** the Context Pack SHALL NOT carry it
 
 ### Requirement: The schema is versioned and applied forward
 
