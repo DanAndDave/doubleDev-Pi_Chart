@@ -103,3 +103,22 @@ Two suites are gated, for two different reasons. The store-backed tests need rea
 ```sh
 CM_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
 ```
+
+## Inspect a pack
+
+`/pack` in the harness shows what the last Call's Context Window was made of:
+
+```
+Turn 6, call 0
+  recalled       ~112 tokens (3 of 3) turns 1, 3, 0
+  verbatim-tail  ~67 tokens (2 of 2) turns 4, 5
+  current-turn   ~18 tokens
+  window        pack 3984 + floor 25588 (floor is 87% of the window)
+```
+
+- `/pack` — the last Call
+- `/pack diff` — what entered and left since the Call before it
+- `/pack summary` — the whole Conversation, with average Budget spend
+- `/pack budget <tail|recall> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session
+
+Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides.

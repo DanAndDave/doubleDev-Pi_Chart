@@ -3,6 +3,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { assemble } from "../src/assembler.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import type { JournalTurn } from "../src/journal.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
@@ -133,5 +134,63 @@ describeStore("recall against a real store", () => {
 
 		await expect(mismatched.embedPending("conv-1")).rejects.toThrow(/dimensions/);
 		await mismatched.close();
+	});
+});
+
+describeStore("per-part detail round-trips", () => {
+	let store: PostgresStore;
+
+	beforeAll(async () => {
+		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+	});
+
+	test("a recalled part's turns and budget survive a round trip", async () => {
+		const pack = assemble(
+			{
+				turns: [
+					{ index: 1, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
+					{ prompt: "current", messages: [{ role: "user", content: "current" }] },
+				],
+				recalled: [
+					{ turnIndex: 7, turn: { index: 7, prompt: "older", messages: [] } },
+					{ turnIndex: 9, turn: { index: 9, prompt: "oldest", messages: [] } },
+				],
+			},
+			{ tailTurns: 2, recallTurns: 1 },
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+
+		const [turn] = await store.readAccounting("conv-1");
+		const recalledPart = turn?.calls[0]?.parts.find(
+			(part) => part.source === "recalled",
+		);
+		expect(recalledPart?.turnIndices).toEqual([7]);
+		expect(recalledPart?.budget).toBe(1);
+		expect(recalledPart?.candidates).toBe(2);
+	});
+
+	test("a call recorded without the detail still reads back", async () => {
+		// Written the way an earlier version wrote it: source and size only.
+		await store["sql"]`
+			INSERT INTO call_accounting
+				(conversation_id, turn_index, call_index, parts, approximate_tokens)
+			VALUES ('conv-1', 0, 0,
+				'[{"source":"verbatim-tail","approximateTokens":12}]'::jsonb, 12)`;
+
+		const [turn] = await store.readAccounting("conv-1");
+
+		const part = turn?.calls[0]?.parts[0];
+		expect(part?.source).toBe("verbatim-tail");
+		expect(part?.turnIndices).toBeUndefined();
+		expect(part?.approximate).toBe(true);
 	});
 });

@@ -65,6 +65,24 @@ The new per-part detail is additive. Calls recorded before it read back with the
 | Inspection never alters what it inspects | Inspection API boundary: read accounting, inspect, read again, compare. |
 | Accounting attributes pack contents (modified) | Store boundary against real Postgres for the round-trip, including a row written without the new detail. |
 
+## What it measured
+
+From a seven-Call session with a tail of 2 and a recall Budget of 3, two decisions stated and three unrelated Turns between them:
+
+```
+average pack 3881.57 + floor 25588 (floor is 87% of the window)
+verbatim-tail  carried 1.83 of 2 on average, trimmed 0 times
+recalled       carried 2.25 of 3 on average, trimmed 0 times
+```
+
+Three things follow, and none of them were knowable before.
+
+**The Floor is 87% of every window, stable across Calls.** Budget tuning on the pack side is rearranging 13% of the problem. If the window is ever the constraint, the Floor is where the work is — and that is a `SYSTEM.md` and tool-inventory question, not an Assembler one.
+
+**Recall's Budget is not the binding constraint.** It carried 2.25 of 3 and was never trimmed, so supply, not Budget, decides what recall contributes. Raising the Budget would change nothing; the open question from `thread-store-recall` — whether Turn-granularity embedding is too coarse — is therefore not answerable by Budget tuning either.
+
+**Recall has no relevance floor, and it shows.** Answering a question about retries, the pack recalled turns 1, 3 and 0 — the retries decision, and two unrelated Turns about a river and a colour. It filled the Budget because the Budget was there, not because those Turns were relevant. That is the real defect this instrument found, and it is a distance threshold, not a chunking problem.
+
 ## Open Questions
 
-None. The question this slice exists to answer — what the Floor actually costs and whether recall earns its Budget — is answered by running it, which is task 6.
+- What similarity threshold recall should require before contributing a Turn. Now evidenced rather than suspected, and deliberately not fixed here: this slice measures, and changing retrieval behaviour belongs in a slice that can demonstrate the improvement against the same session.

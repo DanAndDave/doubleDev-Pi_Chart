@@ -19,7 +19,7 @@ export type TailSource = "thread-store" | "harness-fallback";
  */
 export interface CallAccounting extends CallAddress {
 	at?: string;
-	parts: { source: PackSource; approximateTokens: number; approximate: true }[];
+	parts: RecordedPart[];
 	approximateTokens?: number;
 	packTokens?: number;
 	floorTokens?: number;
@@ -27,6 +27,20 @@ export interface CallAccounting extends CallAddress {
 	unassembled?: boolean;
 	/** Whether the tail came from the store or from the harness's own history. */
 	tailSource?: TailSource;
+}
+
+/** What one part of a pack contributed, as recorded at assembly time. */
+export interface RecordedPart {
+	source: PackSource;
+	approximateTokens: number;
+	/** Always true: nothing reports per-part cost, so this is our estimate. */
+	approximate: true;
+	/** Turns this part carried, by position. Absent on older records. */
+	turnIndices?: number[];
+	/** The Budget that bounded it, where one did. */
+	budget?: number;
+	/** How many candidates it chose from. */
+	candidates?: number;
 }
 
 /** Everything recorded for one Turn, which is one or more Calls. */
@@ -64,6 +78,24 @@ export interface AccountingStore {
 		measurements: Measurement[],
 	): Promise<void>;
 	readAccounting(conversationId: string): Promise<TurnAccounting[]>;
+}
+
+/** What is kept about a part: enough to explain a pack, not to replay it. */
+export function recordPart(part: {
+	source: PackSource;
+	approximateTokens: number;
+	turnIndices?: number[];
+	budget?: number;
+	candidates?: number;
+}): RecordedPart {
+	return {
+		source: part.source,
+		approximateTokens: part.approximateTokens,
+		approximate: true,
+		turnIndices: part.turnIndices,
+		budget: part.budget,
+		candidates: part.candidates,
+	};
 }
 
 /** Folds Calls into the Turns that contain them, in Turn order. */
@@ -126,11 +158,7 @@ export class MemoryAccounting implements AccountingStore {
 	): Promise<void> {
 		const call = this.at(conversationId, address);
 		call.at = new Date().toISOString();
-		call.parts = pack.parts.map((part) => ({
-			source: part.source,
-			approximateTokens: part.approximateTokens,
-			approximate: true,
-		}));
+		call.parts = pack.parts.map(recordPart);
 		call.approximateTokens = pack.approximateTokens;
 		call.tailSource = tailSource;
 	}

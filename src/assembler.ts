@@ -24,6 +24,21 @@ export interface PackPart {
 	 * reports per-part cost, so this is never used for pack-versus-Floor.
 	 */
 	approximateTokens: number;
+	/**
+	 * Which Turns this part carried, by their position in the Conversation.
+	 * Absent for content with no durable position, such as the Turn in
+	 * progress. Recorded so a pack can be explained afterwards rather than
+	 * only measured.
+	 */
+	turnIndices?: number[];
+	/** The Budget that bounded this part, where one did. */
+	budget?: number;
+	/**
+	 * How many candidates the part chose from. Larger than what it carried
+	 * means the Budget was the binding constraint — the cheapest signal that
+	 * a Budget is too small.
+	 */
+	candidates?: number;
 }
 
 export interface Pack {
@@ -57,13 +72,17 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// Recall goes first: it is background for the exchange that follows, and
 	// it is trimmed to its own budget so it can never crowd out the tail.
 	const carried = tail.concat(current ? [current] : []);
-	const recollections = selectRecollections(recalled, carried, config.recallTurns);
+	const eligible = eligibleRecollections(recalled, carried);
+	const recollections = eligible.slice(0, Math.max(config.recallTurns, 0));
 	if (recollections.length > 0) {
 		const messages = recollections.map(asRecollection);
 		parts.push({
 			source: "recalled",
 			messages,
 			approximateTokens: approximateTokens(messages),
+			turnIndices: recollections.map((each) => each.turnIndex),
+			budget: config.recallTurns,
+			candidates: eligible.length,
 		});
 	}
 
@@ -73,6 +92,11 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			source: "verbatim-tail",
 			messages: tailMessages,
 			approximateTokens: approximateTokens(tailMessages),
+			turnIndices: tail
+				.map((turn) => turn.index)
+				.filter((index) => index !== undefined),
+			budget: config.tailTurns,
+			candidates: completed.length,
 		});
 	}
 
@@ -92,27 +116,23 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 }
 
 /**
- * The strongest matches that fit the budget, minus anything the pack already
- * carries verbatim — a Turn must never appear twice in one window.
+ * Every recollection the pack could legitimately carry, strongest first,
+ * minus anything it already carries verbatim — a Turn must never appear
+ * twice in one window. The Budget is applied after, so the caller can see
+ * how many candidates it discarded.
  */
-function selectRecollections(
+function eligibleRecollections(
 	recalled: RecalledTurn[],
 	carried: Turn[],
-	budget: number,
 ): RecalledTurn[] {
-	if (budget <= 0) return [];
 	// Compared by position, not by wording: two Turns can share a prompt
 	// ("continue", "run the tests") without being the same Turn.
 	const alreadyCarried = new Set(
 		carried.map((turn) => turn.index).filter((index) => index !== undefined),
 	);
-	const chosen: RecalledTurn[] = [];
-	for (const candidate of recalled) {
-		if (alreadyCarried.has(candidate.turnIndex)) continue;
-		chosen.push(candidate);
-		if (chosen.length === budget) break;
-	}
-	return chosen;
+	return recalled.filter(
+		(candidate) => !alreadyCarried.has(candidate.turnIndex),
+	);
 }
 
 /**

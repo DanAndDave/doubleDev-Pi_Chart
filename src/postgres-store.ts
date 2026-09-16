@@ -4,6 +4,8 @@ import {
 	groupByTurn,
 	type AccountingStore,
 	type CallAccounting,
+	recordPart,
+	type RecordedPart,
 	type CallAddress,
 	type Measurement,
 	type TailSource,
@@ -316,10 +318,7 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 		pack: Pack,
 		tailSource: TailSource,
 	): Promise<void> {
-		const parts = pack.parts.map((part) => ({
-			source: part.source,
-			approximateTokens: part.approximateTokens,
-		}));
+		const parts = pack.parts.map(recordPart);
 
 		await this.sql`
 			INSERT INTO call_accounting
@@ -384,10 +383,12 @@ export class PostgresStore implements TurnSource, TurnSink, TurnRecall, Accounti
 			turnIndex: row.turn_index,
 			callIndex: row.call_index,
 			at: row.recorded_at?.toISOString(),
-			parts: decode<{ source: PackSource; approximateTokens: number }[]>(
-				row.parts,
-				[],
-			).map((part) => ({ ...part, approximate: true as const })),
+			// Older rows carry only source and size; the added detail simply
+			// reads back absent rather than failing.
+			parts: decode<RecordedPart[]>(row.parts, []).map((part) => ({
+				...part,
+				approximate: true as const,
+			})),
 			approximateTokens: row.approximate_tokens ?? undefined,
 			packTokens: row.pack_tokens ?? undefined,
 			floorTokens: row.floor_tokens ?? undefined,

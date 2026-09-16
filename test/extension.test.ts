@@ -13,6 +13,7 @@ import { register, type Dependencies } from "../src/extension.ts";
 import { MemoryTurnSource } from "../src/thread-store.ts";
 import type {
 	BranchEntry,
+	CommandDefinition,
 	ContextHandler,
 	ExtensionAPI,
 	HandlerContext,
@@ -33,6 +34,8 @@ interface Harness {
 	reported: string[];
 	recorded: Recorded[];
 	measured: Measurement[];
+	commands: Record<string, CommandDefinition>;
+	shown: string[];
 	/** Awaits the background accounting writes this extension started. */
 	settle: () => Promise<void>;
 }
@@ -42,11 +45,16 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 	let sessionStart: LifecycleHandler | undefined;
 	let agentEnd: LifecycleHandler | undefined;
 
+	const commands: Record<string, CommandDefinition> = {};
+	const shown: string[] = [];
 	const pi: ExtensionAPI = {
 		on(event: string, handler: ContextHandler | LifecycleHandler) {
 			if (event === "context") context = handler as ContextHandler;
 			if (event === "session_start") sessionStart = handler as LifecycleHandler;
 			if (event === "agent_end") agentEnd = handler as LifecycleHandler;
+		},
+		registerCommand(name: string, command: CommandDefinition) {
+			commands[name] = command;
 		},
 	} as ExtensionAPI;
 
@@ -88,6 +96,7 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		turns: new MemoryTurnSource(),
 		accounting,
 		report: (message) => reported.push(message),
+		show: (text) => shown.push(text),
 		...overrides,
 	});
 
@@ -102,6 +111,8 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		reported,
 		recorded,
 		measured,
+		commands,
+		shown,
 		settle: async () => {
 			// Drains the writes the extension started, plus the reporting
 			// microtask chained onto each, without waiting on the clock.
@@ -468,5 +479,61 @@ describe("recall wiring", () => {
 		await cm.settle();
 
 		expect(asked).toBe(false);
+	});
+});
+
+describe("the pack command", () => {
+	const prompt = [{ role: "user", content: "current" }];
+
+	test("changing a budget applies to the next call", async () => {
+		const config = { tailTurns: 8, recallTurns: 0, docBundle: "/unused" };
+		const cm = harness({
+			config,
+			recall: {
+				similarTurns: async () => [
+					{
+						turnIndex: 3,
+						turn: {
+							index: 3,
+							prompt: "older decision",
+							messages: [{ role: "user", content: "older decision" }],
+						},
+					},
+				],
+			},
+		});
+
+		// Recall is off, so the first pack carries none.
+		await cm.context({ messages: prompt }, ctx());
+		await cm.settle();
+		expect(cm.recorded[0]?.pack?.parts.map((part) => part.source)).not.toContain(
+			"recalled",
+		);
+
+		await cm.commands.pack?.handler("budget recall 2", {});
+		await cm.context({ messages: prompt }, ctx());
+		await cm.settle();
+
+		expect(cm.recorded[1]?.pack?.parts.map((part) => part.source)).toContain(
+			"recalled",
+		);
+	});
+
+	test("an invalid budget is reported and nothing changes", async () => {
+		const config = { tailTurns: 8, recallTurns: 4, docBundle: "/unused" };
+		const cm = harness({ config });
+
+		await cm.commands.pack?.handler("budget recall plenty", {});
+
+		expect(cm.shown.join()).toContain("not a count");
+		expect(config.recallTurns).toBe(4);
+	});
+
+	test("with nothing recorded the command says so rather than failing", async () => {
+		const cm = harness();
+
+		await cm.commands.pack?.handler("", {});
+
+		expect(cm.shown.join()).toContain("Nothing recorded");
 	});
 });

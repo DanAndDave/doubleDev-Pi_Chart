@@ -25,6 +25,34 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 	};
 }
 
+/**
+ * Applies a Budget change for the running session.
+ *
+ * Deliberately in memory only: tuning is an experiment you run for a few
+ * Turns, and an experiment that silently persists into tomorrow's sessions
+ * is a trap. The environment variables remain the way to set a default.
+ */
+export function setBudget(
+	config: Config,
+	name: string,
+	value: string,
+): { ok: true; budget: number } | { ok: false; reason: string } {
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed) || parsed < 0 || String(parsed) !== value.trim()) {
+		return { ok: false, reason: `"${value}" is not a count` };
+	}
+
+	if (name === "tail") {
+		config.tailTurns = parsed;
+		return { ok: true, budget: parsed };
+	}
+	if (name === "recall") {
+		config.recallTurns = parsed;
+		return { ok: true, budget: parsed };
+	}
+	return { ok: false, reason: `unknown budget "${name}"; expected tail or recall` };
+}
+
 /** A non-negative count, or the default when unset or unusable. */
 function count(raw: string | undefined, fallback: number): number {
 	const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);

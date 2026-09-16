@@ -45,10 +45,20 @@ export type LifecycleHandler = (
 	ctx: HandlerContext,
 ) => Promise<void>;
 
+export interface CommandContext {
+	ui?: { notify?: (message: string, level: string) => void };
+}
+
+export interface CommandDefinition {
+	description: string;
+	handler: (args: string, ctx: CommandContext) => Promise<void> | void;
+}
+
 export interface ExtensionAPI {
 	on(event: "context", handler: ContextHandler): void;
 	on(
 		event: "session_start" | "agent_end" | "session_shutdown",
 		handler: LifecycleHandler,
 	): void;
+	registerCommand?: (name: string, command: CommandDefinition) => void;
 }

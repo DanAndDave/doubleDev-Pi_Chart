@@ -11,7 +11,13 @@ import {
 	type AssemblerConfig,
 	type Pack,
 } from "./assembler.ts";
-import { loadConfig, type Config } from "./config.ts";
+import { loadConfig, setBudget, type Config } from "./config.ts";
+import {
+	comparePacks,
+	inspectConversation,
+	summarise,
+} from "./inspection.ts";
+import { renderCall, renderDiff, renderSummary } from "./report.ts";
 import { findJournal, readJournal } from "./journal.ts";
 import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
 import type { BranchEntry, ExtensionAPI, HandlerContext } from "./harness.ts";
@@ -36,6 +42,8 @@ export interface Dependencies {
 	embed?: (conversationId: string) => Promise<unknown>;
 	/** Releases whatever the session held open. */
 	close?: () => Promise<void> | void;
+	/** Shows text to the person running the session. */
+	show?: (text: string) => void;
 	accounting: AccountingStore;
 	report: (message: string) => void;
 }
@@ -53,6 +61,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const measuredByConversation = new Map<string, number>();
 	/** One ingest-and-embed sweep per Conversation at a time. */
 	const sweeping = new Map<string, Promise<void>>();
+	/** The Conversation the command inspects: whichever one is running. */
+	let lastConversation = UNKNOWN_CONVERSATION;
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -78,6 +88,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 	pi.on("context", async (event, ctx) => {
 		const conversationId = conversationOf(ctx);
+		lastConversation = conversationId;
 		const branch = ctx.sessionManager?.getBranch?.() ?? [];
 		const messages = event.messages ?? [];
 		const address = addressOf(branch, messages);
@@ -192,6 +203,48 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// An empty store is not a failure: a Conversation's first Turns predate
 		// any ingest, and the harness still has them.
 		return { tail: live.slice(0, -1), tailSource: "harness-fallback" };
+	}
+
+	if (pi.registerCommand) {
+		pi.registerCommand("pack", {
+			description:
+				"Inspect the context pack: `pack` for the last call, `pack diff`, " +
+				"`pack summary`, `pack budget <tail|recall> <n>`",
+			handler: async (args, commandCtx) => {
+				const text = await inspect(args.trim());
+				deps.show?.(text);
+				commandCtx.ui?.notify?.(text, "info");
+			},
+		});
+	}
+
+	/** The inspector's whole surface, kept out of the harness adapter. */
+	async function inspect(args: string): Promise<string> {
+		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
+
+		if (verb === "budget") {
+			const [name = "", value = ""] = rest;
+			const result = setBudget(deps.config, name, value);
+			return result.ok
+				? `Budget ${name} is now ${result.budget}; it applies from the next call.`
+				: `Budget unchanged: ${result.reason}`;
+		}
+
+		const turns = await deps.accounting.readAccounting(lastConversation);
+		const calls = inspectConversation(turns);
+
+		if (verb === "summary") return renderSummary(summarise(lastConversation, turns));
+
+		const latest = calls[calls.length - 1];
+		if (!latest) return "Nothing recorded for this conversation yet.";
+
+		if (verb === "diff") {
+			const previous = calls[calls.length - 2];
+			if (!previous) return "Only one call recorded; nothing to compare with.";
+			return renderDiff(comparePacks(previous, latest));
+		}
+
+		return renderCall(latest);
 	}
 
 	/**
@@ -331,6 +384,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 			turns: memory,
 			accounting: new MemoryAccounting(),
 			report: reportToStderr,
+			show: showToStdout,
 		});
 		return;
 	}
@@ -353,6 +407,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		},
 		accounting: store,
 		report: reportToStderr,
+		show: showToStdout,
 	});
 }
 
@@ -361,6 +416,10 @@ async function embedAll(store: PostgresStore, conversationId: string): Promise<v
 	while ((await store.embedPending(conversationId)) > 0) {
 		// Each pass takes the next batch; zero means nothing is left.
 	}
+}
+
+function showToStdout(text: string): void {
+	process.stdout.write(`${text}\n`);
 }
 
 function reportToStderr(message: string): void {
