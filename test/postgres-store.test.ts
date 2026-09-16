@@ -7,18 +7,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { assemble } from "../src/assembler.ts";
 import { readJournal } from "../src/journal.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
+import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
 
 const databaseUrl = process.env.CM_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
-const JOURNAL = new URL(
-	"./fixtures/journal-tool-session.jsonl",
-	import.meta.url,
-).pathname;
+let store: PostgresStore;
 
 describeStore("PostgresStore", () => {
-	let store: PostgresStore;
-
 	beforeAll(async () => {
 		store = PostgresStore.connect(databaseUrl ?? "");
 		await store.migrate();
@@ -32,8 +28,21 @@ describeStore("PostgresStore", () => {
 		await store.truncate();
 	});
 
+	// The same behaviour the in-memory store is held to, so the two cannot
+	// drift on ordering, scoping, or idempotence.
+	turnSourceContract("postgres", async () => {
+		await store.truncate();
+		return store;
+	});
+
+	test("an empty database is migrated and ready", async () => {
+		// beforeAll already migrated; proving it took is a successful query
+		// against a table only the migration creates.
+		expect(await store.recentTurns("never-seen", 10)).toEqual([]);
+	});
+
 	test("migrating an already-migrated database leaves content intact", async () => {
-		await store.ingest("conv-1", await readJournal(JOURNAL));
+		await store.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
 
 		await store.migrate();
 
@@ -41,7 +50,7 @@ describeStore("PostgresStore", () => {
 	});
 
 	test("a real session becomes queryable, turn by turn", async () => {
-		await store.ingest("conv-1", await readJournal(JOURNAL));
+		await store.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
 
 		const turns = await store.recentTurns("conv-1", 100);
 
@@ -50,75 +59,6 @@ describeStore("PostgresStore", () => {
 			"Create a file leaf.txt with the word maple, read it back, then say done",
 			"Say: three",
 		]);
-	});
-
-	test("a tool-using turn keeps its calls and results, in order", async () => {
-		await store.ingest("conv-1", await readJournal(JOURNAL));
-
-		const [, toolTurn] = await store.recentTurns("conv-1", 100);
-
-		expect(toolTurn?.messages.map((message) => message.role)).toEqual([
-			"user",
-			"assistant",
-			"toolResult",
-			"assistant",
-			"toolResult",
-			"assistant",
-		]);
-	});
-
-	test("ingesting the same journal twice does not duplicate anything", async () => {
-		const journal = await readJournal(JOURNAL);
-		await store.ingest("conv-1", journal);
-		await store.ingest("conv-1", journal);
-
-		const turns = await store.recentTurns("conv-1", 100);
-
-		expect(turns).toHaveLength(3);
-		expect(turns[1]?.messages).toHaveLength(6);
-	});
-
-	test("a grown conversation adds only what is new", async () => {
-		const journal = await readJournal(JOURNAL);
-		await store.ingest("conv-1", journal.slice(0, 1));
-
-		await store.ingest("conv-1", journal);
-
-		expect(await store.recentTurns("conv-1", 100)).toHaveLength(3);
-	});
-
-	test("only the most recent turns come back, oldest first", async () => {
-		await store.ingest("conv-1", await readJournal(JOURNAL));
-
-		const turns = await store.recentTurns("conv-1", 2);
-
-		expect(turns.map((turn) => turn.prompt)).toEqual([
-			"Create a file leaf.txt with the word maple, read it back, then say done",
-			"Say: three",
-		]);
-	});
-
-	test("another conversation's turns stay out", async () => {
-		const journal = await readJournal(JOURNAL);
-		await store.ingest("conv-1", journal);
-		await store.ingest("conv-2", journal.slice(0, 1));
-
-		expect(await store.recentTurns("conv-2", 100)).toHaveLength(1);
-	});
-
-	test("emptying the store and re-ingesting rebuilds the identical pack", async () => {
-		await store.ingest("conv-1", await readJournal(JOURNAL));
-		const before = assemble(await store.recentTurns("conv-1", 2), {
-			tailTurns: 2,
-		});
-
-		await store.truncate();
-		await store.ingest("conv-1", await readJournal(JOURNAL));
-		const after = assemble(await store.recentTurns("conv-1", 2), {
-			tailTurns: 2,
-		});
-
-		expect(after).toEqual(before);
 	});
 
 	test("accounting written now is readable by a later connection", async () => {
@@ -151,26 +91,25 @@ describeStore("PostgresStore", () => {
 		}
 	});
 
-	test("a failed tool result is stored as a failure", async () => {
-		await store.ingest("conv-1", [
-			{
-				turnIndex: 0,
-				prompt: "read a missing file",
-				messages: [
-					{ role: "user", content: "read a missing file" },
-					{
-						role: "toolResult",
-						toolName: "read",
-						isError: true,
-						content: [{ type: "text", text: "not found" }],
-					},
-				],
-				callCount: 1,
-			},
-		]);
+	test("accounting for a tool-using turn groups its calls", async () => {
+		const pack = assemble(
+			[{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }],
+			{ tailTurns: 2 },
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 1, callIndex: 0 }, pack, "thread-store");
 
-		const [turn] = await store.recentTurns("conv-1", 1);
-		const failure = turn?.messages.find((message) => message.isError === true);
-		expect(failure?.toolName).toBe("read");
+		const turns = await store.readAccounting("conv-1");
+
+		expect(turns.map((turn) => turn.calls.length)).toEqual([2, 1]);
+	});
+
+	test("a call whose assembly failed is kept, marked unassembled", async () => {
+		await store.recordUnassembled("conv-1", { turnIndex: 0, callIndex: 0 });
+
+		const [turn] = await store.readAccounting("conv-1");
+
+		expect(turn?.calls[0]?.unassembled).toBe(true);
 	});
 });
