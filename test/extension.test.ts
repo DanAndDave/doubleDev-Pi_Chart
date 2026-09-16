@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CallAddress } from "../src/accounting.ts";
+import {
+	MemoryAccounting,
+	type AccountingStore,
+	type CallAddress,
+	type Measurement,
+	type TailSource,
+} from "../src/accounting.ts";
 import { assemble, type Pack } from "../src/assembler.ts";
 import { DEFAULT_TAIL_TURNS } from "../src/config.ts";
-import { register, type Dependencies, type Recorder } from "../src/extension.ts";
+import { register, type Dependencies } from "../src/extension.ts";
+import { MemoryTurnSource } from "../src/thread-store.ts";
 import type {
 	BranchEntry,
 	ContextHandler,
@@ -16,6 +23,7 @@ import type { ContextSnapshot } from "../src/messages.ts";
 interface Recorded extends CallAddress {
 	pack?: Pack;
 	unassembled?: boolean;
+	tailSource?: TailSource;
 }
 
 interface Harness {
@@ -24,7 +32,7 @@ interface Harness {
 	agentEnd: LifecycleHandler;
 	reported: string[];
 	recorded: Recorded[];
-	measured: (CallAddress & { snapshot: ContextSnapshot })[];
+	measured: Measurement[];
 	/** Awaits the background accounting writes this extension started. */
 	settle: () => Promise<void>;
 }
@@ -52,9 +60,13 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		return write;
 	}
 
-	const accounting: Recorder = {
-		recordPack: (_conversationId, address, pack) =>
-			track(Promise.resolve(recorded.push({ ...address, pack })).then(() => {})),
+	const accounting: AccountingStore = {
+		recordPack: (_conversationId, address, pack, tailSource) =>
+			track(
+				Promise.resolve(recorded.push({ ...address, pack, tailSource })).then(
+					() => {},
+				),
+			),
 		recordUnassembled: (_conversationId, address) =>
 			track(
 				Promise.resolve(recorded.push({ ...address, unassembled: true })).then(
@@ -63,11 +75,13 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 			),
 		recordMeasurements: (_conversationId, measurements) =>
 			track(Promise.resolve(measured.push(...measurements)).then(() => {})),
+		readAccounting: async () => [],
 	};
 
 	register(pi, {
-		config: { tailTurns: DEFAULT_TAIL_TURNS, accountingDir: "/unused" },
+		config: { tailTurns: DEFAULT_TAIL_TURNS },
 		assemble,
+		turns: new MemoryTurnSource(),
 		accounting,
 		report: (message) => reported.push(message),
 		...overrides,
@@ -151,6 +165,9 @@ describe("context handler", () => {
 				},
 				async recordUnassembled() {},
 				async recordMeasurements() {},
+				async readAccounting() {
+					return [];
+				},
 			},
 		});
 
@@ -171,6 +188,9 @@ describe("context handler", () => {
 				recordPack: () => blocked,
 				async recordUnassembled() {},
 				async recordMeasurements() {},
+				async readAccounting() {
+					return [];
+				},
 			},
 		});
 
@@ -291,5 +311,86 @@ describe("measurement reconciliation", () => {
 		expect(cm.measured.map((entry) => entry.snapshot.promptTokens)).toEqual([
 			100, 120,
 		]);
+	});
+});
+
+describe("the verbatim tail", () => {
+	const currentOnly = [{ role: "user", content: "current" }];
+
+	test("comes from the thread store when it has the conversation", async () => {
+		const store = new MemoryTurnSource();
+		await store.ingest("conv-1", [
+			{
+				turnIndex: 0,
+				prompt: "stored prompt",
+				messages: [
+					{ role: "user", content: "stored prompt" },
+					{ role: "assistant", content: "stored answer" },
+				],
+				callCount: 1,
+			},
+		]);
+		const cm = harness({ turns: store });
+
+		// The harness has forgotten the earlier turn; the store has not.
+		const result = await cm.context({ messages: currentOnly }, ctx());
+		await cm.settle();
+
+		expect(result?.messages.map((message) => message.content)).toEqual([
+			"stored prompt",
+			"stored answer",
+			"current",
+		]);
+		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
+	});
+
+	test("falls back to the harness's own history when the store rejects", async () => {
+		const cm = harness({
+			turns: {
+				recentTurns: () => Promise.reject(new Error("connection refused")),
+			},
+		});
+
+		const result = await cm.context(
+			{
+				messages: [
+					{ role: "user", content: "earlier" },
+					{ role: "assistant", content: "answered" },
+					{ role: "user", content: "current" },
+				],
+			},
+			ctx(),
+		);
+		await cm.settle();
+
+		expect(result?.messages.map((message) => message.content)).toEqual([
+			"earlier",
+			"answered",
+			"current",
+		]);
+		expect(cm.reported.join()).toContain("connection refused");
+	});
+
+	test("records that a fallback tail did not come from the store", async () => {
+		const cm = harness({
+			turns: {
+				recentTurns: () => Promise.reject(new Error("connection refused")),
+			},
+		});
+
+		await cm.context({ messages: currentOnly }, ctx());
+		await cm.settle();
+
+		expect(cm.recorded[0]?.tailSource).toBe("harness-fallback");
+	});
+
+	test("an empty store is not treated as a failure", async () => {
+		const cm = harness({ turns: new MemoryTurnSource() });
+
+		const result = await cm.context({ messages: currentOnly }, ctx());
+		await cm.settle();
+
+		expect(result?.messages).toHaveLength(1);
+		expect(cm.reported).toEqual([]);
 	});
 });

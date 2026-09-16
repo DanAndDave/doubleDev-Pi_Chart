@@ -1,11 +1,8 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 export interface Config {
 	/** Completed Turns carried verbatim ahead of the current one. */
 	tailTurns: number;
-	/** Where per-Conversation accounting is written. */
-	accountingDir: string;
+	/** Thread Store connection. Absent means run without a store. */
+	databaseUrl?: string;
 }
 
 export const DEFAULT_TAIL_TURNS = 8;
@@ -16,7 +13,6 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 	return {
 		tailTurns:
 			Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_TAIL_TURNS,
-		accountingDir:
-			env.CM_ACCOUNTING_DIR ?? join(homedir(), ".context-manager", "accounting"),
+		databaseUrl: env.CM_DATABASE_URL,
 	};
 }

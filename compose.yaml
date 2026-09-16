@@ -1,0 +1,20 @@
+services:
+  thread-store:
+    image: pgvector/pgvector:pg17
+    container_name: context-manager-thread-store
+    environment:
+      POSTGRES_USER: context_manager
+      POSTGRES_PASSWORD: context_manager
+      POSTGRES_DB: thread_store
+    ports:
+      - "${CM_PG_PORT:-55432}:5432"
+    volumes:
+      - thread-store-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U context_manager -d thread_store"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  thread-store-data:

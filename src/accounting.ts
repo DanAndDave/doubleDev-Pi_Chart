@@ -1,6 +1,3 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-
 import type { Pack, PackSource } from "./assembler.ts";
 import type { ContextSnapshot } from "./messages.ts";
 
@@ -9,6 +6,9 @@ export interface CallAddress {
 	turnIndex: number;
 	callIndex: number;
 }
+
+/** Where the verbatim tail of a Context Pack came from. */
+export type TailSource = "thread-store" | "harness-fallback";
 
 /**
  * What one Call's Context Window was made of.
@@ -25,6 +25,8 @@ export interface CallAccounting extends CallAddress {
 	floorTokens?: number;
 	/** True when assembly failed and the harness's own array was used. */
 	unassembled?: boolean;
+	/** Whether the tail came from the store or from the harness's own history. */
+	tailSource?: TailSource;
 }
 
 /** Everything recorded for one Turn, which is one or more Calls. */
@@ -38,148 +40,125 @@ export interface TurnAccounting {
 	floorTokens?: number;
 }
 
-interface PackEntry extends CallAddress {
-	kind: "pack";
-	conversationId: string;
-	at: string;
-	parts: { source: PackSource; approximateTokens: number }[];
-	approximateTokens: number;
-	unassembled?: boolean;
+export interface Measurement extends CallAddress {
+	snapshot: ContextSnapshot;
 }
-
-interface MeasurementEntry extends CallAddress {
-	kind: "measurement";
-	conversationId: string;
-	promptTokens: number;
-	nonMessageTokens: number;
-}
-
-type AccountingEntry = PackEntry | MeasurementEntry;
 
 /**
- * Append-only per-Conversation record of what each Context Window contained.
- *
- * Append-only because measurements arrive after the pack they describe, often
- * after the process that assembled it has exited: a later entry refines an
- * earlier one rather than rewriting it, which is also the shape the Thread
- * Store will ingest.
+ * Records what each Context Window contained. Implemented by the Thread Store
+ * in production and in memory for tests that do not need a database.
  */
-export class Accounting {
-	constructor(private readonly directory: string) {}
+export interface AccountingStore {
+	recordPack(
+		conversationId: string,
+		address: CallAddress,
+		pack: Pack,
+		tailSource: TailSource,
+	): Promise<void>;
+	recordUnassembled(
+		conversationId: string,
+		address: CallAddress,
+	): Promise<void>;
+	recordMeasurements(
+		conversationId: string,
+		measurements: Measurement[],
+	): Promise<void>;
+	readAccounting(conversationId: string): Promise<TurnAccounting[]>;
+}
 
-	private path(conversationId: string): string {
-		return join(this.directory, `${conversationId}.jsonl`);
+/** Folds Calls into the Turns that contain them, in Turn order. */
+export function groupByTurn(
+	conversationId: string,
+	calls: CallAccounting[],
+): TurnAccounting[] {
+	const turns = new Map<number, TurnAccounting>();
+	const ordered = [...calls].sort(
+		(a, b) => a.turnIndex - b.turnIndex || a.callIndex - b.callIndex,
+	);
+
+	for (const call of ordered) {
+		const turn = turns.get(call.turnIndex) ?? {
+			conversationId,
+			turnIndex: call.turnIndex,
+			calls: [],
+		};
+		turn.calls.push(call);
+		if (call.packTokens !== undefined) {
+			turn.packTokens = Math.max(turn.packTokens ?? 0, call.packTokens);
+		}
+		if (call.floorTokens !== undefined) turn.floorTokens = call.floorTokens;
+		turns.set(call.turnIndex, turn);
 	}
 
-	private async append(entry: AccountingEntry): Promise<void> {
-		await mkdir(this.directory, { recursive: true });
-		await appendFile(this.path(entry.conversationId), JSON.stringify(entry) + "\n");
+	return [...turns.values()].sort((a, b) => a.turnIndex - b.turnIndex);
+}
+
+/** Accounting held in memory, for tests and for the store-less fallback path. */
+export class MemoryAccounting implements AccountingStore {
+	private readonly calls = new Map<string, Map<string, CallAccounting>>();
+
+	private forConversation(id: string): Map<string, CallAccounting> {
+		const existing = this.calls.get(id);
+		if (existing) return existing;
+		const created = new Map<string, CallAccounting>();
+		this.calls.set(id, created);
+		return created;
+	}
+
+	private at(
+		conversationId: string,
+		address: CallAddress,
+	): CallAccounting {
+		const conversation = this.forConversation(conversationId);
+		const key = `${address.turnIndex}:${address.callIndex}`;
+		const existing = conversation.get(key);
+		if (existing) return existing;
+		const created: CallAccounting = { ...address, parts: [] };
+		conversation.set(key, created);
+		return created;
 	}
 
 	async recordPack(
 		conversationId: string,
 		address: CallAddress,
 		pack: Pack,
+		tailSource: TailSource,
 	): Promise<void> {
-		await this.append({
-			kind: "pack",
-			conversationId,
-			...address,
-			at: new Date().toISOString(),
-			parts: pack.parts.map((part) => ({
-				source: part.source,
-				approximateTokens: part.approximateTokens,
-			})),
-			approximateTokens: pack.approximateTokens,
-		});
+		const call = this.at(conversationId, address);
+		call.at = new Date().toISOString();
+		call.parts = pack.parts.map((part) => ({
+			source: part.source,
+			approximateTokens: part.approximateTokens,
+			approximate: true,
+		}));
+		call.approximateTokens = pack.approximateTokens;
+		call.tailSource = tailSource;
 	}
 
-	/** Records a Call the Assembler could not build a pack for. */
 	async recordUnassembled(
 		conversationId: string,
 		address: CallAddress,
 	): Promise<void> {
-		await this.append({
-			kind: "pack",
-			conversationId,
-			...address,
-			at: new Date().toISOString(),
-			parts: [],
-			approximateTokens: 0,
-			unassembled: true,
-		});
+		const call = this.at(conversationId, address);
+		call.at = new Date().toISOString();
+		call.unassembled = true;
 	}
 
-	/** Reconciles harness-reported window sizes onto the Calls they describe. */
 	async recordMeasurements(
 		conversationId: string,
-		measurements: (CallAddress & { snapshot: ContextSnapshot })[],
+		measurements: Measurement[],
 	): Promise<void> {
 		for (const measurement of measurements) {
-			await this.append({
-				kind: "measurement",
-				conversationId,
-				turnIndex: measurement.turnIndex,
-				callIndex: measurement.callIndex,
-				promptTokens: measurement.snapshot.promptTokens,
-				nonMessageTokens: measurement.snapshot.nonMessageTokens,
-			});
+			const call = this.at(conversationId, measurement);
+			call.floorTokens = measurement.snapshot.nonMessageTokens;
+			call.packTokens =
+				measurement.snapshot.promptTokens - measurement.snapshot.nonMessageTokens;
 		}
 	}
 
-	/** Every Turn of a Conversation, in Turn order, each with its Calls. */
-	async read(conversationId: string): Promise<TurnAccounting[]> {
-		let text: string;
-		try {
-			text = await readFile(this.path(conversationId), "utf8");
-		} catch {
-			return [];
-		}
-
-		const calls = new Map<string, CallAccounting>();
-		for (const line of text.split("\n")) {
-			if (!line.trim()) continue;
-			const entry = JSON.parse(line) as AccountingEntry;
-			const key = `${entry.turnIndex}:${entry.callIndex}`;
-			const call = calls.get(key) ?? {
-				turnIndex: entry.turnIndex,
-				callIndex: entry.callIndex,
-				parts: [],
-			};
-
-			if (entry.kind === "pack") {
-				call.at = entry.at;
-				call.parts = entry.parts.map((part) => ({ ...part, approximate: true }));
-				call.approximateTokens = entry.approximateTokens;
-				if (entry.unassembled) call.unassembled = true;
-			} else {
-				// A measurement with no pack is still evidence the Call happened.
-				call.floorTokens = entry.nonMessageTokens;
-				call.packTokens = entry.promptTokens - entry.nonMessageTokens;
-			}
-
-			calls.set(key, call);
-		}
-
-		const turns = new Map<number, TurnAccounting>();
-		for (const call of [...calls.values()].sort(byAddress)) {
-			const turn = turns.get(call.turnIndex) ?? {
-				conversationId,
-				turnIndex: call.turnIndex,
-				calls: [],
-			};
-			turn.calls.push(call);
-			if (call.packTokens !== undefined) {
-				turn.packTokens = Math.max(turn.packTokens ?? 0, call.packTokens);
-			}
-			if (call.floorTokens !== undefined) turn.floorTokens = call.floorTokens;
-			turns.set(call.turnIndex, turn);
-		}
-
-		return [...turns.values()].sort((a, b) => a.turnIndex - b.turnIndex);
+	async readAccounting(conversationId: string): Promise<TurnAccounting[]> {
+		return groupByTurn(conversationId, [
+			...this.forConversation(conversationId).values(),
+		]);
 	}
-}
-
-function byAddress(a: CallAddress, b: CallAddress): number {
-	return a.turnIndex - b.turnIndex || a.callIndex - b.callIndex;
 }

@@ -8,11 +8,15 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Accounting } from "../src/accounting.ts";
+import { PostgresStore } from "../src/postgres-store.ts";
 import { journalText, runHeadless } from "./harness.ts";
 
 const live = process.env.CM_LIVE === "1";
+const databaseUrl = process.env.CM_DATABASE_URL;
 const describeLive = live ? describe : describe.skip;
+// Accounting now lives in the Thread Store, so reading it back needs both a
+// real model and a real database.
+const describeStore = live && databaseUrl ? describe : describe.skip;
 
 const EXTENSION = new URL("../src/extension.ts", import.meta.url).pathname;
 const CODEWORD = "falcon";
@@ -21,8 +25,8 @@ const TIMEOUT = 240_000;
 /** A two-turn conversation whose second turn cannot see the first. */
 async function forgetfulConversation() {
 	const cwd = await mkdtemp(join(tmpdir(), "cm-live-"));
-	const accountingDir = await mkdtemp(join(tmpdir(), "cm-live-acct-"));
-	const env = { CM_TAIL_TURNS: "0", CM_ACCOUNTING_DIR: accountingDir };
+	const env: Record<string, string> = { CM_TAIL_TURNS: "0" };
+	if (databaseUrl) env.CM_DATABASE_URL = databaseUrl;
 
 	const first = await runHeadless({
 		cwd,
@@ -39,7 +43,7 @@ async function forgetfulConversation() {
 		env,
 	});
 
-	return { first, second, accountingDir };
+	return { first, second };
 }
 
 describeLive("the harness helper", () => {
@@ -76,11 +80,11 @@ describeLive("assembly against a live model", () => {
 	);
 });
 
-describeLive("accounting against a live model", () => {
+describeStore("accounting against a live model and a real store", () => {
 	test(
 		"records a non-zero floor for a trivially small pack",
 		async () => {
-			const { second, accountingDir } = await forgetfulConversation();
+			const { second } = await forgetfulConversation();
 
 			const conversationId = second.journalPath
 				.split("/")
@@ -90,16 +94,19 @@ describeLive("accounting against a live model", () => {
 				.pop();
 			expect(conversationId).toBeTruthy();
 
-			const turns = await new Accounting(accountingDir).read(
-				conversationId ?? "",
-			);
+			const store = PostgresStore.connect(databaseUrl ?? "");
+			try {
+				const turns = await store.readAccounting(conversationId ?? "");
 
-			expect(turns.length).toBeGreaterThan(0);
-			const measured = turns.filter((turn) => turn.floorTokens !== undefined);
-			expect(measured.length).toBeGreaterThan(0);
-			for (const turn of measured) {
-				expect(turn.floorTokens).toBeGreaterThan(0);
-				expect(turn.packTokens).toBeLessThan(turn.floorTokens ?? 0);
+				expect(turns.length).toBeGreaterThan(0);
+				const measured = turns.filter((turn) => turn.floorTokens !== undefined);
+				expect(measured.length).toBeGreaterThan(0);
+				for (const turn of measured) {
+					expect(turn.floorTokens).toBeGreaterThan(0);
+					expect(turn.packTokens).toBeLessThan(turn.floorTokens ?? 0);
+				}
+			} finally {
+				await store.close();
 			}
 		},
 		TIMEOUT,
