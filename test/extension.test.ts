@@ -959,8 +959,8 @@ describe("the spec store in a session", () => {
 		const ran: string[][] = [];
 		const store = new SpecStore({
 			inspect: async (path) => {
-				if (tree === "absent") return undefined;
-				if (tree === "partial" && path.endsWith("specs")) return undefined;
+				if (tree === "absent") return "absent";
+				if (tree === "partial" && path.endsWith("specs")) return "absent";
 				return path.endsWith("config.yaml") ? "file" : "directory";
 			},
 			run: async (_command, args) => {
@@ -1051,7 +1051,7 @@ describe("the spec store in a session", () => {
 					? path.endsWith("config.yaml")
 						? "file"
 						: "directory"
-					: undefined,
+					: "absent",
 			run: async (_command, args) => {
 				ran.push(args);
 				if (args[0] === "init") initialized = true;
@@ -1070,7 +1070,7 @@ describe("the spec store in a session", () => {
 		const store = new SpecStore({
 			inspect: async (path) =>
 				path.endsWith("specs")
-					? undefined
+					? "absent"
 					: path.endsWith("config.yaml")
 						? "file"
 						: "directory",

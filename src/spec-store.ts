@@ -3,13 +3,16 @@ import { join } from "node:path";
 
 import type { CommandResult, RunCommand } from "./graph-store.ts";
 
+/** What inspecting a path established. */
+export type Inspected = TreePart["kind"] | "absent" | "unreadable";
+
 /** A part of the tree this project's work assumes, and whether it is there. */
 export interface TreePart {
 	/** Relative to the Codebase, as a person would type it. */
 	path: string;
 	kind: "directory" | "file";
-	/** What is actually there: absent, the right kind, or the wrong kind. */
-	state: "present" | "absent" | "wrong-kind";
+	/** What is actually there, or why it could not be established. */
+	state: "present" | "absent" | "wrong-kind" | "unreadable";
 }
 
 /** Whether a Codebase is set up the way this project's work assumes. */
@@ -45,7 +48,7 @@ export interface SpecStoreOptions {
 	run?: RunCommand;
 	/** The OpenSpec executable. Overridable for tests and odd installs. */
 	openspec?: string;
-	inspect?: (path: string) => Promise<TreePart["kind"] | undefined>;
+	inspect?: (path: string) => Promise<Inspected>;
 }
 
 /**
@@ -58,7 +61,7 @@ export interface SpecStoreOptions {
 export class SpecStore {
 	private readonly run: RunCommand;
 	private readonly openspec: string;
-	private readonly inspect: (path: string) => Promise<TreePart["kind"] | undefined>;
+	private readonly inspect: (path: string) => Promise<Inspected>;
 
 	constructor(options: SpecStoreOptions = {}) {
 		this.run = options.run ?? runProcess;
@@ -82,8 +85,8 @@ export class SpecStore {
 				path: expected.path,
 				kind: expected.kind,
 				state:
-					found === undefined
-						? "absent"
+					found === "absent" || found === "unreadable"
+						? found
 						: found === expected.kind
 							? "present"
 							: "wrong-kind",
@@ -149,11 +152,13 @@ export function describeTree(report: TreeReport): string {
 
 	const missing = report.parts
 		.filter((part) => part.state !== "present")
-		.map((part) =>
-			part.state === "wrong-kind"
-				? `${part.path} is not a ${part.kind}`
-				: `${part.path} is missing`,
-		);
+		.map((part) => {
+			if (part.state === "wrong-kind") return `${part.path} is not a ${part.kind}`;
+			// Unreadable is not absent: telling someone to create what is
+			// already there would waste their time on the wrong problem.
+			if (part.state === "unreadable") return `${part.path} cannot be read`;
+			return `${part.path} is missing`;
+		});
 	return `OpenSpec tree is incomplete: ${missing.join(", ")}.`;
 }
 
@@ -175,12 +180,14 @@ async function runProcess(
 	return { ok: code === 0, output: `${stdout}${stderr}`.trim() };
 }
 
-async function inspectPath(
-	path: string,
-): Promise<TreePart["kind"] | undefined> {
+async function inspectPath(path: string): Promise<Inspected> {
 	try {
 		return (await stat(path)).isDirectory() ? "directory" : "file";
-	} catch {
-		return undefined;
+	} catch (error) {
+		// Only "it is not there" is absence. A directory we may not read is
+		// a different problem with a different fix.
+		const code =
+			error instanceof Error && "code" in error ? error.code : undefined;
+		return code === "ENOENT" || code === "ENOTDIR" ? "absent" : "unreadable";
 	}
 }

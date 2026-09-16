@@ -137,6 +137,23 @@ describeReal("against the real openspec", () => {
 	);
 
 	test(
+		"a missing openspec binary is unknown, not invalid content",
+		async () => {
+			const root = await directory();
+			// Through the real process boundary: whether a missing binary
+			// throws or exits nonzero decides whether this Store reports
+			// "unknown" or silently claims the content is broken.
+			const report = await new SpecStore({
+				openspec: "openspec-not-installed-here",
+			}).diagnose(root);
+
+			expect(report.valid).toBeUndefined();
+			expect(report.detail).toContain("could not be run");
+		},
+		TIMEOUT,
+	);
+
+	test(
 		"verification writes nothing, even to a bare codebase",
 		async () => {
 			const root = await directory();

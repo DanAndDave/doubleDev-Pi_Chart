@@ -95,6 +95,24 @@ describe("verifying a codebase's tree", () => {
 		expect(describeTree(report)).toContain("is not a directory");
 	});
 
+	test("a part that cannot be read is not reported as missing", async () => {
+		const root = await codebase(conforming);
+		await Bun.$`chmod 000 ${join(root, "openspec", "specs")}`.quiet();
+		try {
+			const report = await new SpecStore({
+				inspect: async (path) =>
+					path.endsWith("specs") ? "unreadable" : "directory",
+			}).verify(root);
+
+			// Telling someone to create what is already there would send
+			// them after the wrong problem.
+			expect(describeTree(report)).toContain("cannot be read");
+			expect(describeTree(report)).not.toContain("is missing");
+		} finally {
+			await Bun.$`chmod 755 ${join(root, "openspec", "specs")}`.quiet();
+		}
+	});
+
 	test("verification changes nothing, whatever the state", async () => {
 		for (const build of [conforming, async () => {}]) {
 			const root = await codebase(build);
