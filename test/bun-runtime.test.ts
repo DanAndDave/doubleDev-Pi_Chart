@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { mkdir, mkdtemp, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { findBun, forgetBun } from "../src/bun-runtime.ts";
 
 afterEach(() => {
@@ -42,6 +46,24 @@ describe("finding a bun to run the embedder", () => {
 
 		expect(found).toBeDefined();
 		expect(found).not.toBe("/nonexistent/bun");
+	});
+
+	test("picks the newest version a manager holds, not the highest string", async () => {
+		// Lexicographic order puts 1.9.0 above 1.10.0, which would pin a
+		// machine to an older Bun than it has installed.
+		const root = await mkdtemp(join(tmpdir(), "cm-bun-versions-"));
+		const real = await findBun({ HOME: process.env.HOME });
+		if (!real) throw new Error("no bun to copy");
+		for (const version of ["1.9.0", "1.10.0"]) {
+			const bin = join(root, ".local", "share", "mise", "installs", "bun", version, "bin");
+			await mkdir(bin, { recursive: true });
+			await symlink(real, join(bin, "bun"));
+		}
+		forgetBun();
+
+		const found = await findBun({ HOME: root });
+
+		expect(found).toContain("1.10.0");
 	});
 
 	test("the answer is resolved once", async () => {

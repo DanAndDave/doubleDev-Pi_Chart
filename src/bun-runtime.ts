@@ -73,7 +73,24 @@ async function versioned(root: string): Promise<string[]> {
 	})) {
 		versions.push(entry);
 	}
-	return versions.sort().reverse();
+	// Numerically, per component: lexicographic order puts 1.9.0 above
+	// 1.10.0, which would pin a machine to an older Bun than it has.
+	return versions.sort((a, b) => compareVersions(versionOf(b), versionOf(a)));
+}
+
+/** The version directory in `<root>/<version>/bin/bun`. */
+function versionOf(path: string): string {
+	return path.split("/").at(-3) ?? "";
+}
+
+function compareVersions(a: string, b: string): number {
+	const left = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
+	const right = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+	for (let index = 0; index < Math.max(left.length, right.length); index++) {
+		const difference = (left[index] ?? 0) - (right[index] ?? 0);
+		if (difference !== 0) return difference;
+	}
+	return 0;
 }
 
 /**
