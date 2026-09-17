@@ -22,8 +22,10 @@ function installation(options: {
 		reachable: async () => options.reachable === true,
 		exists: async () => options.bundle === true,
 		root: "/work/project",
-		run: async (command, args) => {
-			options.ran?.push([command, ...args]);
+		// The cwd is recorded too: it is what makes `docker compose` find
+		// this project's compose file, and nothing else would notice it go.
+		run: async (command, args, cwd) => {
+			options.ran?.push([command, ...args, cwd ?? ""]);
 			return { ok: true, output: "" };
 		},
 	});
@@ -58,6 +60,18 @@ describe("checking an installation", () => {
 		const runtime = checks.find((check) => check.name === "embedder runtime");
 		expect(runtime?.ok).toBe(false);
 		expect(runtime?.fix).toContain("bun.sh");
+	});
+
+	test("a store declined on purpose is not reported as a fault", async () => {
+		const checks = await installation({ bun: "/usr/bin/bun" }).check(
+			config({ databaseUrl: "" }),
+			true,
+		);
+
+		const store = checks.find((check) => check.name === "thread store");
+		expect(store?.ok).toBe(true);
+		expect(store?.fix).toBeUndefined();
+		expect(store?.detail).toContain("declined");
 	});
 
 	test("an unreachable store is named, with the command that fixes it", async () => {
@@ -119,11 +133,31 @@ describe("setting an installation up", () => {
 		const ran: string[][] = [];
 		await installation({ ran, bundle: true }).setup(config());
 
-		expect(ran).toEqual([["docker", "compose", "up", "-d"]]);
+		expect(ran).toEqual([
+			["docker", "compose", "up", "-d", "--wait", "/work/project"],
+		]);
 	});
 
 	test("the project root holds the compose file", async () => {
 		expect(await Bun.file(`${projectRoot()}/compose.yaml`).exists()).toBe(true);
+	});
+
+	test("a missing docker is a failed check, not a thrown error", async () => {
+		const install = new Installation({
+			bun: async () => "/usr/bin/bun",
+			reachable: async () => false,
+			exists: async () => true,
+			run: async () => {
+				// What Bun.spawn does for an executable that is not there.
+				throw new Error('Executable not found in $PATH: "docker"');
+			},
+		});
+
+		const done = await install.setup(config());
+
+		const store = done.find((check) => check.name === "thread store");
+		expect(store?.ok).toBe(false);
+		expect(store?.detail).toContain("not found");
 	});
 });
 

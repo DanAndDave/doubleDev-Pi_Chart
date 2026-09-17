@@ -15,15 +15,18 @@ import { join } from "node:path";
  */
 
 /** Places a Bun ends up, in the order worth trying. */
-function candidates(env: Record<string, string | undefined>): string[] {
+function candidates(
+	env: Record<string, string | undefined>,
+	running: string,
+): string[] {
 	const home = env.HOME ?? homedir();
 	const found: string[] = [];
 
 	const configured = env.CM_BUN?.trim();
 	if (configured) found.push(configured);
 
-	// The process running us, when that is already a Bun.
-	const running = process.execPath;
+	// The process running us, when that is already a Bun: the cheapest
+	// certain answer there is.
 	if (running.endsWith("/bun") || running.endsWith("\\bun.exe")) {
 		found.push(running);
 	}
@@ -42,11 +45,17 @@ function candidates(env: Record<string, string | undefined>): string[] {
 }
 
 /** Whether this path runs as Bun. The only test that means anything. */
-async function runs(path: string): Promise<boolean> {
+async function runs(
+	path: string,
+	env: Record<string, string | undefined>,
+): Promise<boolean> {
 	try {
 		const spawned = Bun.spawn([path, "--version"], {
 			stdout: "pipe",
 			stderr: "pipe",
+			// The given environment, so a bare `bun` resolves against the
+			// PATH the caller meant rather than the process's own.
+			env: env as Record<string, string>,
 		});
 		const [out, code] = await Promise.all([
 			new Response(spawned.stdout).text(),
@@ -58,13 +67,18 @@ async function runs(path: string): Promise<boolean> {
 	}
 }
 
+/** Whether a path is a directory, and so a version manager's install root. */
+async function isDirectory(path: string): Promise<boolean> {
+	try {
+		return (await stat(path)).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
 /** Version directories under a version manager's install root, newest first. */
 async function versioned(root: string): Promise<string[]> {
-	try {
-		if (!(await stat(root)).isDirectory()) return [];
-	} catch {
-		return [];
-	}
+	if (!(await isDirectory(root))) return [];
 	const versions: string[] = [];
 	for await (const entry of new Bun.Glob("*/bin/bun").scan({
 		cwd: root,
@@ -103,22 +117,36 @@ let resolved: Promise<string | undefined> | undefined;
 
 export function findBun(
 	env: Record<string, string | undefined> = process.env,
+	/** The running process. A seam: a machine with no Bun is otherwise
+	 * unreachable from a test, since the tests run under one. */
+	running: string = process.execPath,
 ): Promise<string | undefined> {
-	resolved ??= search(env);
+	// Only a success is remembered. A coding session outlives an install,
+	// and the error tells the user to install Bun — advice that would
+	// otherwise do nothing until they restarted.
+	resolved ??= search(env, running).then((found) => {
+		if (found === undefined) resolved = undefined;
+		return found;
+	});
 	return resolved;
 }
 
 async function search(
 	env: Record<string, string | undefined>,
+	running: string,
 ): Promise<string | undefined> {
-	for (const candidate of candidates(env)) {
-		if (candidate.includes("/installs/bun")) {
+	for (const candidate of candidates(env, running)) {
+		// A directory is an install root to search; anything else is a Bun
+		// to try. Deciding by what the path spells rather than what it is
+		// discarded a configured `CM_BUN` that happened to live under a
+		// version manager — which is most of them.
+		if (await isDirectory(candidate)) {
 			for (const version of await versioned(candidate)) {
-				if (await runs(version)) return version;
+				if (await runs(version, env)) return version;
 			}
 			continue;
 		}
-		if (await runs(candidate)) return candidate;
+		if (await runs(candidate, env)) return candidate;
 	}
 	return undefined;
 }

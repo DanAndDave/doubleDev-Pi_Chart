@@ -35,9 +35,15 @@ export interface InstallOptions {
 	root?: string;
 }
 
-/** The project directory, from this file's own location. */
+/**
+ * The project directory, from this file's own location.
+ *
+ * `import.meta.dir` rather than a URL's pathname: the latter is
+ * percent-encoded, so a clone under `~/My Projects/` yielded a path that
+ * does not exist — and `setup` spawns with it as the working directory.
+ */
 export function projectRoot(): string {
-	return dirname(dirname(new URL(import.meta.url).pathname));
+	return dirname(import.meta.dir);
 }
 
 export class Installation {
@@ -67,17 +73,21 @@ export class Installation {
 			fix: bun ? undefined : "install Bun from https://bun.sh",
 		});
 
+		// An empty setting is how someone declines a store on purpose, and a
+		// deliberate choice must not be reported as a fault.
 		const url = config.databaseUrl;
-		const answers = url !== undefined && (await this.reachable(url));
+		const declined = url === undefined || url === "";
+		const answers = !declined && (await this.reachable(url));
 		checks.push({
 			name: "thread store",
-			ok: answers,
-			detail: answers
-				? (url ?? "")
-				: "not reachable; turns are not recorded and nothing is recalled",
-			fix: answers ? undefined : "run `context-manager setup`",
+			ok: answers || declined,
+			detail: declined
+				? "declined; the tail falls back to the harness's own history"
+				: answers
+					? url
+					: "not reachable; turns are not recorded and nothing is recalled",
+			fix: answers || declined ? undefined : "run `context-manager setup`",
 		});
-
 		checks.push({
 			name: "harness memory",
 			ok: memoryOff === true,
@@ -119,18 +129,25 @@ export class Installation {
 	async setup(config: Config): Promise<Check[]> {
 		const done: Check[] = [];
 
+		// `--wait` because `up -d` returns when the container starts, not
+		// when Postgres accepts connections; the check below would
+		// otherwise tell the user to run the command they just ran.
+		// Caught because a missing `docker` throws rather than failing.
 		const compose = await this.run(
 			"docker",
-			["compose", "up", "-d"],
+			["compose", "up", "-d", "--wait"],
 			this.root,
-		);
+		).catch((error: unknown) => ({
+			ok: false,
+			output: error instanceof Error ? error.message : String(error),
+		}));
 		done.push({
 			name: "thread store",
 			ok: compose.ok,
 			detail: compose.ok
 				? "started; the schema applies itself on first use"
 				: compose.output || "could not start docker compose",
-			fix: compose.ok ? undefined : "is Docker running?",
+			fix: compose.ok ? undefined : "is Docker installed and running?",
 		});
 
 		if (!(await this.exists(config.docBundle))) {

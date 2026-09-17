@@ -121,6 +121,8 @@ function text(value: unknown): string | undefined {
 export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	/** What the harness said about its memory backend, if it said anything. */
 	let memoryOff: boolean | undefined;
+	/** Whether it has been asked at all. Unasked is not "did not answer". */
+	let memoryAsked = false;
 	const measuredByConversation = new Map<string, number>();
 	/** One ingest-and-embed sweep per Conversation at a time. */
 	const sweeping = new Map<string, Promise<void>>();
@@ -195,11 +197,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		const status = await ctx.memory?.status?.();
 		// Remembered for `context-manager`, which runs long after this and
 		// has no way to ask the harness itself.
-		memoryOff =
-			status === undefined
-				? undefined
-				: status.active !== true &&
-					(!status.backend || status.backend === "off");
+		memoryAsked = true;
+		memoryOff = status
+			? status.active !== true && (!status.backend || status.backend === "off")
+			: undefined;
 		if (!status) {
 			// The same rule the Spec Store applies to a missing CLI: an
 			// invariant that cannot be checked is unknown, and reporting
@@ -543,14 +544,19 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 		if (args === "setup") {
 			const done = await install.setup(deps.config);
-			const after = await install.check(deps.config, memoryOff);
+			const after = await install.check(deps.config, memoryState());
 			return `${describeChecks(done)}\n\nNow:\n${describeChecks(after)}`;
 		}
 		if (args !== "") {
 			return `Unknown command: ${args}. Use \`context-manager\` or \`context-manager setup\`.`;
 		}
 
-		return describeChecks(await install.check(deps.config, memoryOff));
+		return describeChecks(await install.check(deps.config, memoryState()));
+	}
+
+	/** What to tell the installation about the harness's memory backend. */
+	function memoryState(): boolean | undefined {
+		return memoryAsked ? memoryOff : undefined;
 	}
 
 	/**
