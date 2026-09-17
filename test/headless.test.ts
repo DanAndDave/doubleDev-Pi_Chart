@@ -188,13 +188,18 @@ describeStore("curated knowledge against a live model", () => {
 				await embedder.close();
 			}
 
-			// Control first, in its own empty Codebase: without the Doc Store
-			// the fact is unreachable, so the answer below can only come from
-			// the bundle.
+			// Control first, in its own empty Codebase, with both routes to
+			// the bundle closed: the Budget at zero and no bundle to walk.
+			// Walking is deliberately unbudgeted, so closing only the Budget
+			// would leave the agent a second way in — which it took.
 			const withoutDocs = await runHeadless({
 				prompt: question,
 				extensions: [EXTENSION],
-				env: { ...env, CM_DOC_CONCEPTS: "0" },
+				env: {
+					...env,
+					CM_DOC_CONCEPTS: "0",
+					CM_DOC_BUNDLE: await mkdtemp(join(tmpdir(), "cm-live-nobundle-")),
+				},
 			});
 			expect(withoutDocs.stdout).not.toContain(secret);
 

@@ -1,3 +1,5 @@
+import { findBun } from "./bun-runtime.ts";
+
 /**
  * Turns text into a vector so Turns can be found by meaning.
  *
@@ -58,7 +60,8 @@ export class LocalEmbedder implements Embedder {
 	private readonly pending = new Map<number, Resolver>();
 
 	constructor(
-		private readonly runtime = process.env.CM_BUN ?? "bun",
+		/** Where Bun is. Found when unset, so `CM_BUN` is a rescue, not a step. */
+		private readonly runtime?: string,
 		/** How long one batch may take, including first-use model load. */
 		private readonly timeoutMs = 120_000,
 		/** The worker to run. A seam: tests substitute a misbehaving one. */
@@ -69,7 +72,7 @@ export class LocalEmbedder implements Embedder {
 	async embed(texts: string[]): Promise<number[][]> {
 		if (texts.length === 0) return [];
 
-		const worker = this.start();
+		const worker = await this.start();
 		const id = this.nextId++;
 		const { promise, resolve, reject } = Promise.withResolvers<number[][]>();
 		this.pending.set(id, { resolve, reject });
@@ -123,19 +126,27 @@ export class LocalEmbedder implements Embedder {
 		this.pending.clear();
 	}
 
-	private start(): Worker {
+	private async start(): Promise<Worker> {
 		if (this.worker) return this.worker;
+
+		const runtime = this.runtime ?? (await findBun());
+		if (!runtime) {
+			throw new Error(
+				"no Bun found to run the embedder. Install Bun " +
+					"(https://bun.sh) or set CM_BUN to its path",
+			);
+		}
 
 		let child: Bun.Subprocess<"pipe", "pipe", "pipe">;
 		try {
-			child = Bun.spawn([this.runtime, this.script], {
+			child = Bun.spawn([runtime, this.script], {
 				stdin: "pipe",
 				stdout: "pipe",
 				stderr: "pipe",
 			});
 		} catch (error) {
 			throw new Error(
-				`could not start the embedder with "${this.runtime}": ` +
+				`could not start the embedder with "${runtime}": ` +
 					(error instanceof Error ? error.message : String(error)),
 			);
 		}

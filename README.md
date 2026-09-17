@@ -18,19 +18,29 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 git clone <repo> context-manager && cd context-manager
 mise trust && mise install
 bun install
+omp install .
 ```
 
-`mise trust` is required before the pinned Bun resolves in a fresh clone.
+`mise trust` is required before the pinned Bun resolves in a fresh clone. `omp install .` links the extension for every session on the machine — there is no symlink to place and no path to configure.
 
-## Load it
+Then, in any session:
 
-Point the harness at the extension:
-
-```sh
-omp -e /path/to/context-manager/src/extension.ts
+```
+/context-manager setup
 ```
 
-To load it for every session in a project, link it into that project's `.omp/extensions/`, or into `~/.omp/agent/extensions/` for every session on the machine.
+That starts the Thread Store's Postgres and creates a bundle directory. Running `/context-manager` with no argument checks the installation instead and says what is missing, with the command that fixes each thing:
+
+```
+  ok   embedder runtime  /home/you/.bun/bin/bun
+  not  thread store      not reachable; turns are not recorded and nothing is recalled
+      run `context-manager setup`
+  ok   harness memory    off, as it must be
+  ok   doc bundle        none at /home/you/.context-manager/bundle; curated knowledge is simply empty
+  ok   codebase graph    extraction off; set CM_GRAPH=on to derive one
+```
+
+Nothing else is required. The embedder finds its own Bun, the Thread Store defaults to what this project's `compose.yaml` serves, and a store that is not running degrades to the harness's own history rather than failing — which `/pack` reports, so a session spent running without it is visible rather than mysterious.
 
 ## Configure
 
@@ -41,20 +51,22 @@ memory:
   backend: off
 ```
 
-The extension checks this at session start and reports loudly if it is still active.
+The extension checks this at session start and reports loudly if it is still active — and says so too when the harness does not report its backend at all, because an invariant that cannot be checked is not a confirmed one.
+
+Every setting below has a working default. They exist for tuning, not for setup.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
 | `CM_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
 | `CM_RECALL_MAX_DISTANCE` | `0.5` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: genuine hits land at 0.30–0.39 and unrelated prompts at 0.51+ on the pinned model. |
-| `CM_DATABASE_URL` | unset | Thread Store connection. Unset means run with no store: the tail falls back to the harness's own history. |
-| `CM_BUN` | `bun` | The Bun used to run the embedding worker. Set it to an absolute path when `bun` is not on the harness's `PATH`. |
+| `CM_DATABASE_URL` | this project's compose default | Thread Store connection. An unreachable store degrades to the harness's own history. |
+| `CM_BUN` | found | The Bun that runs the embedding worker. Located automatically — including under version managers, whose shims fail outside a directory they know. Set it only to override. |
 | `CM_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
 | `CM_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
 | `CM_DOC_BUNDLE` | `~/.context-manager/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
 | `CM_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
-| `CM_GRAPH` | on | `off` stops the extension deriving a graph. An existing `graphify-out/` is still read. |
+| `CM_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
 | `CM_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
 
 ## Recall
@@ -84,7 +96,7 @@ The Graph Store answers structural questions — what calls this, what does it i
 
 It uses [graphify](https://github.com/Graphify-Labs/graphify), installed at a pinned version into a private virtual environment under `~/.context-manager/graphify`, because this machine had no `uv`, `pipx` or `pip` and `python3 -m venv` is always there.
 
-**It writes into your repository.** `graphify extract` creates `graphify-out/` in the Codebase and offers no way to redirect it; graphify intends that directory to be committed so a team shares one map. `CM_GRAPH=off` declines, and an existing extraction is still read.
+**It writes into your repository, so it is off by default.** `graphify extract` creates `graphify-out/` in the Codebase and offers no way to redirect it; graphify intends that directory to be committed so a team shares one map, but that is not a thing to do to someone's repo unasked. `CM_GRAPH=on` opts in, and an existing extraction is read either way.
 
 Only what a parser established is carried. Three separate conditions, because each excludes something the others do not:
 

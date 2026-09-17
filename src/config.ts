@@ -19,7 +19,8 @@ export interface Config {
 	/**
 	 * Whether to derive a Codebase's graph. Off means read one if it is
 	 * already there; extraction writes a directory into the Codebase, which
-	 * is graphify's convention but still the user's repository.
+	 * is graphify's convention but still the user's repository — so it is
+	 * asked for rather than assumed.
 	 */
 	graphExtract: boolean;
 	/** Whether to check the Codebase's OpenSpec tree at all. */
@@ -30,7 +31,11 @@ export interface Config {
 	 * unrelated queries at 0.61 and above.
 	 */
 	docMaxDistance: number;
-	/** Thread Store connection. Absent means run without a store. */
+	/**
+	 * Thread Store connection. Defaults to what `docker compose up` in this
+	 * project serves, so a working setup needs no setting; an unreachable
+	 * one degrades to the harness's own history, which `/pack` reports.
+	 */
 	databaseUrl?: string;
 	/** Where the machine-wide Doc Store bundle lives. */
 	docBundle: string;
@@ -42,6 +47,9 @@ export const DEFAULT_RECALL_MAX_DISTANCE = 0.5;
 export const DEFAULT_DOC_CONCEPTS = 2;
 export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
+/** What `compose.yaml` serves. Matching it is what makes setup one step. */
+export const DEFAULT_DATABASE_URL =
+	"postgres://context_manager:context_manager@localhost:55432/thread_store";
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
 	return {
@@ -53,10 +61,10 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		),
 		docConcepts: count(env.CM_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
 		graphSymbols: count(env.CM_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
-		graphExtract: env.CM_GRAPH !== "off",
+		graphExtract: env.CM_GRAPH === "on",
 		specsVerify: env.CM_SPECS !== "off",
 		docMaxDistance: distance(env.CM_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
-		databaseUrl: env.CM_DATABASE_URL,
+		databaseUrl: env.CM_DATABASE_URL ?? DEFAULT_DATABASE_URL,
 		docBundle:
 			env.CM_DOC_BUNDLE ?? join(homedir(), ".context-manager", "bundle"),
 	};

@@ -15,6 +15,7 @@ import type { Concept } from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
 import { DocStore, readBundle, type DocWalk } from "./doc-store.ts";
 import { GraphStore } from "./graph-store.ts";
+import { describeChecks, Installation } from "./install.ts";
 import { describeTree, SpecStore } from "./spec-store.ts";
 import {
 	neighbourhoods,
@@ -73,6 +74,8 @@ export interface Dependencies {
 	docs?: ConceptSearch;
 	/** The bundle as the agent walks it, Level by Level. */
 	walk?: DocWalk;
+	/** What the installation needs. Injected so the checks are testable. */
+	install?: Installation;
 	/** The Codebase's programmatic structure. */
 	graph?: GraphStore;
 	/** The Codebase's stated intent. Verified, never read into a pack. */
@@ -116,6 +119,8 @@ function text(value: unknown): string | undefined {
  * the only code that knows the harness exists.
  */
 export function register(pi: ExtensionAPI, deps: Dependencies): void {
+	/** What the harness said about its memory backend, if it said anything. */
+	let memoryOff: boolean | undefined;
 	const measuredByConversation = new Map<string, number>();
 	/** One ingest-and-embed sweep per Conversation at a time. */
 	const sweeping = new Map<string, Promise<void>>();
@@ -188,6 +193,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		const status = await ctx.memory?.status?.();
+		// Remembered for `context-manager`, which runs long after this and
+		// has no way to ask the harness itself.
+		memoryOff =
+			status === undefined
+				? undefined
+				: status.active !== true &&
+					(!status.backend || status.backend === "off");
 		if (!status) {
 			// The same rule the Spec Store applies to a missing CLI: an
 			// invariant that cannot be checked is unknown, and reporting
@@ -485,6 +497,18 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	if (pi.registerCommand) {
+		pi.registerCommand("context-manager", {
+			description:
+				"Check what this extension needs and what is missing: " +
+				"`context-manager` to check, `context-manager setup` to start " +
+				"the thread store",
+			handler: async (args, commandCtx) => {
+				const output = await manageInstall(args.trim());
+				if (commandCtx.ui?.notify) commandCtx.ui.notify(output, "info");
+				else deps.show?.(output);
+			},
+		});
+
 		pi.registerCommand("specs", {
 			description:
 				"Check the codebase's OpenSpec tree: `specs` to verify, " +
@@ -507,6 +531,26 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				else deps.show?.(text);
 			},
 		});
+	}
+
+	/**
+	 * What the installation needs, and the one thing this project can
+	 * supply itself. Reporting is the default: starting containers is a
+	 * side effect nobody should get from a status check.
+	 */
+	async function manageInstall(args: string): Promise<string> {
+		const install = deps.install ?? new Installation();
+
+		if (args === "setup") {
+			const done = await install.setup(deps.config);
+			const after = await install.check(deps.config, memoryOff);
+			return `${describeChecks(done)}\n\nNow:\n${describeChecks(after)}`;
+		}
+		if (args !== "") {
+			return `Unknown command: ${args}. Use \`context-manager\` or \`context-manager setup\`.`;
+		}
+
+		return describeChecks(await install.check(deps.config, memoryOff));
 	}
 
 	/**
@@ -794,7 +838,13 @@ export default function contextManager(pi: ExtensionAPI): void {
 	const embedder = new LocalEmbedder();
 	const store = PostgresStore.connect(config.databaseUrl, embedder);
 	const ready = store.migrate().catch((error: unknown) => {
-		reportToStderr(`Thread Store migration failed: ${describe(error)}`);
+		// Naming the command matters more than naming the error: an
+		// unreachable store means nothing is recorded and nothing is
+		// recalled, and the fix is one command away.
+		reportToStderr(
+			`Thread Store unreachable, so nothing is recorded or recalled. ` +
+				`Run \`/context-manager setup\` to start it. (${describe(error)})`,
+		);
 	});
 
 	register(pi, {
