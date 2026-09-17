@@ -45,7 +45,9 @@ export interface DocStoreOptions {
 	onRead?: (path: string) => void;
 }
 
-const LISTING_LINK = /^\s*[-*]\s*\[[^\]]*\]\(([^)]+)\)\s*:?\s*(.*)$/;
+// The separator between a link and its description is the author's choice:
+// the internal fixtures write `:`, the format's own bundle writes `-`.
+const LISTING_LINK = /^\s*[-*]\s*\[[^\]]*\]\(([^)]+)\)\s*[-:\u2014]?\s*(.*)$/;
 
 /**
  * The Doc Store: one machine-wide OKF bundle of curated knowledge.
@@ -126,12 +128,18 @@ export class DocStore {
 	 * path, and a documentation tool is not a file reader.
 	 */
 	async open(id: string): Promise<Concept | undefined> {
-		const path = `${id}.md`;
+		const path = `${normalise(id)}.md`;
 		if (!this.inBundle(path)) return undefined;
+		// Reserved names are never Concepts, so serving `log` or
+		// `metrics/index` would hand back a file no listing names.
+		if (RESERVED.includes(path.split("/").pop() ?? path)) return undefined;
 
-		const { text } = await this.read(path);
+		const { text, problem } = await this.read(path);
+		// Unreadable is reported against the file it happened to, as
+		// everywhere else here; only absence is absence.
+		if (problem !== undefined) return nonConformant(id, "", problem);
 		if (text === undefined) return undefined;
-		return this.concept(path, this.now());
+		return parseConcept(id, text, this.now());
 	}
 
 	/** Whether a relative path stays inside the bundle once resolved. */
@@ -162,7 +170,11 @@ export class DocStore {
 	 * Level that does not exist look identical in a listing and mean opposite
 	 * things: "this part of the corpus is empty" and "you guessed a name".
 	 */
-	async list(path: string): Promise<Level | undefined> {
+	async list(asked: string): Promise<Level | undefined> {
+		// The path comes from a model. A trailing slash turned a populated
+		// Level into an empty one, which reads as "this part of the corpus
+		// holds nothing" — the one answer it must not give by accident.
+		const path = normalise(asked);
 		if (!(await this.isLevel(path))) return undefined;
 
 		const now = this.now();
@@ -320,4 +332,13 @@ export async function readBundle(root: string): Promise<Concept[] | undefined> {
 	// been given one is not indexable.
 	await store.ensureIdentities();
 	return store.concepts();
+}
+
+/** A path as a model wrote it, reduced to the form the bundle uses. */
+function normalise(path: string): string {
+	return path
+		.trim()
+		.replace(/^(?:\.\/|\/)+/, "")
+		.replace(/\/+$/, "")
+		.replace(/^\.$/, "");
 }

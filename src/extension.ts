@@ -103,6 +103,11 @@ function toolResult(text: string, details: Record<string, unknown>): ToolResult 
 	return { content: [{ type: "text", text }], details };
 }
 
+/** A tool argument as a usable string, or absent. Empty is absent. */
+function text(value: unknown): string | undefined {
+	return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
 /**
  * Wires the Assembler into the harness.
  *
@@ -370,7 +375,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					.optional(),
 				concept: pi.zod
 					.string()
-					.describe("Concept id from a listing, to read in full")
+					.describe(
+						"Concept id from a listing, to read in full. Takes " +
+							"precedence over level when both are given.",
+					)
 					.optional(),
 			}),
 			execute: (_id, params) => walkBundle(params),
@@ -382,32 +390,44 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * one. Reads only; the Context Pack is untouched by it, which is what
 	 * keeps assembly independent of what the agent chose to look at.
 	 */
-	async function walkBundle(params: {
-		level?: string;
-		concept?: string;
-	}): Promise<ToolResult> {
+	async function walkBundle(
+		params: Record<string, unknown>,
+	): Promise<ToolResult> {
+		// Narrowed rather than declared: these arrive as the model's JSON,
+		// and a number reaching the filesystem blames the bundle for a bad
+		// argument.
+		const asked = {
+			level: text(params.level),
+			concept: text(params.concept),
+		};
 		const walk = deps.walk;
 		if (!walk) return toolResult("No documentation bundle is configured.", {});
 
 		try {
-			if (params.concept !== undefined) {
-				const concept = await walk.open(params.concept);
+			// A Concept wins when both are given, which the tool says.
+			if (asked.concept !== undefined) {
+				const concept = await walk.open(asked.concept);
 				return concept
 					? toolResult(`# ${concept.title ?? concept.id}\n\n${concept.body}`, {
 							concept: concept.id,
 						})
-					: toolResult(`No concept called ${params.concept}.`, {
-							missing: params.concept,
+					: toolResult(`No concept called ${asked.concept}.`, {
+							missing: asked.concept,
 						});
 			}
 
-			const path = params.level ?? "";
+			const path = asked.level ?? "";
 			const level = await walk.list(path);
 			if (!level) {
 				// Absent and empty mean opposite things: "you guessed a
-				// name" and "this part of the corpus is empty".
+				// name" and "this part of the corpus is empty". And a
+				// named level missing because there is no bundle is a
+				// third thing again — otherwise the agent keeps guessing
+				// names against nothing.
+				const noBundle =
+					path === "" || (await walk.list("")) === undefined;
 				return toolResult(
-					path === ""
+					noBundle
 						? "No documentation bundle on this machine."
 						: `No level called ${path}.`,
 					{ missing: path },
@@ -415,7 +435,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			}
 			return toolResult(renderLevel(level), { level: level.path });
 		} catch (error) {
-			return toolResult(`Could not read the bundle: ${describe(error)}`, {
+			const reason = describe(error);
+			// The person running the session can act on an unreadable
+			// bundle; the model cannot.
+			deps.report(`Walking the bundle failed: ${reason}`);
+			return toolResult(`Could not read the bundle: ${reason}`, {
 				failed: true,
 			});
 		}
@@ -754,6 +778,9 @@ export default function contextManager(pi: ExtensionAPI): void {
 			assemble: defaultAssemble,
 			turns: memory,
 			accounting: new MemoryAccounting(),
+			// Neither needs Postgres, and a session with no Thread Store is
+			// the one with least other context to draw on.
+			walk: new DocStore(config.docBundle),
 			// Neither Postgres nor a model: `stat` and a subprocess, so it
 			// works in a session with no Thread Store at all.
 			specs: new SpecStore(),

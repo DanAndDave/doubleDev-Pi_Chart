@@ -1216,6 +1216,10 @@ describe("walking the documentation bundle", () => {
 		const text = await walk(cm, {});
 
 		expect(text).toContain("curated by the bundle's author");
+		// Both present before comparing: indexOf gives -1 for a missing
+		// entry, and -1 is less than any real position.
+		expect(text).toContain("concept second");
+		expect(text).toContain("concept first");
 		expect(text.indexOf("concept second")).toBeLessThan(
 			text.indexOf("concept first"),
 		);
@@ -1248,6 +1252,71 @@ describe("walking the documentation bundle", () => {
 		// corpus exists and has nothing in it yet.
 		expect(text).toContain("nothing yet");
 		expect(text).not.toContain("No level called");
+	});
+
+	test("a level written with a trailing slash is the same level", async () => {
+		const { cm } = walking();
+
+		// The path comes from a model. `metrics/` silently listed nothing,
+		// which reads as "this part of the corpus is empty".
+		expect(await walk(cm, { level: "metrics/" })).toContain("gross-margin");
+		expect(await walk(cm, { level: "./metrics" })).toContain("gross-margin");
+	});
+
+	test("an empty concept string is no concept, not a concept named nothing", async () => {
+		const { cm } = walking();
+
+		const text = await walk(cm, { level: "metrics", concept: "" });
+
+		expect(text).toContain("gross-margin");
+		expect(text).not.toContain("No concept called");
+	});
+
+	test("an argument of the wrong type does not blame the bundle", async () => {
+		const { cm } = walking();
+
+		const result = await cm.tools.walk_documentation?.execute("1", {
+			level: 42,
+		});
+		const text = result?.content.map((block) => block.text).join("\n") ?? "";
+
+		expect(text).not.toContain("Could not read the bundle");
+		expect(text).toContain("holds:");
+	});
+
+	test("a named level missing because there is no bundle says so", async () => {
+		const { cm } = walking("/nonexistent/bundle");
+
+		// Otherwise the agent keeps guessing names against nothing.
+		expect(await walk(cm, { level: "metrics" })).toContain(
+			"No documentation bundle",
+		);
+	});
+
+	test("a reserved file is not a concept", async () => {
+		const { cm } = walking();
+
+		// `log.md` and `index.md` are named by no listing and are not
+		// Concepts; serving them would hand back a stray file.
+		expect(await walk(cm, { concept: "log" })).toContain("No concept called");
+		expect(await walk(cm, { concept: "metrics/index" })).toContain(
+			"No concept called",
+		);
+	});
+
+	test("a failed walk is reported to the operator too", async () => {
+		const failing = {
+			list: async () => {
+				throw new Error("disk went away");
+			},
+			open: async () => undefined,
+		};
+		const cm = harness({ walk: failing });
+
+		await cm.tools.walk_documentation?.execute("1", {});
+
+		// The person running the session can act on it; the model cannot.
+		expect(cm.reported.join("\n")).toContain("Walking the bundle failed");
 	});
 
 	test("a concept id cannot escape the bundle", async () => {
