@@ -7,6 +7,8 @@ import { IDENTITY_KEY } from "../src/concept.ts";
 import { DocStore, readBundle } from "../src/doc-store.ts";
 
 const BUNDLE = new URL("./fixtures/bundle", import.meta.url).pathname;
+/** The vendored reference bundle, whose levels carry their own listings. */
+const VENDORED = new URL("./fixtures/okf-acme-retail", import.meta.url).pathname;
 const AT = new Date("2026-09-16T00:00:00Z");
 
 function store(path = BUNDLE): DocStore {
@@ -205,6 +207,28 @@ describe("concept identity", () => {
 		expect(after).toBeTruthy();
 		expect(after?.id).toBe("decisions/testing");
 		expect(after?.id).not.toBe(before?.id);
+	});
+});
+
+describe("a level's own listing", () => {
+	test("is used below the root, in the author's order", async () => {
+		// Written `[Revenue](revenue.md)`, not `metrics/revenue.md`: a
+		// listing links to its neighbours the way an author writes them.
+		const level = await store(VENDORED).list("metrics");
+
+		expect(level?.curated).toBe(true);
+		expect(level?.concepts.map((entry) => entry.id)).toEqual([
+			"metrics/revenue",
+			"metrics/gross-margin",
+			"metrics/gross-margin-legacy",
+		]);
+	});
+
+	test("carries the author's descriptions, not the concepts' own", async () => {
+		const level = await store(VENDORED).list("policies");
+
+		expect(level?.curated).toBe(true);
+		expect(level?.concepts[0]?.description).toBeTruthy();
 	});
 });
 

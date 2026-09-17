@@ -1237,6 +1237,19 @@ describe("walking the documentation bundle", () => {
 		);
 	});
 
+	test("an empty level says it is empty, not that it is absent", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-empty-"));
+		await Bun.write(join(root, "unwritten", ".keep"), "");
+		const { cm } = walking(root);
+
+		const text = await walk(cm, { level: "unwritten" });
+
+		// The opposite answer to "No level called": this part of the
+		// corpus exists and has nothing in it yet.
+		expect(text).toContain("nothing yet");
+		expect(text).not.toContain("No level called");
+	});
+
 	test("a concept id cannot escape the bundle", async () => {
 		const { cm } = walking();
 

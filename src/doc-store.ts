@@ -229,7 +229,13 @@ export class DocStore {
 		for (const line of text.split("\n")) {
 			const match = LISTING_LINK.exec(line);
 			if (!match) continue;
-			const id = (match[1] ?? "").replace(/^\//, "").replace(/\.md$/, "");
+			const link = (match[1] ?? "").replace(/^\//, "").replace(/\.md$/, "");
+			// A listing links to its neighbours the way an author writes
+			// them — `gross-margin.md`, not `metrics/gross-margin.md` — so
+			// the link is resolved against the Level holding the listing.
+			// Matching bare ids against bundle-relative ones made every
+			// curated listing below the root fall back to alphabetical.
+			const id = known.has(link) ? link : `${prefix}${link}`;
 			if (!known.has(id)) continue;
 			entries.push({ id, description: (match[2] ?? "").trim() || undefined });
 		}
