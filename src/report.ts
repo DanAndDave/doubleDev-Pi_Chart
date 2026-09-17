@@ -1,4 +1,5 @@
 import { messageText } from "./messages.ts";
+import type { Level } from "./doc-store.ts";
 import type { FoundTurn } from "./thread-store.ts";
 import type {
 	CallView,
@@ -114,6 +115,28 @@ export function renderSummary(summary: ConversationSummary): string {
  * Each hit says where it came from: a recollection from another project is
  * only useful if the agent can tell that is what it is.
  */
+/** A Level as the agent reads it: where to walk next, and what to open. */
+export function renderLevel(level: Level): string {
+	const where = level.path === "" ? "the bundle" : level.path;
+	const lines = [`${where} holds:`];
+
+	for (const sub of level.levels) {
+		const path = level.path === "" ? sub : `${level.path}/${sub}`;
+		lines.push(`  level ${path}`);
+	}
+	for (const entry of level.concepts) {
+		const description = entry.description ? ` — ${entry.description}` : "";
+		lines.push(`  concept ${entry.id}${description}`);
+	}
+	if (level.levels.length === 0 && level.concepts.length === 0) {
+		lines.push("  nothing yet");
+	}
+	// Whether the ordering is the author's or ours is worth knowing: a
+	// curated listing says what the author thought mattered first.
+	if (level.curated) lines.push("(listing curated by the bundle's author)");
+	return lines.join("\n");
+}
+
 export function renderSearch(found: FoundTurn[]): string {
 	if (found.length === 0) {
 		return "No conversation holds anything relevant to that.";

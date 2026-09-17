@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { DocStore } from "../src/doc-store.ts";
 import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
 import { SpecStore } from "../src/spec-store.ts";
 
@@ -1141,5 +1145,121 @@ describe("an invariant that cannot be checked", () => {
 		);
 
 		expect(cm.reported.join("\n")).not.toContain("memory backend");
+	});
+});
+
+describe("walking the documentation bundle", () => {
+	const BUNDLE = new URL("./fixtures/okf-acme-retail", import.meta.url).pathname;
+
+	function walking(root = BUNDLE) {
+		const read: string[] = [];
+		const store = new DocStore(root, { onRead: (path) => read.push(path) });
+		return { cm: harness({ walk: store }), read };
+	}
+
+	async function walk(
+		cm: ReturnType<typeof harness>,
+		params: { level?: string; concept?: string },
+	): Promise<string> {
+		const result = await cm.tools.walk_documentation?.execute("1", params);
+		return result?.content.map((block) => block.text).join("\n") ?? "";
+	}
+
+	test("the top of a bundle lists what is directly in it", async () => {
+		const { cm } = walking();
+
+		const text = await walk(cm, {});
+
+		expect(text).toContain("level metrics");
+		expect(text).toContain("level policies");
+	});
+
+	test("a level lists what is beneath it, with descriptions", async () => {
+		const { cm } = walking();
+
+		const text = await walk(cm, { level: "metrics" });
+
+		expect(text).toContain("concept metrics/gross-margin");
+		expect(text).toContain("—");
+	});
+
+	test("reading a level does not read the concepts below it", async () => {
+		const { cm, read } = walking();
+
+		await walk(cm, {});
+
+		// Progressive disclosure is the point: a Level that loaded the
+		// corpus would be a corpus, not a Level. Paths arrive rooted, so
+		// this matches on the part that names a concept beneath the top.
+		expect(read.some((path) => path.includes("/metrics/"))).toBe(false);
+		expect(read.length).toBeGreaterThan(0);
+	});
+
+	test("an author's own listing is preferred, and says so", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-"));
+		await Bun.write(
+			join(root, "second.md"),
+			"---\ntype: Decision\ntitle: Second\ndescription: written second\n---\n\nBody.\n",
+		);
+		await Bun.write(
+			join(root, "first.md"),
+			"---\ntype: Decision\ntitle: First\ndescription: written first\n---\n\nBody.\n",
+		);
+		// The author's own ordering, which is the opposite of the
+		// alphabetical one a synthesised listing would produce.
+		await Bun.write(
+			join(root, "index.md"),
+			"# Bundle\n\n- [second](second.md) — read this one first\n- [first](first.md) — then this\n",
+		);
+		const { cm } = walking(root);
+
+		const text = await walk(cm, {});
+
+		expect(text).toContain("curated by the bundle's author");
+		expect(text.indexOf("concept second")).toBeLessThan(
+			text.indexOf("concept first"),
+		);
+	});
+
+	test("a concept named in a listing can be opened", async () => {
+		const { cm } = walking();
+
+		const text = await walk(cm, { concept: "metrics/gross-margin" });
+
+		expect(text).toContain("Definition");
+	});
+
+	test("a concept the bundle does not hold says so", async () => {
+		const { cm } = walking();
+
+		expect(await walk(cm, { concept: "metrics/invented" })).toContain(
+			"No concept called",
+		);
+	});
+
+	test("a level the bundle does not have is not an empty level", async () => {
+		const { cm } = walking();
+
+		// Absent and empty mean opposite things.
+		expect(await walk(cm, { level: "invented" })).toContain("No level called");
+	});
+
+	test("no bundle on the machine is an answer, not a failure", async () => {
+		const { cm } = walking("/nonexistent/bundle");
+
+		expect(await walk(cm, {})).toContain("No documentation bundle");
+	});
+
+	test("walking leaves the context pack untouched", async () => {
+		const { cm } = walking();
+		const messages = [{ role: "user" as const, content: "what is documented?" }];
+
+		const before = await cm.context({ messages }, ctx());
+		await walk(cm, {});
+		const after = await cm.context({ messages }, ctx());
+
+		// The agent choosing to look at something must not change what
+		// assembly carries.
+		expect(after?.messages).toEqual(before?.messages);
 	});
 });

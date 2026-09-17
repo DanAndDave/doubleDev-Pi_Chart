@@ -1,4 +1,5 @@
 ---
+cm_identity: 743e675f-1b4a-41a3-a19c-b43c621ae0c4
 type: Policy
 title: Acme Retail — Revenue Recognition Policy (FY2026)
 description: Finance policy defining when a customer order is recognized as revenue. Reviewed annually.

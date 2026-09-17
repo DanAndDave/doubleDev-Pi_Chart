@@ -1,4 +1,5 @@
 ---
+cm_identity: e1568bf6-188c-4ba2-a876-e280e33fb0e6
 type: Metric
 title: Gross Margin (legacy, pre-FY2026)
 description: Retired gross-margin definition that included only product cost. Preserved for historical query reproducibility. Do not use for new analyses.

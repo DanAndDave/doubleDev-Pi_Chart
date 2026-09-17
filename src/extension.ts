@@ -13,7 +13,7 @@ import {
 } from "./assembler.ts";
 import type { Concept } from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
-import { readBundle } from "./doc-store.ts";
+import { DocStore, readBundle, type DocWalk } from "./doc-store.ts";
 import { GraphStore } from "./graph-store.ts";
 import { describeTree, SpecStore } from "./spec-store.ts";
 import {
@@ -30,6 +30,7 @@ import {
 import {
 	renderCall,
 	renderDiff,
+	renderLevel,
 	renderSearch,
 	renderSummary,
 } from "./report.ts";
@@ -70,6 +71,8 @@ export interface Dependencies {
 	search?: CorpusSearch;
 	/** The Doc Store's index, searched during assembly. */
 	docs?: ConceptSearch;
+	/** The bundle as the agent walks it, Level by Level. */
+	walk?: DocWalk;
 	/** The Codebase's programmatic structure. */
 	graph?: GraphStore;
 	/** The Codebase's stated intent. Verified, never read into a pack. */
@@ -348,6 +351,74 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			}),
 			execute: (_id, params) => searchCorpus(params),
 		});
+	}
+
+	if (pi.registerTool && deps.walk) {
+		pi.registerTool({
+			name: "walk_documentation",
+			label: "Walk the documentation bundle",
+			description:
+				"Read what the curated documentation bundle holds: a level's " +
+				"sub-levels and the concepts directly in it, each with its " +
+				"description, or one named concept in full. Use when you need " +
+				"the shape of what is documented rather than whatever a prompt " +
+				"happened to retrieve. Costs no context budget.",
+			parameters: pi.zod?.object({
+				level: pi.zod
+					.string()
+					.describe("Level to read; omit for the top of the bundle")
+					.optional(),
+				concept: pi.zod
+					.string()
+					.describe("Concept id from a listing, to read in full")
+					.optional(),
+			}),
+			execute: (_id, params) => walkBundle(params),
+		});
+	}
+
+	/**
+	 * The bundle as the agent walks it: a Level, or one Concept opened from
+	 * one. Reads only; the Context Pack is untouched by it, which is what
+	 * keeps assembly independent of what the agent chose to look at.
+	 */
+	async function walkBundle(params: {
+		level?: string;
+		concept?: string;
+	}): Promise<ToolResult> {
+		const walk = deps.walk;
+		if (!walk) return toolResult("No documentation bundle is configured.", {});
+
+		try {
+			if (params.concept !== undefined) {
+				const concept = await walk.open(params.concept);
+				return concept
+					? toolResult(`# ${concept.title ?? concept.id}\n\n${concept.body}`, {
+							concept: concept.id,
+						})
+					: toolResult(`No concept called ${params.concept}.`, {
+							missing: params.concept,
+						});
+			}
+
+			const path = params.level ?? "";
+			const level = await walk.list(path);
+			if (!level) {
+				// Absent and empty mean opposite things: "you guessed a
+				// name" and "this part of the corpus is empty".
+				return toolResult(
+					path === ""
+						? "No documentation bundle on this machine."
+						: `No level called ${path}.`,
+					{ missing: path },
+				);
+			}
+			return toolResult(renderLevel(level), { level: level.path });
+		} catch (error) {
+			return toolResult(`Could not read the bundle: ${describe(error)}`, {
+				failed: true,
+			});
+		}
 	}
 
 	/**
@@ -708,6 +779,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		search: store,
 		docs: store,
 		graph: new GraphStore(),
+		walk: new DocStore(config.docBundle),
 		specs: new SpecStore(),
 		ready,
 		bundle: () => readBundle(config.docBundle),

@@ -1,4 +1,5 @@
 ---
+cm_identity: ea0a82c0-0d04-4da2-b61e-a4bb235d4bd0
 type: Policy
 title: Acme Retail — Cost Allocation & Margin Standard (FY2026)
 description: Finance policy defining COGS composition and the standard gross-margin formula. Introduced FY2026 (superseded a legacy definition that excluded fulfillment/shipping).

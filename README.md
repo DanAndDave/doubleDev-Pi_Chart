@@ -76,6 +76,8 @@ Two lifecycle rules keep curated knowledge honest:
 
 Concepts arrive attributed — `[curated knowledge: decisions/0007-ledger-sharding]` — under their own Budget, and exhausting it never touches the verbatim tail or recalled Turns. `/pack` names the Concepts a Call carried.
 
+Retrieval answers "what is relevant to this prompt". The `walk_documentation` tool answers the other question — "what is there" — by reading one **Level** at a time: its sub-levels and the Concepts directly in it, each with its description, without loading anything deeper. An author's own `index.md` listing wins over a synthesised one, because its ordering is a judgement about what matters first. Walking costs no Budget: it is the agent deciding it needs the map, so the Context Pack is the same whether or not it looked.
+
 ## Codebase structure
 
 The Graph Store answers structural questions — what calls this, what does it import — from a parse rather than from a search. No embedding is involved: a symbol's name is exact, and "what calls `parseConcept`?" has one correct answer.

@@ -19,6 +19,17 @@ export interface LevelEntry {
 	description?: string;
 }
 
+/**
+ * The bundle as an agent walks it: read a Level, decide what to open.
+ *
+ * Narrow on purpose — the tool depends on this, not on a filesystem — and
+ * the reason `Level` exists as a word at all.
+ */
+export interface DocWalk {
+	list(path: string): Promise<Level | undefined>;
+	open(id: string): Promise<Concept | undefined>;
+}
+
 /** What one Level of the bundle holds, without reading beneath it. */
 export interface Level {
 	path: string;
@@ -106,6 +117,17 @@ export class DocStore {
 		return concepts;
 	}
 
+	/**
+	 * One Concept by the id a listing names it by, read on its own: walking
+	 * a Level and then opening one thing is the point of a Level.
+	 */
+	async open(id: string): Promise<Concept | undefined> {
+		const path = `${id}.md`;
+		const { text } = await this.read(path);
+		if (text === undefined) return undefined;
+		return this.concept(path, this.now());
+	}
+
 	/** The Concept carrying this identity, wherever it has since been moved to. */
 	async byIdentity(identity: string): Promise<Concept | undefined> {
 		for (const concept of await this.concepts()) {
@@ -122,8 +144,14 @@ export class DocStore {
 	 *
 	 * A Level's own listing file wins when it has one, because its ordering and
 	 * wording are curated; otherwise the listing is synthesised.
+	 *
+	 * `undefined` when there is no such Level. A Level holding nothing and a
+	 * Level that does not exist look identical in a listing and mean opposite
+	 * things: "this part of the corpus is empty" and "you guessed a name".
 	 */
-	async list(path: string): Promise<Level> {
+	async list(path: string): Promise<Level | undefined> {
+		if (!(await this.isLevel(path))) return undefined;
+
 		const now = this.now();
 		const prefix = path === "" ? "" : `${path}/`;
 		const levels = await this.sublevels(path);
@@ -144,6 +172,15 @@ export class DocStore {
 			concepts.push({ id: concept.id, description: concept.description });
 		}
 		return { path, levels, concepts, curated: false };
+	}
+
+	/** Whether the bundle has this Level at all. */
+	private async isLevel(path: string): Promise<boolean> {
+		try {
+			return (await stat(join(this.root, path))).isDirectory();
+		} catch {
+			return false;
+		}
 	}
 
 	/**

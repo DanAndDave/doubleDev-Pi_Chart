@@ -97,8 +97,8 @@ describe("walking a level", () => {
 	test("lists the concepts and sub-levels directly beneath it", async () => {
 		const level = await store().list("");
 
-		expect(level.levels).toEqual(["decisions", "empty-level", "standards"]);
-		expect(level.concepts).toEqual([]);
+		expect(level?.levels).toEqual(["decisions", "empty-level", "standards"]);
+		expect(level?.concepts).toEqual([]);
 	});
 
 	test("a curated listing supplies the order and wording its author chose", async () => {
@@ -106,20 +106,20 @@ describe("walking a level", () => {
 		// other way round, so an alphabetical result would mean it was ignored.
 		const level = await store().list("standards");
 
-		expect(level.curated).toBe(true);
-		expect(level.concepts.map((entry) => entry.id)).toEqual([
+		expect(level?.curated).toBe(true);
+		expect(level?.concepts.map((entry) => entry.id)).toEqual([
 			"standards/testing",
 			"standards/naming",
 		]);
-		expect(level.concepts[0]?.description).toBe("when a test earns its place");
+		expect(level?.concepts[0]?.description).toBe("when a test earns its place");
 	});
 
 	test("a level with no listing file of its own is synthesised", async () => {
 		// decisions/ has no index.md in the fixture bundle.
 		const level = await store().list("decisions");
 
-		expect(level.curated).toBe(false);
-		expect(level.concepts.map((entry) => entry.id).sort()).toEqual([
+		expect(level?.curated).toBe(false);
+		expect(level?.concepts.map((entry) => entry.id).sort()).toEqual([
 			"decisions/broken",
 			"decisions/extended",
 			"decisions/minimal",
@@ -131,7 +131,7 @@ describe("walking a level", () => {
 		const level = await store().list("decisions");
 
 		expect(
-			level.concepts.find((entry) => entry.id === "decisions/extended")?.description,
+			level?.concepts.find((entry) => entry.id === "decisions/extended")?.description,
 		).toBe("Carries keys the reader has no meaning for.");
 	});
 
@@ -140,7 +140,7 @@ describe("walking a level", () => {
 
 		// empty-level/ contains only a listing file; progressive disclosure
 		// must not dead-end there.
-		expect(level.levels).toContain("empty-level");
+		expect(level?.levels).toContain("empty-level");
 	});
 
 	test("listing a level does not read concepts deeper in the tree", async () => {

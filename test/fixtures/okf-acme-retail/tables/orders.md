@@ -1,4 +1,5 @@
 ---
+cm_identity: d795237b-d169-46b4-b855-cd9cb8c39740
 type: BigQuery Table
 title: Customer Orders
 description: One row per completed customer order across web, mobile, and marketplace channels. The grain is the order, not the line item; per-line product detail lives in `order_lines`.

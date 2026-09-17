@@ -56,7 +56,7 @@ describe("the specification's own bundle", () => {
 	test("the bundle can be walked from the root", async () => {
 		const root = await store().list("");
 
-		expect(root.levels).toEqual([
+		expect(root?.levels).toEqual([
 			"attesters",
 			"computations",
 			"metrics",

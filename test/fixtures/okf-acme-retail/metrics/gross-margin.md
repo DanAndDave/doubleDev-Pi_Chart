@@ -1,4 +1,5 @@
 ---
+cm_identity: fb935c68-8ef3-47d6-a817-3d1a42721e0c
 type: Metric
 title: Gross Margin
 description: Gross margin for a period, per Acme's FY2026 Cost Allocation Standard (product cost + inbound fulfillment + outbound shipping + payment fees).
