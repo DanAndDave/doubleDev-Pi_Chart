@@ -1237,6 +1237,23 @@ describe("walking the documentation bundle", () => {
 		);
 	});
 
+	test("a concept id cannot escape the bundle", async () => {
+		const { cm } = walking();
+
+		// The id comes from an agent. `../../../README` is a readable path
+		// from the fixture bundle, and this is a documentation tool, not a
+		// file reader.
+		const text = await walk(cm, { concept: "../../../README" });
+
+		expect(text).toContain("No concept called");
+	});
+
+	test("a level path cannot escape the bundle", async () => {
+		const { cm } = walking();
+
+		expect(await walk(cm, { level: "../.." })).toContain("No level called");
+	});
+
 	test("a level the bundle does not have is not an empty level", async () => {
 		const { cm } = walking();
 

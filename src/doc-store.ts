@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
 	IDENTITY_KEY,
@@ -120,12 +120,25 @@ export class DocStore {
 	/**
 	 * One Concept by the id a listing names it by, read on its own: walking
 	 * a Level and then opening one thing is the point of a Level.
+	 *
+	 * The id comes from an agent, so it is confined to the bundle before it
+	 * reaches the filesystem: `../../../README` is otherwise a readable
+	 * path, and a documentation tool is not a file reader.
 	 */
 	async open(id: string): Promise<Concept | undefined> {
 		const path = `${id}.md`;
+		if (!this.inBundle(path)) return undefined;
+
 		const { text } = await this.read(path);
 		if (text === undefined) return undefined;
 		return this.concept(path, this.now());
+	}
+
+	/** Whether a relative path stays inside the bundle once resolved. */
+	private inBundle(path: string): boolean {
+		const root = resolve(this.root);
+		const target = resolve(root, path);
+		return target === root || target.startsWith(`${root}/`);
 	}
 
 	/** The Concept carrying this identity, wherever it has since been moved to. */
@@ -176,6 +189,7 @@ export class DocStore {
 
 	/** Whether the bundle has this Level at all. */
 	private async isLevel(path: string): Promise<boolean> {
+		if (!this.inBundle(path)) return false;
 		try {
 			return (await stat(join(this.root, path))).isDirectory();
 		} catch {
