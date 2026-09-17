@@ -452,6 +452,61 @@ describeStore("how much work a found turn took", () => {
 		expect(found?.calls).toBe(1);
 	});
 
+	test("a turn that grew since it was first stored reports its new count", async () => {
+		// Ingest sweeps the whole Journal on every Call, so a Turn first
+		// seen mid-flight is stored at one Call and has to be corrected as
+		// it grows.
+		const midFlight: JournalTurn = {
+			turnIndex: 0,
+			prompt: "trace the nightly job",
+			messages: [
+				{ role: "user", content: "trace the nightly job" },
+				{ role: "assistant", content: "starting" },
+			],
+			callCount: 1,
+			calls: [0, 0],
+		};
+		await store.ingest("growing", [midFlight]);
+		await store.ingest("growing", [
+			{
+				...midFlight,
+				messages: [
+					...midFlight.messages,
+					{ role: "toolResult", content: "log" },
+					{ role: "assistant", content: "found it" },
+				],
+				callCount: 3,
+				calls: [0, 0, 1, 1],
+			},
+		]);
+		await store.embedPending();
+
+		const [found] = await store.searchAll(midFlight.prompt, 1, PERMISSIVE);
+
+		expect(found?.calls).toBe(3);
+	});
+
+	test("a turn the harness never annotated still took one call", async () => {
+		// One of this machine's 298 recorded Turns has no snapshot at all.
+		// Storing that as zero Calls would contradict what a Turn is.
+		const unannotated: JournalTurn = {
+			turnIndex: 0,
+			prompt: "what is the banner colour",
+			messages: [
+				{ role: "user", content: "what is the banner colour" },
+				{ role: "assistant", content: "muted green" },
+			],
+			callCount: 0,
+			calls: [0, 0],
+		};
+		await store.ingest("unannotated", [unannotated]);
+		await store.embedPending();
+
+		const [found] = await store.searchAll(unannotated.prompt, 1, PERMISSIVE);
+
+		expect(found?.calls).toBe(1);
+	});
+
 	test("a turn answered directly is not described as several", async () => {
 		await store.ingest("easy", [answered]);
 		await store.embedPending();

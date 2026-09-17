@@ -224,6 +224,12 @@ describe("the schema's declared order", () => {
 		// A version declared out of place runs out of place: migration 7
 		// alters a table migration 1 creates, and a later one could alter
 		// a table an earlier one has not created yet.
-		expect(MIGRATION_VERSIONS).toEqual([...MIGRATION_VERSIONS].sort((a, b) => a - b));
+		// Strictly: a repeated version is recorded as applied by whichever
+		// entry ran first, so the second never runs at all.
+		const ascending = MIGRATION_VERSIONS.every(
+			(version, index) =>
+				index === 0 || version > (MIGRATION_VERSIONS[index - 1] ?? 0),
+		);
+		expect(ascending).toBe(true);
 	});
 });

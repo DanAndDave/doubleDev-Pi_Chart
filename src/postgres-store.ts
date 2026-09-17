@@ -612,8 +612,8 @@ export class PostgresStore implements
 	 *
 	 * Not the highest Call its content carries: a message recorded after
 	 * the last snapshot belongs to a Call that never completed, so deriving
-	 * the count from the content overstates it — measured, on five of this
-	 * machine's 297 recorded Turns. Older rows have no count and fall back
+	 * the count from the content overstates it — measured, on four of this
+	 * machine's 298 recorded Turns. Older rows have no count and fall back
 	 * to the content, which is right for every Turn that ended on its
 	 * snapshot and no worse than what they had.
 	 */
