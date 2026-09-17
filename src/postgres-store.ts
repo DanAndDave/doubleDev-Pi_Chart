@@ -114,6 +114,15 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 		statements: [`ALTER TABLE turns ADD COLUMN IF NOT EXISTS codebase TEXT`],
 	},
 	{
+		version: 7,
+		statements: [
+			// Zero is right for every Turn answered in one Call, and honest
+			// for older rows whose Calls were never recorded.
+			`ALTER TABLE turn_messages
+				ADD COLUMN IF NOT EXISTS call_index INTEGER NOT NULL DEFAULT 0`,
+		],
+	},
+	{
 		version: 6,
 		statements: [
 			`CREATE TABLE IF NOT EXISTS concept_sections (
@@ -228,16 +237,21 @@ export class PostgresStore implements
 					codebase = COALESCE(EXCLUDED.codebase, turns.codebase)`;
 
 			for (const [ordinal, message] of turn.messages.entries()) {
+				// A message whose Call was never recorded belongs to the
+				// Turn's first: one Call is what such a Turn actually was.
+				const callIndex = turn.calls[ordinal] ?? 0;
 				await this.sql`
 					INSERT INTO turn_messages
-						(conversation_id, turn_index, ordinal, role, message, tool_name, is_error)
+						(conversation_id, turn_index, ordinal, call_index, role, message,
+						 tool_name, is_error)
 					VALUES (
-						${conversationId}, ${turn.turnIndex}, ${ordinal}, ${message.role},
-						${JSON.stringify(message)}::jsonb, ${message.toolName ?? null},
-						${message.isError === true}
+						${conversationId}, ${turn.turnIndex}, ${ordinal}, ${callIndex},
+						${message.role}, ${JSON.stringify(message)}::jsonb,
+						${message.toolName ?? null}, ${message.isError === true}
 					)
 					ON CONFLICT (conversation_id, turn_index, ordinal)
 					DO UPDATE SET
+						call_index = EXCLUDED.call_index,
 						role = EXCLUDED.role,
 						message = EXCLUDED.message,
 						tool_name = EXCLUDED.tool_name,
@@ -561,9 +575,23 @@ export class PostgresStore implements
 				turn,
 				conversationId: row.conversation_id,
 				codebase: row.codebase ?? undefined,
+				calls: await this.callsIn(row.conversation_id, row.turn_index),
 			});
 		}
 		return found;
+	}
+
+	/** How many Calls a Turn took, from the Calls its content was stored under. */
+	private async callsIn(
+		conversationId: string,
+		turnIndex: number,
+	): Promise<number> {
+		const [row] = (await this.sql`
+			SELECT max(call_index) AS highest FROM turn_messages
+			WHERE conversation_id = ${conversationId} AND turn_index = ${turnIndex}`) as {
+			highest: number | null;
+		}[];
+		return (row?.highest ?? 0) + 1;
 	}
 
 	/**

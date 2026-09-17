@@ -23,6 +23,7 @@ function subject(index: number, prompt: string, answer: string): JournalTurn {
 			{ role: "assistant", content: answer },
 		],
 		callCount: 1,
+		calls: [],
 	};
 }
 
@@ -373,5 +374,66 @@ describeStore("searching every conversation", () => {
 
 		expect(tail).toHaveLength(1);
 		expect(tail[0]?.messages[1]?.content).toBe("in beta we cached too");
+	});
+});
+
+describeStore("how much work a found turn took", () => {
+	let store: PostgresStore;
+
+	beforeAll(async () => {
+		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+	});
+
+	const fought: JournalTurn = {
+		turnIndex: 0,
+		prompt: "why does the importer drop partitions",
+		messages: [
+			{ role: "user", content: "why does the importer drop partitions" },
+			{ role: "assistant", content: "checking" },
+			{ role: "toolResult", content: "partition list" },
+			{ role: "assistant", content: "checking again" },
+			{ role: "toolResult", content: "schema" },
+			{ role: "assistant", content: "because the salt changed" },
+		],
+		callCount: 3,
+		calls: [0, 0, 1, 1, 2, 2],
+	};
+
+	const answered: JournalTurn = {
+		turnIndex: 0,
+		prompt: "what colour is the banner",
+		messages: [
+			{ role: "user", content: "what colour is the banner" },
+			{ role: "assistant", content: "muted green" },
+		],
+		callCount: 1,
+		calls: [0, 0],
+	};
+
+	test("a turn that took several calls says so", async () => {
+		await store.ingest("hard", [fought]);
+		await store.embedPending();
+
+		const [found] = await store.searchAll(fought.prompt, 1, PERMISSIVE);
+
+		expect(found?.calls).toBe(3);
+	});
+
+	test("a turn answered directly is not described as several", async () => {
+		await store.ingest("easy", [answered]);
+		await store.embedPending();
+
+		const [found] = await store.searchAll(answered.prompt, 1, PERMISSIVE);
+
+		expect(found?.calls).toBe(1);
 	});
 });

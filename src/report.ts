@@ -129,7 +129,14 @@ export function renderSearch(found: FoundTurn[]): string {
 				.filter((part) => part.text.trim().length > 0)
 				.map((part) => `    ${part.role}: ${part.text}`)
 				.join("\n");
-			return `- ${where}conversation ${hit.conversationId}, turn ${hit.turnIndex}\n${body}`;
+			// Only when it is more than one: "took 1 call" is noise, while
+			// "took 6 calls" is the difference between a question answered
+			// and one fought with.
+			const effort = hit.calls > 1 ? `, ${hit.calls} calls` : "";
+			return (
+				`- ${where}conversation ${hit.conversationId}, ` +
+				`turn ${hit.turnIndex}${effort}\n${body}`
+			);
 		})
 		.join("\n\n");
 }

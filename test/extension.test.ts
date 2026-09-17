@@ -373,6 +373,7 @@ describe("the verbatim tail", () => {
 					{ role: "assistant", content: "stored answer" },
 				],
 				callCount: 1,
+				calls: [],
 			},
 		]);
 		const cm = harness({ turns: store });
@@ -572,6 +573,7 @@ describe("searching across conversations", () => {
 		},
 		conversationId: "other-conversation",
 		codebase: "/work/elsewhere",
+		calls: 1,
 	};
 
 	test("the agent can search, and results say where they came from", async () => {

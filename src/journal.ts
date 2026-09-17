@@ -11,6 +11,12 @@ export interface JournalTurn {
 	messages: HarnessMessage[];
 	/** How many Calls the agent made answering this Turn. */
 	callCount: number;
+	/**
+	 * Which Call produced each message, by the same index the accounting
+	 * uses. Parallel to `messages`, so a message keeps its address without
+	 * the record of what was said having to carry it.
+	 */
+	calls: number[];
 }
 
 interface JournalEntry {
@@ -55,11 +61,16 @@ export async function readJournal(path: string): Promise<JournalTurn[]> {
 				prompt: message.role === "user" ? messageText(message) : "",
 				messages: [message],
 				callCount: 0,
+				calls: [0],
 			});
 			continue;
 		}
 
 		current.messages.push(message);
+		// The message belongs to the Call in progress, and a snapshot ends
+		// it: the same direction `addressOf` counts in, so ingest and
+		// accounting cannot disagree about which Call a thing was.
+		current.calls.push(current.callCount);
 		if (message.contextSnapshot) current.callCount++;
 	}
 

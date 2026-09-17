@@ -18,6 +18,7 @@ export function journalTurn(index: number, prompt: string): JournalTurn {
 			{ role: "assistant", content: `answer ${index}` },
 		],
 		callCount: 1,
+		calls: [],
 	};
 }
 
@@ -108,6 +109,7 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 					},
 				],
 				callCount: 1,
+				calls: [],
 			},
 		]);
 

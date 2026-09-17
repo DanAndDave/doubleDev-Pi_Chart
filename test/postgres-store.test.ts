@@ -3,6 +3,7 @@
 // order" mean nothing against a fake.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { SQL } from "bun";
 
 import { assemble } from "../src/assembler.ts";
 import { readJournal } from "../src/journal.ts";
@@ -109,5 +110,73 @@ describeStore("PostgresStore", () => {
 		const [turn] = await store.readAccounting("conv-1");
 
 		expect(turn?.calls[0]?.unassembled).toBe(true);
+	});
+});
+
+describeStore("the call a message came from", () => {
+	// Its own connections: the block above closes the shared store when it
+	// finishes, and a test that depends on file order is not a test.
+	let calls: PostgresStore;
+	let sql: SQL;
+
+	beforeAll(async () => {
+		calls = PostgresStore.connect(databaseUrl ?? "");
+		await calls.migrate();
+		sql = new SQL(databaseUrl ?? "");
+	});
+
+	afterAll(async () => {
+		await calls?.close();
+		await sql?.close();
+	});
+
+	async function callsOf(turnIndex: number): Promise<number[]> {
+		const rows = (await sql`
+			SELECT call_index FROM turn_messages
+			WHERE conversation_id = 'calls' AND turn_index = ${turnIndex}
+			ORDER BY ordinal ASC`) as { call_index: number }[];
+		return rows.map((row) => row.call_index);
+	}
+
+	test("a turn answered in several calls records which produced what", async () => {
+		await calls.truncate();
+		await calls.ingest("calls", await readJournal(JOURNAL_FIXTURE));
+
+		expect(await callsOf(1)).toEqual([0, 0, 1, 1, 2, 2]);
+	});
+
+	test("a turn answered in one call is addressed to that call", async () => {
+		await calls.truncate();
+		await calls.ingest("calls", await readJournal(JOURNAL_FIXTURE));
+
+		expect(await callsOf(0)).toEqual([0, 0]);
+	});
+
+	test("re-ingesting leaves one row per message with the same calls", async () => {
+		await calls.truncate();
+		const turns = await readJournal(JOURNAL_FIXTURE);
+		await calls.ingest("calls", turns);
+		await calls.ingest("calls", turns);
+
+		expect(await callsOf(1)).toEqual([0, 0, 1, 1, 2, 2]);
+	});
+
+	test("a row written before calls were recorded reads as the first call", async () => {
+		await calls.truncate();
+		await calls.ingest("calls", await readJournal(JOURNAL_FIXTURE));
+		// What an older build left behind: the column did not exist, so the
+		// default is what such a row carries.
+		await sql`
+			INSERT INTO turn_messages
+				(conversation_id, turn_index, ordinal, role, message)
+			VALUES ('calls', 9, 0, 'user', '{"role":"user","content":"old"}'::jsonb)`;
+
+		const rows = (await sql`
+			SELECT call_index FROM turn_messages
+			WHERE conversation_id = 'calls' AND turn_index = 9`) as {
+			call_index: number;
+		}[];
+
+		expect(rows[0]?.call_index).toBe(0);
 	});
 });

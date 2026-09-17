@@ -27,6 +27,11 @@ export interface FoundTurn extends RecalledTurn {
 	conversationId: string;
 	/** Absent for Turns ingested before Codebases were recorded. */
 	codebase?: string;
+	/**
+	 * How many Calls the agent took answering this Turn. One for a Turn
+	 * answered directly, more for one it had to fight with.
+	 */
+	calls: number;
 }
 
 /** Searches every Conversation, on request rather than during assembly. */
