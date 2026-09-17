@@ -1,6 +1,6 @@
 # Proposal: Make Levels reachable from a session
 
-Triage: needs-triage
+Triage: ready-for-agent
 
 ## Why
 
