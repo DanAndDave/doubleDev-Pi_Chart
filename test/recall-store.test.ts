@@ -23,7 +23,7 @@ function subject(index: number, prompt: string, answer: string): JournalTurn {
 			{ role: "assistant", content: answer },
 		],
 		callCount: 1,
-		calls: [],
+		calls: [0, 0],
 	};
 }
 
@@ -426,6 +426,30 @@ describeStore("how much work a found turn took", () => {
 		const [found] = await store.searchAll(fought.prompt, 1, PERMISSIVE);
 
 		expect(found?.calls).toBe(3);
+	});
+
+	test("a turn whose last message follows its snapshot still took one call", async () => {
+		// The shape that exposed this: an interrupted Turn, or one with a
+		// trailing tool result. Five of this machine's 297 recorded Turns
+		// look like it, and counting content rather than Calls called each
+		// of them one Call too many.
+		const interrupted: JournalTurn = {
+			turnIndex: 0,
+			prompt: "what happened to the nightly job",
+			messages: [
+				{ role: "user", content: "what happened to the nightly job" },
+				{ role: "assistant", content: "looking" },
+				{ role: "toolResult", content: "log tail" },
+			],
+			callCount: 1,
+			calls: [0, 0, 1],
+		};
+		await store.ingest("interrupted", [interrupted]);
+		await store.embedPending();
+
+		const [found] = await store.searchAll(interrupted.prompt, 1, PERMISSIVE);
+
+		expect(found?.calls).toBe(1);
 	});
 
 	test("a turn answered directly is not described as several", async () => {

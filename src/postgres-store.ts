@@ -143,6 +143,19 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 				ADD COLUMN IF NOT EXISTS call_index INTEGER NOT NULL DEFAULT 0`,
 		],
 	},
+	{
+		// Its own version: seven is already recorded as applied on stores
+		// that ran it, and a statement added to an applied version never
+		// executes.
+		version: 8,
+		statements: [
+			// How many Calls the Turn took, which is not the same as the
+			// highest Call its content carries: a Turn whose last message
+			// is not the snapshot carrier has content in a Call that was
+			// begun and never recorded.
+			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS call_count INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -236,14 +249,16 @@ export class PostgresStore implements
 	): Promise<void> {
 		for (const turn of turns) {
 			await this.sql`
-				INSERT INTO turns (conversation_id, turn_index, prompt, codebase)
+				INSERT INTO turns
+					(conversation_id, turn_index, prompt, codebase, call_count)
 				VALUES (
 					${conversationId}, ${turn.turnIndex}, ${turn.prompt},
-					${codebase ?? null}
+					${codebase ?? null}, ${Math.max(turn.callCount, 1)}
 				)
 				ON CONFLICT (conversation_id, turn_index)
 				DO UPDATE SET
 					prompt = EXCLUDED.prompt,
+					call_count = EXCLUDED.call_count,
 					-- Never unset a Codebase a previous ingest knew.
 					codebase = COALESCE(EXCLUDED.codebase, turns.codebase)`;
 
@@ -592,17 +607,33 @@ export class PostgresStore implements
 		return found;
 	}
 
-	/** How many Calls a Turn took, from the Calls its content was stored under. */
+	/**
+	 * How many Calls a Turn took, as the Journal counted them.
+	 *
+	 * Not the highest Call its content carries: a message recorded after
+	 * the last snapshot belongs to a Call that never completed, so deriving
+	 * the count from the content overstates it — measured, on five of this
+	 * machine's 297 recorded Turns. Older rows have no count and fall back
+	 * to the content, which is right for every Turn that ended on its
+	 * snapshot and no worse than what they had.
+	 */
 	private async callsIn(
 		conversationId: string,
 		turnIndex: number,
 	): Promise<number> {
 		const [row] = (await this.sql`
-			SELECT max(call_index) AS highest FROM turn_messages
-			WHERE conversation_id = ${conversationId} AND turn_index = ${turnIndex}`) as {
+			SELECT t.call_count, max(m.call_index) AS highest
+			FROM turns t
+			LEFT JOIN turn_messages m
+				ON m.conversation_id = t.conversation_id
+				AND m.turn_index = t.turn_index
+			WHERE t.conversation_id = ${conversationId}
+				AND t.turn_index = ${turnIndex}
+			GROUP BY t.call_count`) as {
+			call_count: number | null;
 			highest: number | null;
 		}[];
-		return (row?.highest ?? 0) + 1;
+		return row?.call_count ?? (row?.highest ?? 0) + 1;
 	}
 
 	/**

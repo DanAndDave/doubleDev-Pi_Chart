@@ -373,7 +373,7 @@ describe("the verbatim tail", () => {
 					{ role: "assistant", content: "stored answer" },
 				],
 				callCount: 1,
-				calls: [],
+				calls: [0, 0],
 			},
 		]);
 		const cm = harness({ turns: store });

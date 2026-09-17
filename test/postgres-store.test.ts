@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { SQL } from "bun";
 
 import { assemble } from "../src/assembler.ts";
+import { StubEmbedder } from "../src/embedder.ts";
 import { readJournal } from "../src/journal.ts";
 import {
 	MIGRATION_VERSIONS,
@@ -155,32 +156,66 @@ describeStore("the call a message came from", () => {
 		expect(await callsOf(0)).toEqual([0, 0]);
 	});
 
-	test("re-ingesting leaves one row per message with the same calls", async () => {
+	test("re-ingesting gives rows written before the column their calls", async () => {
 		await calls.truncate();
 		const turns = await readJournal(JOURNAL_FIXTURE);
-		await calls.ingest("calls", turns);
+		// What an older build left: rows at the column's default, which
+		// re-ingest has to correct rather than leave alone.
+		await sql`
+			INSERT INTO turns (conversation_id, turn_index, prompt)
+			VALUES ('calls', 1, 'old')`;
+		for (const [ordinal, message] of (turns[1]?.messages ?? []).entries()) {
+			await sql`
+				INSERT INTO turn_messages
+					(conversation_id, turn_index, ordinal, role, message)
+				VALUES ('calls', 1, ${ordinal}, ${message.role},
+					${JSON.stringify(message)}::jsonb)`;
+		}
+		expect(await callsOf(1)).toEqual([0, 0, 0, 0, 0, 0]);
+
 		await calls.ingest("calls", turns);
 
 		expect(await callsOf(1)).toEqual([0, 0, 1, 1, 2, 2]);
 	});
 
-	test("a row written before calls were recorded reads as the first call", async () => {
+	test("a turn stored before calls were recorded reads back as one call", async () => {
 		await calls.truncate();
-		await calls.ingest("calls", await readJournal(JOURNAL_FIXTURE));
-		// What an older build left behind: the column did not exist, so the
-		// default is what such a row carries.
+		// What an older build left: no call on the messages, none on the
+		// Turn. Read back through the store rather than inspected in SQL,
+		// because the claim is about reading, not about a column default.
+		await sql`
+			INSERT INTO turns (conversation_id, turn_index, prompt)
+			VALUES ('calls', 9, 'an older ingest')`;
 		await sql`
 			INSERT INTO turn_messages
 				(conversation_id, turn_index, ordinal, role, message)
-			VALUES ('calls', 9, 0, 'user', '{"role":"user","content":"old"}'::jsonb)`;
+			VALUES ('calls', 9, 0, 'user', '{"role":"user","content":"an older ingest"}'::jsonb)`;
 
-		const rows = (await sql`
-			SELECT call_index FROM turn_messages
-			WHERE conversation_id = 'calls' AND turn_index = 9`) as {
-			call_index: number;
-		}[];
+		const embedded = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		try {
+			await embedded.embedPending();
+			const [found] = await embedded.searchAll("an older ingest", 1, 2);
 
-		expect(rows[0]?.call_index).toBe(0);
+			expect(found?.turnIndex).toBe(9);
+			expect(found?.calls).toBe(1);
+		} finally {
+			await embedded.close();
+		}
+	});
+
+	test("a journal the harness never annotated ingests as one call", async () => {
+		await calls.truncate();
+		const turns = await readJournal(JOURNAL_FIXTURE);
+		const stripped = turns.map((turn) => ({
+			...turn,
+			messages: turn.messages.map(({ contextSnapshot, ...rest }) => rest),
+			callCount: 0,
+			calls: turn.messages.map(() => 0),
+		}));
+
+		await calls.ingest("calls", stripped);
+
+		expect(await callsOf(1)).toEqual([0, 0, 0, 0, 0, 0]);
 	});
 });
 

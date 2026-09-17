@@ -60,7 +60,10 @@ export async function readJournal(path: string): Promise<JournalTurn[]> {
 				turnIndex: turns.length,
 				prompt: message.role === "user" ? messageText(message) : "",
 				messages: [message],
-				callCount: 0,
+				// A prompt never carries a snapshot, but a Journal whose
+				// first message is not a prompt can: counting it here keeps
+				// ingest and the accounting on the same Call.
+				callCount: message.contextSnapshot ? 1 : 0,
 				calls: [0],
 			});
 			continue;

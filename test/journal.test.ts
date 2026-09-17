@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,6 +97,9 @@ describe("which call produced a message", () => {
 
 		const turns = await readJournal(path);
 
+		// Guarded: `readJournal` answers an unreadable path with no Turns,
+		// and `[].every()` is true.
+		expect(turns).toHaveLength(3);
 		expect(turns.every((turn) => turn.calls.every((call) => call === 0))).toBe(
 			true,
 		);

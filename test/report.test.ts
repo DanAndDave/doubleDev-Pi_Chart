@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type { CallView, ConversationSummary, PackDiff } from "../src/inspection.ts";
-import { renderCall, renderDiff, renderSummary } from "../src/report.ts";
+import {
+	renderCall,
+	renderDiff,
+	renderSearch,
+	renderSummary,
+} from "../src/report.ts";
 
 function view(overrides: Partial<CallView> = {}): CallView {
 	return {
@@ -230,5 +235,31 @@ describe("rendering a call that recalled nothing", () => {
 		const text = renderCall(view({ rejected: 0 }));
 
 		expect(text).not.toContain("not relevant enough");
+	});
+});
+
+describe("rendering a search", () => {
+	const hit = (calls: number) => ({
+		turnIndex: 3,
+		turn: {
+			index: 3,
+			prompt: "why did the importer stall",
+			messages: [
+				{ role: "user", content: "why did the importer stall" },
+				{ role: "assistant", content: "the salt changed" },
+			],
+		},
+		conversationId: "c1",
+		codebase: "/work/a",
+		calls,
+	});
+
+	test("a turn that took several calls says how many", () => {
+		// The only surface where a person sees how much work a Turn took.
+		expect(renderSearch([hit(4)])).toContain("turn 3, 4 calls");
+	});
+
+	test("a turn answered in one call says nothing about calls", () => {
+		expect(renderSearch([hit(1)])).not.toContain("calls");
 	});
 });
