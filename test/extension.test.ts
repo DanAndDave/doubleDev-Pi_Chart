@@ -1281,15 +1281,43 @@ describe("walking the documentation bundle", () => {
 	});
 
 	test("walking leaves the context pack untouched", async () => {
-		const { cm } = walking();
+		// With the Doc Store wired too, so the curated part is populated
+		// and a walked Concept leaking into it would be visible.
+		const store = new DocStore(BUNDLE);
+		const cm = harness({
+			walk: store,
+			config: {
+				tailTurns: DEFAULT_TAIL_TURNS,
+				recallTurns: 0,
+				recallMaxDistance: 1,
+				docConcepts: 2,
+				docMaxDistance: 0.5,
+				docBundle: BUNDLE,
+				graphSymbols: 0,
+				graphExtract: false,
+				specsVerify: false,
+			},
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				searchConcepts: async () => [
+					{
+						conceptId: "metrics/gross-margin",
+						text: "Gross margin is revenue less cost.",
+						trust: "unverified" as const,
+						stale: false,
+					},
+				],
+			},
+		});
 		const messages = [{ role: "user" as const, content: "what is documented?" }];
 
 		const before = await cm.context({ messages }, ctx());
-		await walk(cm, {});
+		await cm.tools.walk_documentation?.execute("1", { level: "metrics" });
 		const after = await cm.context({ messages }, ctx());
 
 		// The agent choosing to look at something must not change what
 		// assembly carries.
+		expect(JSON.stringify(before?.messages)).toContain("curated knowledge");
 		expect(after?.messages).toEqual(before?.messages);
 	});
 });

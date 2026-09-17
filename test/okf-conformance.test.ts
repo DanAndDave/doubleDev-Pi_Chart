@@ -1,6 +1,9 @@
-// Read against the format authors' own example bundle, vendored verbatim.
-// Our hand-written fixtures encode what we expect OKF to look like; this one
-// encodes what it actually looks like, so a wrong assumption fails here first.
+// Read against the format authors' own example bundle, vendored as published
+// apart from the `cm_identity` key a live run wrote into each Concept. Our
+// hand-written fixtures encode what we expect OKF to look like; this one
+// encodes what it actually looks like, so a wrong assumption fails here
+// first. Nothing else in it may be edited: re-vendoring must stay a small
+// diff.
 
 import { describe, expect, test } from "bun:test";
 

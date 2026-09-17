@@ -109,12 +109,6 @@ export function renderSummary(summary: ConversationSummary): string {
 	return lines.join("\n");
 }
 
-/**
- * Renders a cross-Conversation search as a tool result.
- *
- * Each hit says where it came from: a recollection from another project is
- * only useful if the agent can tell that is what it is.
- */
 /** A Level as the agent reads it: where to walk next, and what to open. */
 export function renderLevel(level: Level): string {
 	const where = level.path === "" ? "the bundle" : level.path;
@@ -137,6 +131,12 @@ export function renderLevel(level: Level): string {
 	return lines.join("\n");
 }
 
+/**
+ * Renders a cross-Conversation search as a tool result.
+ *
+ * Each hit says where it came from: a recollection from another project is
+ * only useful if the agent can tell that is what it is.
+ */
 export function renderSearch(found: FoundTurn[]): string {
 	if (found.length === 0) {
 		return "No conversation holds anything relevant to that.";
