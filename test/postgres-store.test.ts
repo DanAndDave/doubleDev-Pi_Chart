@@ -7,7 +7,10 @@ import { SQL } from "bun";
 
 import { assemble } from "../src/assembler.ts";
 import { readJournal } from "../src/journal.ts";
-import { PostgresStore } from "../src/postgres-store.ts";
+import {
+	MIGRATION_VERSIONS,
+	PostgresStore,
+} from "../src/postgres-store.ts";
 import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
 
 const databaseUrl = process.env.CM_DATABASE_URL;
@@ -178,5 +181,14 @@ describeStore("the call a message came from", () => {
 		}[];
 
 		expect(rows[0]?.call_index).toBe(0);
+	});
+});
+
+describe("the schema's declared order", () => {
+	test("versions ascend, because array order is what runs", () => {
+		// A version declared out of place runs out of place: migration 7
+		// alters a table migration 1 creates, and a later one could alter
+		// a table an earlier one has not created yet.
+		expect(MIGRATION_VERSIONS).toEqual([...MIGRATION_VERSIONS].sort((a, b) => a - b));
 	});
 });

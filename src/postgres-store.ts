@@ -45,8 +45,10 @@ const CANDIDATE_FACTOR = 10;
 const BAND = 0.05;
 
 /**
- * Forward-only schema. Each entry runs once, in order, recorded by version;
- * a store created by an older build becomes usable without intervention.
+ * Forward-only schema. Each entry runs once, **in array order**, recorded by
+ * version; a store created by an older build becomes usable without
+ * intervention. Array order is execution order, so entries stay ascending;
+ * `MIGRATION_VERSIONS` exists so a test can hold them that way.
  */
 const MIGRATIONS: { version: number; statements: string[] }[] = [
 	{
@@ -114,15 +116,6 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 		statements: [`ALTER TABLE turns ADD COLUMN IF NOT EXISTS codebase TEXT`],
 	},
 	{
-		version: 7,
-		statements: [
-			// Zero is right for every Turn answered in one Call, and honest
-			// for older rows whose Calls were never recorded.
-			`ALTER TABLE turn_messages
-				ADD COLUMN IF NOT EXISTS call_index INTEGER NOT NULL DEFAULT 0`,
-		],
-	},
-	{
 		version: 6,
 		statements: [
 			`CREATE TABLE IF NOT EXISTS concept_sections (
@@ -141,7 +134,25 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 				ON concept_sections USING hnsw (embedding vector_cosine_ops)`,
 		],
 	},
+	{
+		version: 7,
+		statements: [
+			// Zero is right for every Turn answered in one Call, and honest
+			// for older rows whose Calls were never recorded.
+			`ALTER TABLE turn_messages
+				ADD COLUMN IF NOT EXISTS call_index INTEGER NOT NULL DEFAULT 0`,
+		],
+	},
 ];
+
+/**
+ * The schema's versions in the order they are applied. Exported so a test
+ * can hold them ascending: array order is execution order, and a version out
+ * of place is a statement running before the table it alters exists.
+ */
+export const MIGRATION_VERSIONS: number[] = MIGRATIONS.map(
+	(migration) => migration.version,
+);
 
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
 type JsonColumn = string | unknown;
