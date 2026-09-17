@@ -1,6 +1,6 @@
 # Proposal: Address ingested content by Call
 
-Triage: needs-triage
+Triage: ready-for-agent
 
 ## Why
 
@@ -16,7 +16,7 @@ Ingested messages carry the Call they belong to, so a recollection can cite one.
 
 - [ ] An ingested message records which Call within its Turn produced it
 - [ ] Re-ingesting a Journal produces the same Call addressing
-- [ ] Recall can report the Call a Turn's content came from
+- [ ] A found Turn reports how many Calls it took, so the stored Call is not write-only
 - [ ] A Journal whose Calls cannot be determined still ingests, addressed by Turn
 
 ## Non-goals
