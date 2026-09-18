@@ -128,6 +128,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const sweeping = new Map<string, Promise<void>>();
 	/** The Conversation the command inspects: whichever one is running. */
 	let lastConversation = UNKNOWN_CONVERSATION;
+	/** Conversations already told their packs are approaching the ceiling. */
+	const warnedNearCeiling = new Set<string>();
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -140,6 +142,61 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// Handed to whoever is watching — the tests — so background work is
 		// awaitable without a timer. Nothing waits on it in production.
 		deps.background?.(reported);
+	}
+
+	/**
+	 * Says so once when a Conversation's packs start crowding the ceiling,
+	 * and every time one cannot be brought under it at all.
+	 *
+	 * The approach is reported once: the condition persists for as long as
+	 * the work does, and a line per model request is a line nobody reads. An
+	 * overrun is reported every time, because it means a Call went out larger
+	 * than the operator asked for and only the prompt kept it that way.
+	 *
+	 * Measured against the ceiling rather than the model's window because the
+	 * harness reports the size of each window it sent and never the model's
+	 * maximum.
+	 */
+	function warnIfNearCeiling(conversationId: string, pack: Pack): void {
+		if (pack.ceiling <= 0) return;
+
+		if (pack.approximateTokens > pack.ceiling) {
+			reportSafely(
+				`Context Pack exceeds its ceiling: ~${pack.approximateTokens} of ` +
+					`${pack.ceiling} tokens. The current turn could not be reduced ` +
+					`further and is never dropped, so the pack went out over budget.`,
+			);
+			return;
+		}
+
+		if (warnedNearCeiling.has(conversationId)) return;
+		if (pack.approximateTokens < pack.ceiling * deps.config.packWarnShare) return;
+		warnedNearCeiling.add(conversationId);
+		const share = Math.round((100 * pack.approximateTokens) / pack.ceiling);
+		reportSafely(
+			`Context Packs are approaching their ceiling: ~${pack.approximateTokens} ` +
+				`of ${pack.ceiling} tokens (${share}%). Parts will start being reduced; ` +
+				`\`pack\` shows what, and \`pack budget pack <n>\` raises the ceiling ` +
+				`for this session.`,
+		);
+	}
+
+	/**
+	 * Reports without putting the Turn at risk.
+	 *
+	 * Used by everything that reports from the `context` path: nothing that
+	 * path has to say is worth the Call it is serving, so a reporter that
+	 * throws must not turn an observation about a pack — or a Store that was
+	 * unavailable — into a failed assembly. Reports from session start,
+	 * shutdown and the commands keep using `deps.report` directly, where a
+	 * throw belongs to the caller that asked.
+	 */
+	function reportSafely(message: string): void {
+		try {
+			deps.report(message);
+		} catch {
+			// Nowhere left to report a reporting failure.
+		}
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -263,8 +320,15 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					recallTurns: deps.config.recallTurns,
 					docConcepts: deps.config.docConcepts,
 					graphSymbols: deps.config.graphSymbols,
+					tailTokens: deps.config.tailTokens,
+					recallTokens: deps.config.recallTokens,
+					docTokens: deps.config.docTokens,
+					graphTokens: deps.config.graphTokens,
+					packTokens: deps.config.packTokens,
 				},
 			);
+
+			warnIfNearCeiling(conversationId, pack);
 
 			inBackground(
 				"Accounting",
@@ -276,7 +340,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// Fails open, toward the accumulating window this exists to prevent,
 			// so every occurrence is reported and the Call is marked unassembled
 			// rather than vanishing from the accounting.
-			deps.report(`Assembly failed, turn left unassembled: ${describe(error)}`);
+			reportSafely(`Assembly failed, turn left unassembled: ${describe(error)}`);
 			inBackground(
 				"Unassembled turn",
 				deps.accounting.recordUnassembled(conversationId, address),
@@ -346,7 +410,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const stored = await deps.turns.recentTurns(conversationId, tailTurns);
 			if (stored.length > 0) return { tail: stored, tailSource: "thread-store" };
 		} catch (error) {
-			deps.report(`Thread Store unreachable, using harness history: ${describe(error)}`);
+			reportSafely(`Thread Store unreachable, using harness history: ${describe(error)}`);
 			return { tail: live.slice(0, -1), tailSource: "harness-fallback" };
 		}
 		// An empty store is not a failure: a Conversation's first Turns predate
@@ -524,7 +588,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		pi.registerCommand("pack", {
 			description:
 				"Inspect the context pack: `pack` for the last call, `pack diff`, " +
-				"`pack summary`, `pack budget <tail|recall|docs|graph> <n>`",
+				"`pack summary`, `pack budget <tail|recall|docs|graph|" +
+				"tail-tokens|recall-tokens|docs-tokens|graph-tokens|pack> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
 				// One channel: the harness owns the screen when it offers one.
@@ -654,7 +719,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.config.recallMaxDistance,
 			);
 		} catch (error) {
-			deps.report(`Recall unavailable, pack assembled without it: ${describe(error)}`);
+			reportSafely(`Recall unavailable, pack assembled without it: ${describe(error)}`);
 			return none;
 		}
 	}
@@ -684,7 +749,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.config.docMaxDistance,
 			);
 		} catch (error) {
-			deps.report(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
+			reportSafely(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
 			return [];
 		}
 	}
@@ -707,7 +772,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.config.graphSymbols * 2,
 			);
 		} catch (error) {
-			deps.report(
+			reportSafely(
 				`Graph Store unavailable, pack assembled without it: ${describe(error)}`,
 			);
 			return [];

@@ -19,7 +19,16 @@ The component that selects what enters a Context Pack, under a fixed budget per 
 _Avoid_: retriever, orchestrator, router
 
 **Budget**:
-The share of a Context Pack a single store may occupy. Set per store, independently.
+The share of a Context Pack a single store may occupy. Set per store, independently, in two denominations at once — a count of items and a size in estimated tokens — and a store is held to whichever binds first. A Budget a store's irreducible content cannot fit is reported as exceeded rather than quietly broken.
+_Avoid_: limit, quota, cap
+
+**Ceiling**:
+The whole Context Pack's size limit, independent of any one store's Budget. When the selected parts exceed it they are reduced in a fixed order — structure, curated knowledge, weakest recollections, oldest tail Turns — so an oversized Pack is still a deterministic Pack. The current Turn is never dropped for it.
+_Avoid_: max tokens, window size, hard limit
+
+**Elision**:
+What replaces the middle of a payload too large to carry whole: the head and the tail survive with a marker naming what went. Applied to tool results, recollections, and the arguments of tool calls — never to a prompt or to the agent's own reasoning. Always marked, so shortened content is never mistaken for short content.
+_Avoid_: truncation, summary, compaction
 
 **Floor**:
 The part of a Context Window the Assembler cannot reach: system prompt, tool schemas, skills, and rules. Measured, budgeted around, and deliberately left intact.

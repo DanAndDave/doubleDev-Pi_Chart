@@ -1,4 +1,10 @@
-import { messageText, type HarnessMessage, type Turn } from "./messages.ts";
+import {
+	messageText,
+	type ContentBlock,
+	type HarnessMessage,
+	type ToolCallBlock,
+	type Turn,
+} from "./messages.ts";
 import type { ConceptHit } from "./doc-index.ts";
 import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
 import type { RecalledTurn } from "./thread-store.ts";
@@ -6,20 +12,32 @@ import type { RecalledTurn } from "./thread-store.ts";
 export interface AssemblerConfig {
 	/** How many completed Turns are carried verbatim ahead of the current one. */
 	tailTurns: number;
-	/**
-	 * How many recalled Turns a pack may carry.
-	 *
-	 * Counted in Turns rather than tokens, as every Budget here is: the only
-	 * token count available at assembly is the local approximation, and a
-	 * Budget enforced with a number known to be wrong is worse than one
-	 * honestly named. The inspector reports both, so the cost of a count is
-	 * visible even though the count is what binds.
-	 */
+	/** How many recalled Turns a pack may carry. */
 	recallTurns: number;
 	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
 	docConcepts: number;
 	/** How many symbols' neighbourhoods a pack may carry. Zero disables them. */
 	graphSymbols: number;
+	/**
+	 * Size Budgets, in estimated tokens, beside the counts above. A part is
+	 * trimmed to whichever of its two Budgets binds first.
+	 *
+	 * A count says something a size cannot — `tailTurns: 0` is how a user
+	 * asks for the current Turn alone — and a size says what a count cannot:
+	 * a Turn carrying six file reads costs two orders of magnitude more than
+	 * one carrying a sentence. Measured on real Journals, an eight-Turn tail
+	 * reached 974,861 estimated tokens, so the count alone bounds nothing.
+	 */
+	tailTokens: number;
+	recallTokens: number;
+	docTokens: number;
+	graphTokens: number;
+	/**
+	 * The whole pack's ceiling, in estimated tokens, independent of any one
+	 * part's Budget. When the selected parts exceed it they are reduced in a
+	 * fixed order, so an oversized pack is still a deterministic pack.
+	 */
+	packTokens: number;
 }
 
 /** Where a slice of a Context Pack came from. */
@@ -51,8 +69,15 @@ export interface PackPart {
 	conceptIds?: string[];
 	/** Which symbols this part carried, by name. Identity, not count. */
 	symbols?: string[];
-	/** The Budget that bounded this part, where one did. */
+	/** The count Budget that bounded this part, where one did. */
 	budget?: number;
+	/**
+	 * The token Budget that bounded it. Recorded beside what the part spent,
+	 * because a part carrying irreducible content can exceed it: a Turn of
+	 * many messages, each already at the shortest length worth carrying, has
+	 * a floor the Budget cannot argue with.
+	 */
+	tokenBudget?: number;
 	/**
 	 * How many candidates were refused for being insufficiently relevant, as
 	 * opposed to excluded by the Budget. A part that carried little because
@@ -65,6 +90,21 @@ export interface PackPart {
 	 * a Budget is too small.
 	 */
 	candidates?: number;
+	/**
+	 * Why this part carried less than its candidates offered. Distinct
+	 * reasons, because "nothing was relevant", "the count ran out", "the
+	 * size ran out" and "the pack had to shrink" call for different
+	 * responses from whoever reads the accounting.
+	 */
+	excluded?: PartExclusion;
+	/**
+	 * How much this part would have carried had the pack ceiling not bound.
+	 * Present only when the ceiling reduced it, so the cost of the ceiling
+	 * is legible beside the cost of the part's own Budget.
+	 */
+	withoutCeiling?: number;
+	/** Whether any content in this part was carried shortened to fit. */
+	shortened?: boolean;
 }
 
 export interface Pack {
@@ -78,8 +118,32 @@ export interface Pack {
 	 * hang it on, and that is exactly the case worth explaining.
 	 */
 	rejected: number;
+	/** The pack ceiling in force, and whether it had to bind. */
+	ceiling: number;
+	/**
+	 * What the parts came to before the ceiling reduced them. Equal to
+	 * `approximateTokens` when the ceiling did not bind, which is how a
+	 * reader tells a pack that fitted from one that was made to fit.
+	 */
+	beforeCeiling: number;
 	/** Sum of the parts' approximations. Approximate, for attribution only. */
 	approximateTokens: number;
+}
+
+/**
+ * Why a part carried less than it could have. Counts, not identities: what
+ * was refused is the Journal's and the bundle's business, not the
+ * accounting's.
+ */
+export interface PartExclusion {
+	/** Refused as insufficiently relevant, before any Budget applied. */
+	irrelevant?: number;
+	/** Excluded because the part's count Budget was exhausted. */
+	count?: number;
+	/** Excluded because the part's token Budget was exhausted. */
+	size?: number;
+	/** Excluded or shortened because the pack exceeded its ceiling. */
+	ceiling?: number;
 }
 
 export interface AssembleInput {
@@ -111,78 +175,109 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
-	const tail = config.tailTurns > 0 ? completed.slice(-config.tailTurns) : [];
+	const byCount = config.tailTurns > 0 ? completed.slice(-config.tailTurns) : [];
 
 	const parts: PackPart[] = [];
 
 	// Recall goes first: it is background for the exchange that follows, and
 	// it is trimmed to its own budget so it can never crowd out the tail.
-	const carried = tail.concat(current ? [current] : []);
+	const carried = byCount.concat(current ? [current] : []);
 	const eligible = eligibleRecollections(recalled, carried);
-	const recollections = eligible.slice(0, Math.max(config.recallTurns, 0));
-	if (recollections.length > 0) {
-		const messages = recollections.map(asRecollection);
+	const recollections = fit(
+		eligible,
+		config.recallTurns,
+		config.recallTokens,
+		(each) => [asRecollection(each)],
+		"shorten",
+	);
+	if (recollections.kept.length > 0) {
 		parts.push({
 			source: "recalled",
-			messages,
-			approximateTokens: approximateTokens(messages),
-			carried: recollections.length,
-			turnIndices: recollections.map((each) => each.turnIndex),
+			messages: recollections.messages,
+			approximateTokens: recollections.tokens,
+			carried: recollections.kept.length,
+			turnIndices: recollections.kept.map((each) => each.turnIndex),
 			budget: config.recallTurns,
+			tokenBudget: config.recallTokens,
 			candidates: eligible.length,
 			irrelevant: rejected,
+			excluded: exclusion(rejected, recollections),
+			shortened: recollections.shortened || undefined,
 		});
 	}
 
 	// Curated knowledge sits ahead of the exchange, like recall: it is
 	// background the agent is being given, not something it just said.
-	const carriedConcepts = concepts.slice(0, Math.max(config.docConcepts, 0));
-	if (carriedConcepts.length > 0) {
-		const messages = carriedConcepts.map(asCuratedKnowledge);
+	const curated = fit(concepts, config.docConcepts, config.docTokens, (hit) => [
+		asCuratedKnowledge(hit),
+	]);
+	if (curated.kept.length > 0) {
 		parts.push({
 			source: "curated",
-			messages,
-			approximateTokens: approximateTokens(messages),
-			carried: carriedConcepts.length,
-			conceptIds: carriedConcepts.map((hit) => hit.conceptId),
+			messages: curated.messages,
+			approximateTokens: curated.tokens,
+			carried: curated.kept.length,
+			conceptIds: curated.kept.map((hit) => hit.conceptId),
 			budget: config.docConcepts,
+			tokenBudget: config.docTokens,
 			candidates: concepts.length,
+			excluded: exclusion(0, curated),
+			shortened: curated.shortened || undefined,
 		});
 	}
 
 	// Structure is what the Codebase is, so it comes before what was said
 	// about it — and ahead of the tail for the same reason recall is.
-	const carriedStructure = structure.slice(0, Math.max(config.graphSymbols, 0));
-	if (carriedStructure.length > 0) {
-		const messages = carriedStructure.map(asStructure);
+	const structural = fit(
+		structure,
+		config.graphSymbols,
+		config.graphTokens,
+		(each) => [asStructure(each)],
+	);
+	if (structural.kept.length > 0) {
 		parts.push({
 			source: "structure",
-			messages,
-			approximateTokens: approximateTokens(messages),
-			carried: carriedStructure.length,
-			symbols: carriedStructure.map((each) => qualify(each.symbol)),
+			messages: structural.messages,
+			approximateTokens: structural.tokens,
+			carried: structural.kept.length,
+			symbols: structural.kept.map((each) => qualify(each.symbol)),
 			budget: config.graphSymbols,
+			tokenBudget: config.graphTokens,
 			candidates: structure.length,
+			excluded: exclusion(0, structural),
+			shortened: structural.shortened || undefined,
 		});
 	}
 
-	const tailMessages = tail.flatMap((turn) => turn.messages);
-	if (tailMessages.length > 0) {
+	// The tail fills from its most recent Turn backwards, and the most recent
+	// Turn is kept even when it alone exceeds the Budget — shortened, not
+	// dropped. Measured on real Journals, the newest completed Turn of a
+	// working session can be three times the whole tail Budget, and a
+	// drop-only rule would empty the tail exactly when working state matters
+	// most.
+	const tail = fitTail(byCount, config.tailTokens);
+	if (tail.messages.length > 0) {
 		parts.push({
 			source: "verbatim-tail",
-			messages: tailMessages,
-			approximateTokens: approximateTokens(tailMessages),
-			carried: tail.length,
-			turnIndices: tail
+			messages: tail.messages,
+			approximateTokens: tail.tokens,
+			carried: tail.kept.length,
+			turnIndices: tail.kept
 				.map((turn) => turn.index)
 				.filter((index) => index !== undefined),
 			budget: config.tailTurns,
-			// No `candidates`: the tail arrives already trimmed to its Budget,
-			// so a count here could never exceed it and would read as evidence
-			// of a constraint that cannot fire.
+			tokenBudget: config.tailTokens,
+			candidates: completed.length,
+			excluded: exclusion(0, {
+				...tail,
+				excludedByCount: Math.max(completed.length - byCount.length, 0),
+			}),
+			shortened: tail.shortened || undefined,
 		});
 	}
 
+	// The current Turn is never dropped and never trimmed to a Budget: it is
+	// the prompt being answered. Only the ceiling may shorten it.
 	if (current !== undefined) {
 		parts.push({
 			source: "current-turn",
@@ -193,12 +288,62 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		});
 	}
 
-	const messages = parts.flatMap((part) => part.messages);
-	let total = 0;
-	for (const part of parts) total += part.approximateTokens;
+	const beforeCeiling = totalOf(parts);
+	// Reduction re-runs selection under a smaller Budget rather than editing
+	// the messages a part already chose, so one rule decides what a part
+	// carries whether the part's own Budget or the pack's ceiling is what
+	// binds. The order is reconstructibility: structure is one grep away, a
+	// Concept is retrievable next Call, a recollection is re-retrievable
+	// within the Conversation, and the tail is irreplaceable working state.
+	reduceToCeiling(parts, config.packTokens, {
+		structure: (room) => {
+			const refitted = fit(structure, config.graphSymbols, room, (each) => [
+				asStructure(each),
+			]);
+			return {
+				...refitted,
+				carried: refitted.kept.length,
+				symbols: refitted.kept.map((each) => qualify(each.symbol)),
+			};
+		},
+		curated: (room) => {
+			const refitted = fit(concepts, config.docConcepts, room, (hit) => [
+				asCuratedKnowledge(hit),
+			]);
+			return {
+				...refitted,
+				carried: refitted.kept.length,
+				conceptIds: refitted.kept.map((hit) => hit.conceptId),
+			};
+		},
+		recalled: (room) => {
+			const refitted = fit(
+				eligible,
+				config.recallTurns,
+				room,
+				(each) => [asRecollection(each)],
+				"shorten",
+			);
+			return {
+				...refitted,
+				carried: refitted.kept.length,
+				turnIndices: refitted.kept.map((each) => each.turnIndex),
+			};
+		},
+		"verbatim-tail": (room) => {
+			const refitted = fitTail(byCount, room);
+			return {
+				...refitted,
+				carried: refitted.kept.length,
+				turnIndices: refitted.kept
+					.map((turn) => turn.index)
+					.filter((index) => index !== undefined),
+			};
+		},
+	});
 
 	return {
-		messages,
+		messages: parts.flatMap((part) => part.messages),
 		parts,
 		budgets: {
 			tail: config.tailTurns,
@@ -207,8 +352,161 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			graph: config.graphSymbols,
 		},
 		rejected,
-		approximateTokens: total,
+		ceiling: config.packTokens,
+		beforeCeiling,
+		approximateTokens: totalOf(parts),
 	};
+}
+
+function totalOf(parts: PackPart[]): number {
+	let total = 0;
+	for (const part of parts) total += part.approximateTokens;
+	return total;
+}
+
+/** What a part selected, and what each Budget cost it. */
+interface Fitted<T> {
+	kept: T[];
+	messages: HarnessMessage[];
+	tokens: number;
+	excludedByCount: number;
+	excludedBySize: number;
+	shortened: boolean;
+}
+
+/**
+ * Takes candidates strongest-first under both Budgets: the count first,
+ * because it is the cheaper constraint to explain, then the size. Stops at
+ * the first candidate that does not fit rather than skipping it, so a pack
+ * never reorders relevance to pack more in.
+ *
+ * `whenNothingFits` decides what happens when even the strongest candidate
+ * is too large. A Concept is dropped — the bundle holds others and
+ * `walk_documentation` reaches the rest at no Budget — while a recollection
+ * is shortened, because the Conversation has exactly one Turn that said the
+ * thing and half of it is worth more than none of it.
+ */
+function fit<T>(
+	candidates: T[],
+	countBudget: number,
+	tokenBudget: number,
+	render: (candidate: T) => HarnessMessage[],
+	whenNothingFits: "drop" | "shorten" = "drop",
+): Fitted<T> {
+	const budget = Math.max(tokenBudget, 0);
+	const allowed = candidates.slice(0, Math.max(countBudget, 0));
+	const kept: T[] = [];
+	const messages: HarnessMessage[] = [];
+	let tokens = 0;
+	let excludedBySize = 0;
+
+	let refused: T | undefined;
+	for (const candidate of allowed) {
+		const rendered = render(candidate);
+		const cost = approximateTokens(rendered);
+		if (tokens + cost > budget) {
+			excludedBySize = allowed.length - kept.length;
+			refused = candidate;
+			break;
+		}
+		kept.push(candidate);
+		messages.push(...rendered);
+		tokens += cost;
+	}
+
+	// The candidate that did not fit is carried shortened rather than lost,
+	// whether it was the strongest or merely the next one: the Conversation
+	// has exactly one Turn that said the thing, and half of it is worth more
+	// than none of it. Concepts are dropped instead — the bundle holds others
+	// and `walk_documentation` reaches the rest at no Budget.
+	if (whenNothingFits === "shorten" && refused !== undefined) {
+		const result = shortenTurn(render(refused), budget - tokens);
+		// Only if it actually fits: a part that overran its own Budget would
+		// make every Budget a suggestion.
+		if (result.shortened && tokens + result.tokens <= budget) {
+			return {
+				kept: [...kept, refused],
+				messages: [...messages, ...result.messages],
+				tokens: tokens + result.tokens,
+				excludedByCount: Math.max(candidates.length - allowed.length, 0),
+				excludedBySize: Math.max(excludedBySize - 1, 0),
+				shortened: true,
+			};
+		}
+	}
+
+	return {
+		kept,
+		messages,
+		tokens,
+		excludedByCount: Math.max(candidates.length - allowed.length, 0),
+		excludedBySize,
+		shortened: false,
+	};
+}
+
+/**
+ * The verbatim tail, newest Turn first and kept in order. Unlike every other
+ * part the tail may not come back empty: its newest Turn is retained with its
+ * tool results shortened when it cannot fit whole, because that Turn is what
+ * the current one is reasoning about.
+ */
+function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
+	const budget = Math.max(tokenBudget, 0);
+	const kept: Turn[] = [];
+	let tokens = 0;
+
+	for (let index = byCount.length - 1; index >= 0; index--) {
+		const turn = byCount[index];
+		if (turn === undefined) continue;
+		const cost = approximateTokens(turn.messages);
+		if (tokens + cost > budget) break;
+		kept.unshift(turn);
+		tokens += cost;
+	}
+
+	if (kept.length === 0) {
+		const newest = byCount[byCount.length - 1];
+		if (newest === undefined || budget === 0) {
+			return {
+				kept: [],
+				messages: [],
+				tokens: 0,
+				excludedByCount: 0,
+				excludedBySize: byCount.length,
+				shortened: false,
+			};
+		}
+		const shortened = shortenTurn(newest.messages, budget);
+		return {
+			kept: [newest],
+			messages: shortened.messages,
+			tokens: shortened.tokens,
+			excludedByCount: 0,
+			excludedBySize: byCount.length - 1,
+			shortened: shortened.shortened,
+		};
+	}
+
+	return {
+		kept,
+		messages: kept.flatMap((turn) => turn.messages),
+		tokens,
+		excludedByCount: 0,
+		excludedBySize: byCount.length - kept.length,
+		shortened: false,
+	};
+}
+
+function exclusion(
+	irrelevant: number,
+	fitted: { excludedByCount: number; excludedBySize: number },
+): PartExclusion | undefined {
+	const result: PartExclusion = {};
+	if (irrelevant > 0) result.irrelevant = irrelevant;
+	if (fitted.excludedByCount > 0) result.count = fitted.excludedByCount;
+	if (fitted.excludedBySize > 0) result.size = fitted.excludedBySize;
+	return Object.keys(result).length > 0 ? result : undefined;
 }
 
 /**
@@ -283,14 +581,362 @@ function asRecollection(recalled: RecalledTurn): HarnessMessage {
 }
 
 /**
- * Deterministic stand-in for a tokenizer: serialized length over four. Used
- * only to attribute a pack's size across its parts, never to measure the
- * Context Window, which the harness reports exactly.
+ * Deterministic stand-in for a tokenizer: the serialized message over four.
+ *
+ * Over the whole message, not its `content` alone: `details`, `toolName` and
+ * `toolCallId` are sent with it and are comparable in size to `content` on a
+ * real tool result. Measured against the harness's own reported figures over
+ * 27 Calls of linear Journals, content-only ran 1.35× low at the median and
+ * whole-message runs 1.15×, which is why the ceiling's default carries the
+ * p90 of that residual as headroom.
+ *
+ * Fields the harness records but does not send onward are excluded, so the
+ * estimate tracks what a provider is billed for rather than what a Journal
+ * happens to keep.
  */
 export function approximateTokens(messages: HarnessMessage[]): number {
 	let characters = 0;
-	for (const message of messages) {
-		characters += JSON.stringify(message.content ?? "").length;
+	for (const message of messages) characters += serialized(message).length;
+	return Math.ceil(characters / 4);
+}
+
+/** Recorded by the harness, never sent to the model. */
+const UNSENT: Record<string, true> = {
+	contextSnapshot: true,
+	usage: true,
+	timestamp: true,
+	api: true,
+	provider: true,
+	model: true,
+	stopReason: true,
+};
+
+function serialized(message: HarnessMessage): string {
+	const sent: Record<string, unknown> = {};
+	// Key order follows the message's own, so the estimate is a function of
+	// the message and not of insertion history.
+	for (const [key, value] of Object.entries(message)) {
+		if (UNSENT[key] === true || value === undefined) continue;
+		sent[key] = value;
+	}
+	return JSON.stringify(sent);
+}
+
+/**
+ * Marks the gap a shortened message leaves, in the message's own text.
+ *
+ * `details` is named separately when the shortening dropped it, because a
+ * marker that counted only the text would understate what went: on a real
+ * tool result the harness's `details` can rival the content it summarises.
+ */
+const ELISION = (tokens: number, withoutDetails: boolean) =>
+	`\n… [context-manager elided ~${tokens} tokens from the middle of this` +
+	`${withoutDetails ? " result, and its tool metadata" : " result"}]\n`;
+
+/**
+ * The fewest estimated tokens worth carrying of a shortened message: below
+ * this there is no room for a head, a tail and a marker worth reading.
+ */
+const SHORTEST_TOKENS = 200;
+
+/**
+ * The fewest characters worth keeping on each side of the marker. Named in
+ * characters rather than derived from `SHORTEST_TOKENS`, because the halves
+ * are `slice` indices and a token-shaped constant divided by two is neither
+ * unit.
+ */
+const SHORTEST_HALF_CHARACTERS = 100;
+
+/** One message after shortening, with what it now costs. */
+interface Shortened {
+	message: HarnessMessage;
+	tokens: number;
+	shortened: boolean;
+}
+
+/** A Turn's messages after shortening, with what they now cost together. */
+interface ShortenedMessages {
+	messages: HarnessMessage[];
+	tokens: number;
+	shortened: boolean;
+}
+
+/**
+ * Shortens one message to a token allowance, keeping the head and the tail of
+ * whatever payload it carries. Head-only would be the wrong half: the end of
+ * a tool result is where the error, the total, or the last hunk is.
+ *
+ * What counts as payload: a tool result's text, a recollection's transcript,
+ * and the arguments of an assistant's tool calls. That last one is measured,
+ * not assumed — on the audited Conversation 84% of the largest Turn is the
+ * file contents an assistant passed to `write`, so a rule that spared every
+ * assistant message would leave the tail Budget unenforceable.
+ *
+ * What is never shortened: a user prompt, and an assistant's own text. Those
+ * are the reasoning a pack exists to carry, and a shortened instruction is a
+ * corrupted one.
+ */
+function shorten(message: HarnessMessage, allowance: number): Shortened {
+	const cost = approximateTokens([message]);
+	if (cost <= allowance) return { message, tokens: cost, shortened: false };
+
+	if (message.role === "toolResult" || message.cmRecalled === true) {
+		return shortenText(message, allowance, cost);
+	}
+	if (message.role === "assistant") return shortenPayloads(message, allowance);
+	return { message, tokens: cost, shortened: false };
+}
+
+/** Shortens the text a message carries, head and tail, with a marker between. */
+function shortenText(
+	message: HarnessMessage,
+	allowance: number,
+	cost: number,
+): Shortened {
+	const text = messageText(message);
+	// `details` can rival the text it summarises, and a shortened message that
+	// kept them would not be shorter — so they go, and they are excluded from
+	// the overhead too. Counting them as overhead would starve the text of an
+	// allowance already spent on something being deleted: measured, a 30,000
+	// character `details` drove an otherwise 1,810-token text down to the
+	// floor of 231 against a 2,000-token Budget.
+	const withoutDetails: HarnessMessage = { ...message };
+	const hadDetails = withoutDetails.details !== undefined;
+	delete withoutDetails.details;
+
+	const keptCost = approximateTokens([withoutDetails]);
+	const textCost = Math.ceil(JSON.stringify(text).length / 4);
+	const overhead = keptCost - textCost;
+	const forText = Math.max(allowance - overhead, SHORTEST_TOKENS);
+	const characters = forText * 4;
+	// The dropped `details` count as elided whatever happens to the text, so
+	// the marker never reports less than the shortening removed.
+	const droppedDetails = cost - keptCost;
+	if (text.length <= characters && droppedDetails === 0) {
+		return { message, tokens: cost, shortened: false };
+	}
+
+	// Sized by construction, then checked: JSON escaping means the estimate
+	// of the shortened message is not a linear function of the characters
+	// kept, so the halves shrink until the message actually fits rather than
+	// being trusted to.
+	let half = Math.floor((characters - ELISION(0, hadDetails).length) / 2);
+	let best: { message: HarnessMessage; tokens: number } | undefined;
+	while (half >= SHORTEST_HALF_CHARACTERS) {
+		const elidedText = Math.ceil((text.length - half * 2) / 4);
+		const candidate: HarnessMessage = {
+			...withoutDetails,
+			content: elide(text, half, elidedText + droppedDetails, hadDetails),
+			cmShortened: true,
+		};
+		const tokens = approximateTokens([candidate]);
+		best = { message: candidate, tokens };
+		if (tokens <= allowance) break;
+		half = Math.floor(half * 0.9) - 1;
+	}
+
+	if (best === undefined) return { message, tokens: cost, shortened: false };
+	return { message: best.message, tokens: best.tokens, shortened: true };
+}
+
+/**
+ * Shortens the arguments of an assistant's tool calls, leaving its text
+ * blocks and the calls' names and ids alone: the model must still be able to
+ * see what it asked for, only not the whole of what it passed.
+ */
+function shortenPayloads(
+	message: HarnessMessage,
+	allowance: number,
+): Shortened {
+	const blocks = message.content;
+	const cost = approximateTokens([message]);
+	if (!Array.isArray(blocks)) return { message, tokens: cost, shortened: false };
+
+	const others = cost - payloadCost(blocks);
+	// What the payloads may take together, shared evenly among them so one
+	// enormous call cannot starve the rest.
+	const calls = blocks.filter((block) => block.type === "toolCall").length;
+	if (calls === 0) return { message, tokens: cost, shortened: false };
+	const each = Math.max(
+		Math.floor((allowance - others) / calls),
+		SHORTEST_TOKENS,
+	);
+
+	let shortened = false;
+	const kept = blocks.map((block) => {
+		if (block.type !== "toolCall") return block;
+		const call = block as ToolCallBlock;
+		const passed = JSON.stringify(call.arguments ?? null);
+		if (Math.ceil(passed.length / 4) <= each) return block;
+		const half = Math.max(
+			Math.floor((each * 4 - ELISION(0, false).length) / 2),
+			SHORTEST_HALF_CHARACTERS,
+		);
+		if (passed.length <= half * 2) return block;
+		shortened = true;
+		const removed = Math.ceil((passed.length - half * 2) / 4);
+		return { ...call, arguments: elide(passed, half, removed, false) };
+	});
+
+	if (!shortened) return { message, tokens: cost, shortened: false };
+	const result: HarnessMessage = { ...message, content: kept, cmShortened: true };
+	return { message: result, tokens: approximateTokens([result]), shortened: true };
+}
+
+function payloadCost(blocks: ContentBlock[]): number {
+	let characters = 0;
+	for (const block of blocks) {
+		if (block.type !== "toolCall") continue;
+		characters += JSON.stringify((block as ToolCallBlock).arguments ?? null).length;
 	}
 	return Math.ceil(characters / 4);
+}
+
+/** Head, marker, tail — the shape every shortened payload takes. */
+function elide(
+	text: string,
+	half: number,
+	removed: number,
+	withoutDetails: boolean,
+): string {
+	return (
+		`${text.slice(0, half)}` +
+		`${ELISION(removed, withoutDetails)}` +
+		`${text.slice(-half)}`
+	);
+}
+
+/**
+ * Shortens a Turn's messages until they fit an allowance, oldest payload
+ * first: the newest result is the one the Turn is still acting on.
+ *
+ * Every message carrying a payload is a candidate — tool results,
+ * recollections, and the arguments of assistant tool calls — because on a
+ * real working Turn the write calls are most of the bytes. `shorten` decides
+ * what within a message may go; this decides the order they are asked.
+ */
+function shortenTurn(
+	messages: HarnessMessage[],
+	allowance: number,
+): ShortenedMessages {
+	const kept = [...messages];
+	let tokens = approximateTokens(kept);
+	let shortened = false;
+	if (tokens <= allowance) return { messages: kept, tokens, shortened };
+
+	const shortenable = kept
+		.map((message, index) => ({ message, index }))
+		.filter(
+			({ message }) =>
+				message.role === "toolResult" ||
+				message.role === "assistant" ||
+				message.cmRecalled === true,
+		);
+
+	for (const { index } of shortenable) {
+		const message = kept[index];
+		if (message === undefined) continue;
+		const excess = tokens - allowance;
+		const cost = approximateTokens([message]);
+		// Give this message what it needs to carry the whole Turn under the
+		// allowance, never less than a readable head and tail.
+		const target = Math.max(cost - excess, SHORTEST_TOKENS);
+		const result = shorten(message, target);
+		if (!result.shortened) continue;
+		kept[index] = result.message;
+		tokens = tokens - cost + result.tokens;
+		shortened = true;
+		if (tokens <= allowance) break;
+	}
+
+	return { messages: kept, tokens, shortened };
+}
+
+/** The order a pack gives things up in. Cheapest to recover goes first. */
+const REDUCTION_ORDER: PackSource[] = [
+	"structure",
+	"curated",
+	"recalled",
+	"verbatim-tail",
+];
+
+/**
+ * Re-selects a part's content under the room the ceiling leaves it, reporting
+ * the identities it kept so the accounting stays truthful about what a
+ * reduced part carried.
+ */
+type Refit = (room: number) => {
+	carried: number;
+	messages: HarnessMessage[];
+	tokens: number;
+	shortened: boolean;
+	turnIndices?: number[];
+	conceptIds?: string[];
+	symbols?: string[];
+};
+
+/**
+ * Brings a pack within its ceiling, in place.
+ *
+ * Each reducible part is re-selected under the room left by the parts that
+ * outrank it, so a part loses whole candidates the way its own Budget would
+ * have made it lose them — the tail its oldest Turns, recall its weakest
+ * matches. The current Turn is never dropped, so when it alone exceeds the
+ * ceiling its tool results are elided instead.
+ */
+function reduceToCeiling(
+	parts: PackPart[],
+	ceiling: number,
+	refit: Partial<Record<PackSource, Refit>>,
+): void {
+	const ceilingTokens = Math.max(ceiling, 0);
+	if (totalOf(parts) <= ceilingTokens) return;
+
+	for (const source of REDUCTION_ORDER) {
+		if (totalOf(parts) <= ceilingTokens) return;
+		const part = parts.find((each) => each.source === source);
+		if (part === undefined) continue;
+
+		const carriedBefore = part.carried ?? 0;
+		const sizeBefore = part.approximateTokens;
+		const room = Math.max(ceilingTokens - (totalOf(parts) - sizeBefore), 0);
+		const reselect = refit[source];
+		const result = reselect?.(room);
+		const usable = result !== undefined && result.tokens <= room;
+
+		part.withoutCeiling = sizeBefore;
+		part.messages = usable ? result.messages : [];
+		part.approximateTokens = usable ? result.tokens : 0;
+		part.carried = usable ? result.carried : 0;
+		if (part.turnIndices !== undefined) {
+			part.turnIndices = usable ? (result.turnIndices ?? []) : [];
+		}
+		if (part.conceptIds !== undefined) {
+			part.conceptIds = usable ? (result.conceptIds ?? []) : [];
+		}
+		if (part.symbols !== undefined) {
+			part.symbols = usable ? (result.symbols ?? []) : [];
+		}
+		part.shortened = (usable && result.shortened) || undefined;
+		part.excluded = {
+			...(part.excluded ?? {}),
+			ceiling: carriedBefore - (part.carried ?? 0),
+		};
+	}
+
+	if (totalOf(parts) <= ceilingTokens) return;
+
+	// Only the current Turn is left to give, and it may not be dropped.
+	const current = parts.find((part) => part.source === "current-turn");
+	if (current === undefined) return;
+	const others = totalOf(parts) - current.approximateTokens;
+	const result = shortenTurn(
+		current.messages,
+		Math.max(ceilingTokens - others, 0),
+	);
+	current.withoutCeiling = current.approximateTokens;
+	current.messages = result.messages;
+	current.approximateTokens = result.tokens;
+	current.shortened = result.shortened || undefined;
+	current.excluded = { ...(current.excluded ?? {}), ceiling: 0 };
 }

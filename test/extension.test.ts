@@ -29,6 +29,7 @@ import type {
 	LifecycleHandler,
 } from "../src/harness.ts";
 import type { ContextSnapshot } from "../src/messages.ts";
+import { settings } from "./fixtures.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
@@ -50,7 +51,12 @@ interface Harness {
 	settle: () => Promise<void>;
 }
 
-function harness(overrides: Partial<Dependencies> = {}): Harness {
+/** Overrides as a test writes them: the config is merged, not replaced. */
+type Overrides = Partial<Omit<Dependencies, "config">> & {
+	config?: Partial<Dependencies["config"]>;
+};
+
+function harness(overrides: Overrides = {}): Harness {
 	let context: ContextHandler | undefined;
 	let sessionStart: LifecycleHandler | undefined;
 	let agentEnd: LifecycleHandler | undefined;
@@ -100,9 +106,18 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 		readAccounting: async () => [],
 	};
 
+	const { config: configOverrides, ...rest } = overrides;
 	register(pi, {
 		background: (work) => track(work),
-		config: {
+		assemble,
+		turns: new MemoryTurnSource(),
+		accounting,
+		report: (message) => reported.push(message),
+		show: (text) => shown.push(text),
+		...rest,
+		// After the rest, so a test's partial config merges over these
+		// defaults rather than replacing them.
+		config: settings({
 			tailTurns: DEFAULT_TAIL_TURNS,
 			recallTurns: 0,
 			recallMaxDistance: 1,
@@ -112,13 +127,8 @@ function harness(overrides: Partial<Dependencies> = {}): Harness {
 			graphExtract: false,
 			specsVerify: false,
 			docBundle: "/unused",
-		},
-		assemble,
-		turns: new MemoryTurnSource(),
-		accounting,
-		report: (message) => reported.push(message),
-		show: (text) => shown.push(text),
-		...overrides,
+			...configOverrides,
+		}),
 	});
 
 	if (!context || !sessionStart || !agentEnd) {
@@ -307,6 +317,65 @@ describe("context handler", () => {
 		await cm.settle();
 
 		expect(cm.recorded[0]).toMatchObject({ turnIndex: 1, callIndex: 0 });
+	});
+});
+
+describe("a pack approaching its ceiling", () => {
+	/** A prompt of roughly `tokens` estimated tokens. */
+	const prompt = (tokens: number) => ({
+		role: "user" as const,
+		content: "z".repeat(tokens * 4),
+	});
+
+	test("says so once when a call crosses the configured share", async () => {
+		const cm = harness({ config: { packTokens: 1000, packWarnShare: 0.75 } });
+
+		await cm.context({ messages: [prompt(800)] }, ctx());
+		await cm.context({ messages: [prompt(800)] }, ctx());
+		await cm.settle();
+
+		const warnings = cm.reported.filter((line) =>
+			line.includes("approaching their ceiling"),
+		);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("of 1000 tokens");
+	});
+
+	test("says nothing while packs stay under the share", async () => {
+		const cm = harness({ config: { packTokens: 1000, packWarnShare: 0.75 } });
+
+		await cm.context({ messages: [prompt(100)] }, ctx());
+		await cm.settle();
+
+		expect(cm.reported.filter((line) => line.includes("ceiling"))).toEqual([]);
+	});
+
+	test("reports a pack that could not be brought under its ceiling", async () => {
+		const cm = harness({ config: { packTokens: 200, packWarnShare: 0.75 } });
+
+		// A prompt is never shortened and the current Turn is never dropped,
+		// so this pack goes out over budget and must say so.
+		const result = await cm.context({ messages: [prompt(900)] }, ctx());
+		await cm.settle();
+
+		expect(result?.messages).toHaveLength(1);
+		expect(cm.reported.some((line) => line.includes("exceeds its ceiling"))).toBe(
+			true,
+		);
+	});
+
+	test("a reporter that throws neither alters the pack nor fails the turn", async () => {
+		const cm = harness({
+			config: { packTokens: 1000, packWarnShare: 0.75 },
+			report: () => {
+				throw new Error("nowhere to report");
+			},
+		});
+
+		const result = await cm.context({ messages: [prompt(800)] }, ctx());
+		await cm.settle();
+
+		expect(result?.messages).toEqual([prompt(800)]);
 	});
 });
 

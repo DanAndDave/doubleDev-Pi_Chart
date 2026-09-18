@@ -23,6 +23,7 @@ import type { Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import { renderCall } from "../src/report.ts";
 import type { RecalledTurn } from "../src/thread-store.ts";
+import { budgets, settings } from "./fixtures.ts";
 
 function turn(prompt: string, index?: number): Turn {
 	return {
@@ -53,15 +54,7 @@ async function record(options: {
 }): Promise<TurnAccounting[]> {
 	const store = new MemoryAccounting();
 	const address = { turnIndex: 0, callIndex: options.callIndex ?? 0 };
-	const pack = assemble(
-		{ turns: options.turns, recalled: options.recalled },
-		{
-			tailTurns: options.tailTurns,
-			recallTurns: options.recallTurns,
-			docConcepts: 0,
-			graphSymbols: 0,
-		},
-	);
+	const pack = assemble({ turns: options.turns, recalled: options.recalled }, budgets({ tailTurns: options.tailTurns, recallTurns: options.recallTurns, docConcepts: 0, graphSymbols: 0 }));
 	await store.recordPack("conv-1", address, pack, "thread-store");
 	if (options.measured) {
 		await store.recordMeasurements("conv-1", [
@@ -216,10 +209,7 @@ describe("comparing packs", () => {
 describe("summarising a conversation", () => {
 	test("reports the floor's share across measured calls", async () => {
 		const store = new MemoryAccounting();
-		const pack = assemble(
-			{ turns: CONVERSATION, recalled: recalled(7) },
-			{ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 },
-		);
+		const pack = assemble({ turns: CONVERSATION, recalled: recalled(7) }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
 		for (const callIndex of [0, 1]) {
 			const address = { turnIndex: callIndex, callIndex: 0 };
 			await store.recordPack("conv-1", address, pack, "thread-store");
@@ -287,7 +277,7 @@ function missing(): never {
 
 describe("changing a budget", () => {
 	function config(): Config {
-		return {
+		return settings({
 			tailTurns: DEFAULT_TAIL_TURNS,
 			recallTurns: 4,
 			recallMaxDistance: 0.5,
@@ -297,7 +287,7 @@ describe("changing a budget", () => {
 			graphExtract: false,
 			specsVerify: false,
 			docBundle: "/unused",
-		};
+		});
 	}
 
 	test("a valid budget replaces the one in force", () => {
@@ -340,6 +330,35 @@ describe("changing a budget", () => {
 		expect(result.ok).toBe(false);
 		expect(current.tailTurns).toBe(DEFAULT_TAIL_TURNS);
 		expect(current.recallTurns).toBe(4);
+	});
+
+	test("the token budgets and the ceiling are settable by name", () => {
+		const current = config();
+
+		expect(setBudget(current, "tail-tokens", "12000")).toEqual({
+			ok: true,
+			budget: 12_000,
+		});
+		expect(setBudget(current, "pack", "90000")).toEqual({
+			ok: true,
+			budget: 90_000,
+		});
+
+		expect(current.tailTokens).toBe(12_000);
+		expect(current.packTokens).toBe(90_000);
+		// The counts are a separate dimension and are left alone.
+		expect(current.tailTurns).toBe(DEFAULT_TAIL_TURNS);
+	});
+
+	test("an unusable token budget is refused with a reason and changes nothing", () => {
+		const current = config();
+		const before = current.packTokens;
+
+		const result = setBudget(current, "pack", "plenty");
+
+		expect(result.ok).toBe(false);
+		expect(result.ok === false && result.reason).toContain("not a count");
+		expect(current.packTokens).toBe(before);
 	});
 });
 
@@ -395,10 +414,7 @@ describe("parts whose turns have no recorded position", () => {
 describe("relevance against budget", () => {
 	test("a part that found little is not reported as trimmed", async () => {
 		const store = new MemoryAccounting();
-		const pack = assemble(
-			{ turns: CONVERSATION, recalled: recalled(7), rejected: 4 },
-			{ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 },
-		);
+		const pack = assemble({ turns: CONVERSATION, recalled: recalled(7), rejected: 4 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
 		const part = inspectCall(
@@ -412,10 +428,7 @@ describe("relevance against budget", () => {
 
 	test("a call where everything was rejected records the count with no recalled part", async () => {
 		const store = new MemoryAccounting();
-		const pack = assemble(
-			{ turns: CONVERSATION, recalled: [], rejected: 6 },
-			{ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 },
-		);
+		const pack = assemble({ turns: CONVERSATION, recalled: [], rejected: 6 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
 		const view = inspectCall(
@@ -428,10 +441,7 @@ describe("relevance against budget", () => {
 
 	test("trimming still outranks irrelevance when both happened", async () => {
 		const store = new MemoryAccounting();
-		const pack = assemble(
-			{ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 },
-			{ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 },
-		);
+		const pack = assemble({ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
 		const part = inspectCall(
@@ -466,8 +476,7 @@ describe("configuration of the threshold", () => {
 
 describe("the curated part in accounting", () => {
 	test("a call's parts are attributed separately, concepts included", () => {
-		const pack = assemble(
-			{
+		const pack = assemble({
 				turns: reconstructTurns([
 					{ role: "user", content: "prompt 1" },
 					{ role: "assistant", content: "answer 1" },
@@ -481,9 +490,7 @@ describe("the curated part in accounting", () => {
 						stale: false,
 					},
 				],
-			},
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 },
-		);
+			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }));
 
 		const view = inspectCall({
 			turnIndex: 1,
@@ -570,13 +577,10 @@ describe("comparing packs that carried concepts", () => {
 
 describe("the doc budget in accounting", () => {
 	test("is recorded even when nothing relevant was found", () => {
-		const pack = assemble(
-			{
+		const pack = assemble({
 				turns: reconstructTurns([{ role: "user", content: "now" }]),
 				concepts: [],
-			},
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 3, graphSymbols: 0 },
-		);
+			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 3, graphSymbols: 0 }));
 
 		// The Budget is the evidence that the Doc Store was consulted at
 		// all; without it a Call that found nothing is indistinguishable

@@ -1,4 +1,4 @@
-import type { Pack, PackSource } from "./assembler.ts";
+import type { Pack, PackSource, PartExclusion } from "./assembler.ts";
 import type { ContextSnapshot } from "./messages.ts";
 
 /** Where a Call sits in its Conversation. A Turn may contain several Calls. */
@@ -31,6 +31,14 @@ export interface CallAccounting extends CallAddress {
 	budgets?: { tail: number; recall: number; docs: number; graph?: number };
 	/** Candidates refused as not relevant enough, even when none survived. */
 	rejected?: number;
+	/** The Pack ceiling in force for this Call. Absent on older records. */
+	ceiling?: number;
+	/**
+	 * What the parts came to before the ceiling reduced them. Equal to
+	 * `approximateTokens` when the ceiling did not bind, so the two together
+	 * say whether a pack fitted or was made to fit.
+	 */
+	beforeCeiling?: number;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -47,12 +55,23 @@ export interface RecordedPart {
 	conceptIds?: string[];
 	/** Symbols this part carried, by name — identity, not count. */
 	symbols?: string[];
-	/** The Budget that bounded it, where one did. */
+	/** The count Budget that bounded it, where one did. */
 	budget?: number;
+	/** The token Budget that bounded it, which irreducible content may exceed. */
+	tokenBudget?: number;
 	/** How many candidates it chose from. */
 	candidates?: number;
 	/** How many were refused as insufficiently relevant. */
 	irrelevant?: number;
+	/**
+	 * Why it carried less than its candidates offered, by reason. Absent on
+	 * older records, and absent when nothing was excluded.
+	 */
+	excluded?: PartExclusion;
+	/** What it would have carried had the pack ceiling not bound. */
+	withoutCeiling?: number;
+	/** Whether any of its content was carried shortened. */
+	shortened?: boolean;
 }
 
 /** Everything recorded for one Turn, which is one or more Calls. */
@@ -101,8 +120,12 @@ export function recordPart(part: {
 	conceptIds?: string[];
 	symbols?: string[];
 	budget?: number;
+	tokenBudget?: number;
 	candidates?: number;
 	irrelevant?: number;
+	excluded?: PartExclusion;
+	withoutCeiling?: number;
+	shortened?: boolean;
 }): RecordedPart {
 	return {
 		source: part.source,
@@ -113,8 +136,12 @@ export function recordPart(part: {
 		conceptIds: part.conceptIds,
 		symbols: part.symbols,
 		budget: part.budget,
+		tokenBudget: part.tokenBudget,
 		candidates: part.candidates,
 		irrelevant: part.irrelevant,
+		excluded: part.excluded,
+		withoutCeiling: part.withoutCeiling,
+		shortened: part.shortened,
 	};
 }
 
@@ -183,6 +210,8 @@ export class MemoryAccounting implements AccountingStore {
 		call.tailSource = tailSource;
 		call.budgets = pack.budgets;
 		call.rejected = pack.rejected;
+		call.ceiling = pack.ceiling;
+		call.beforeCeiling = pack.beforeCeiling;
 	}
 
 	async recordUnassembled(

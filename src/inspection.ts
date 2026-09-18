@@ -4,7 +4,7 @@ import type {
 	TailSource,
 	TurnAccounting,
 } from "./accounting.ts";
-import type { PackSource } from "./assembler.ts";
+import type { PackSource, PartExclusion } from "./assembler.ts";
 
 /** One part of a pack, as an inspector presents it. */
 export interface PartView {
@@ -20,6 +20,8 @@ export interface PartView {
 	/** Which symbols it carried, by name, where it carried any. */
 	symbols: string[];
 	budget?: number;
+	/** The token Budget in force, which a part's irreducible content may exceed. */
+	tokenBudget?: number;
 	candidates?: number;
 	/** True when the Budget, not the supply, decided what it carried. */
 	trimmed: boolean;
@@ -27,6 +29,17 @@ export interface PartView {
 	dropped: number;
 	/** How many were refused as insufficiently relevant, before any Budget. */
 	irrelevant: number;
+	/**
+	 * Why it carried less than its candidates offered, by reason: relevance,
+	 * the count Budget, the size Budget, or the pack ceiling. A pack that
+	 * carried little for want of room reads differently from one that
+	 * carried little for want of anything relevant.
+	 */
+	excluded?: PartExclusion;
+	/** What it would have carried without the ceiling, where that bound. */
+	withoutCeiling?: number;
+	/** Whether any of its content was shortened to fit. */
+	shortened?: boolean;
 }
 
 /** What one Call's Context Window was made of. */
@@ -50,6 +63,12 @@ export interface CallView {
 	 * part to carry it.
 	 */
 	rejected: number;
+	/** The Pack ceiling in force. Absent on records that predate it. */
+	ceiling?: number;
+	/** What the parts came to before the ceiling reduced them. */
+	beforeCeiling?: number;
+	/** True when the ceiling had to reduce this pack. */
+	reduced?: boolean;
 }
 
 /** What changed between two Calls' packs. */
@@ -110,6 +129,14 @@ export function inspectCall(call: CallAccounting): CallView {
 		tailSource: call.tailSource,
 		budgets: call.budgets,
 		rejected: call.rejected ?? 0,
+		ceiling: call.ceiling,
+		beforeCeiling: call.beforeCeiling,
+		// Reduced, not merely ceilinged: both figures exist on every recent
+		// Call, and they differ only when the ceiling had to bind.
+		reduced:
+			call.beforeCeiling !== undefined &&
+			call.approximateTokens !== undefined &&
+			call.beforeCeiling > call.approximateTokens,
 	};
 }
 
@@ -132,12 +159,16 @@ function viewPart(part: RecordedPart): PartView {
 		turnIndices,
 		conceptIds,
 		budget: part.budget,
+		tokenBudget: part.tokenBudget,
 		candidates,
 		// Trimmed means the Budget bound it, not merely that supply ran out
 		// or that nothing was relevant enough to carry.
 		trimmed: dropped > 0 && part.budget !== undefined && carried >= part.budget,
 		dropped,
 		irrelevant: part.irrelevant ?? 0,
+		excluded: part.excluded,
+		withoutCeiling: part.withoutCeiling,
+		shortened: part.shortened === true ? true : undefined,
 	};
 }
 

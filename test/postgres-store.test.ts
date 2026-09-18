@@ -13,6 +13,7 @@ import {
 	PostgresStore,
 } from "../src/postgres-store.ts";
 import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
+import { budgets } from "./fixtures.ts";
 
 const databaseUrl = process.env.CM_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
@@ -70,7 +71,7 @@ describeStore("PostgresStore", () => {
 		await store.recordPack(
 			"conv-1",
 			{ turnIndex: 0, callIndex: 0 },
-			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, { tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 })),
 			"thread-store",
 		);
 		await store.recordMeasurements("conv-1", [
@@ -95,10 +96,7 @@ describeStore("PostgresStore", () => {
 	});
 
 	test("accounting for a tool-using turn groups its calls", async () => {
-		const pack = assemble(
-			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 },
-		);
+		const pack = assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store");
 		await store.recordPack("conv-1", { turnIndex: 1, callIndex: 0 }, pack, "thread-store");
@@ -114,6 +112,49 @@ describeStore("PostgresStore", () => {
 		const [turn] = await store.readAccounting("conv-1");
 
 		expect(turn?.calls[0]?.unassembled).toBe(true);
+	});
+
+	test("what the ceiling reduced survives a read-back", async () => {
+		const bulky = {
+			role: "toolResult" as const,
+			toolName: "read",
+			toolCallId: "call-1",
+			content: "y".repeat(8000),
+		};
+		const pack = assemble(
+			{
+				turns: [
+					{
+						index: 0,
+						prompt: "older",
+						messages: [{ role: "user", content: "older" }, bulky],
+					},
+					{
+						index: 1,
+						prompt: "current",
+						messages: [{ role: "user", content: "current" }],
+					},
+				],
+			},
+			budgets({ tailTurns: 1, packTokens: 300 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+
+		// A separate connection stands in for a later process: the reasons a
+		// pack was reduced have to outlive the Call that recorded them.
+		const reader = PostgresStore.connect(databaseUrl ?? "");
+		try {
+			const [turn] = await reader.readAccounting("conv-1");
+			const call = turn?.calls[0];
+			const tail = call?.parts.find((part) => part.source === "verbatim-tail");
+
+			expect(call?.ceiling).toBe(300);
+			expect(call?.beforeCeiling).toBeGreaterThan(300);
+			expect(tail?.shortened).toBe(true);
+			expect(tail?.withoutCeiling).toBeGreaterThan(tail?.approximateTokens ?? 0);
+		} finally {
+			await reader.close();
+		}
 	});
 });
 

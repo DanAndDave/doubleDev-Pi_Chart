@@ -55,6 +55,8 @@ The extension checks this at session start and reports loudly if it is still act
 
 Every setting below has a working default. They exist for tuning, not for setup.
 
+Each part of a pack is bounded twice — by a count of items and by a size in estimated tokens — and is trimmed to whichever binds first. A count says something a size cannot (`CM_TAIL_TURNS=0` means "only the current Turn"), and a size says what a count cannot: one Turn carrying six file reads costs two orders of magnitude more than one carrying a sentence.
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
@@ -68,6 +70,12 @@ Every setting below has a working default. They exist for tuning, not for setup.
 | `CM_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
 | `CM_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
 | `CM_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
+| `CM_PACK_TOKENS` | `110000` | The whole pack's ceiling in estimated tokens. When the parts together exceed it they are reduced in a fixed order — structure, then curated knowledge, then the weakest recollections, then the oldest Turns of the tail. The current Turn is never dropped. Derived, not chosen: a 200,000-token window less this project's measured ~28,000 Floor, divided by the estimator's measured worst-case bias of 1.5. |
+| `CM_TAIL_TOKENS` | `25000` | Size Budget for the verbatim tail. Its most recent Turn is always kept, shortened if it cannot fit whole, because that Turn is what the current one is reasoning about. |
+| `CM_RECALL_TOKENS` | `8000` | Size Budget for recalled Turns. A Budget too small to hold one readable recollection carries none. |
+| `CM_DOC_TOKENS` | `5000` | Size Budget for curated knowledge. A Concept too large for it is dropped rather than shortened — the bundle holds others, and `walk_documentation` reaches the rest at no Budget. |
+| `CM_GRAPH_TOKENS` | `3000` | Size Budget for structure. |
+| `CM_PACK_WARN_SHARE` | `0.75` | The share of the ceiling at which the extension says a Conversation's packs are creeping up. Reported once per Conversation; a pack that cannot be brought under the ceiling at all is reported every time. |
 
 ## Recall
 
@@ -194,6 +202,6 @@ Turn 6, call 0
 - `/pack` — the last Call
 - `/pack diff` — what entered and left since the Call before it
 - `/pack summary` — the whole Conversation, with average Budget spend
-- `/pack budget <tail|recall|docs|graph> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session
+- `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, `recall`, `docs`, `graph`. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens`, `docs-tokens`, `graph-tokens`, and `pack` for the whole pack's ceiling
 
 Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides.

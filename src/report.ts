@@ -5,7 +5,85 @@ import type {
 	CallView,
 	ConversationSummary,
 	PackDiff,
+	PartView,
 } from "./inspection.ts";
+
+/**
+ * Why a part carried less than it could have, in the order a reader wants
+ * them: what was never relevant, then what each Budget refused, then what
+ * the pack ceiling took, then what had to be shortened.
+ *
+ * A table rather than a cascade of conditionals, because every entry answers
+ * the same question and a reader comparing two parts should be comparing one
+ * list, not tracing eight branches.
+ */
+const REASONS: ((part: PartView) => string | undefined)[] = [
+	(part) => {
+		const irrelevant = part.excluded?.irrelevant ?? part.irrelevant;
+		return irrelevant > 0 ? `${irrelevant} not relevant enough` : undefined;
+	},
+	(part) =>
+		(part.excluded?.count ?? 0) > 0
+			? `${part.excluded?.count} over the count`
+			: undefined,
+	(part) =>
+		(part.excluded?.size ?? 0) > 0
+			? `${part.excluded?.size} over the size budget`
+			: undefined,
+	(part) =>
+		(part.excluded?.ceiling ?? 0) > 0
+			? `${part.excluded?.ceiling} for the pack ceiling`
+			: undefined,
+	// Older records carry a count of what a Budget excluded but no reason for
+	// it; saying "dropped" keeps them readable without inventing one.
+	(part) =>
+		part.trimmed && part.excluded === undefined
+			? `${part.dropped} dropped`
+			: undefined,
+	(part) => (part.shortened === true ? "content shortened" : undefined),
+	// Said whenever the ceiling changed what this part carried, whether it
+	// lost whole candidates or only their bulk.
+	(part) =>
+		part.withoutCeiling !== undefined &&
+		part.withoutCeiling !== part.approximateTokens
+			? `~${part.withoutCeiling} tokens without the ceiling`
+			: undefined,
+	// A Budget a part could not get under is reported as exceeded rather than
+	// left to look like a fit: a Turn of many messages, each already as short
+	// as is worth carrying, has a floor no Budget can argue with.
+	(part) =>
+		part.tokenBudget !== undefined && part.approximateTokens > part.tokenBudget
+			? `over its ${part.tokenBudget}-token budget, irreducible`
+			: undefined,
+];
+
+/**
+ * What a part carried and why it carried no more.
+ *
+ * The reasons are rendered whether or not the part has a count Budget: the
+ * current Turn has none, and it is the part the ceiling elides, so hanging
+ * them off the Budget hid exactly the case worth reading.
+ */
+function carriedOf(part: PartView): string {
+	const reasons = REASONS.map((reason) => reason(part)).filter(
+		(reason) => reason !== undefined,
+	);
+	// The count Budget reads as "2 of 4" and leads; every reason follows it.
+	const spend = part.budget === undefined ? [] : [`${part.carried} of ${part.budget}`];
+	const inside = [...spend, ...reasons];
+	return inside.length > 0 ? ` (${inside.join(", ")})` : "";
+}
+
+/** Which Turns, Concepts, or symbols the part carried, where it names any. */
+function identities(part: PartView): string {
+	const turns =
+		part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
+	const concepts =
+		part.conceptIds.length > 0 ? ` concepts ${part.conceptIds.join(", ")}` : "";
+	const symbols =
+		part.symbols.length > 0 ? ` symbols ${part.symbols.join(", ")}` : "";
+	return `${turns}${concepts}${symbols}`;
+}
 
 /** Renders an inspection as text, which is the shape a pack actually has. */
 export function renderCall(view: CallView): string {
@@ -14,25 +92,14 @@ export function renderCall(view: CallView): string {
 	];
 
 	for (const part of view.parts) {
-		const excluded = part.trimmed
-			? `, ${part.dropped} dropped`
-			: part.irrelevant > 0
-				? `, ${part.irrelevant} not relevant enough`
-				: "";
-		const budget =
-			part.budget === undefined ? "" : ` of ${part.budget}${excluded}`;
-		const turns =
-			part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
-		const concepts =
-			part.conceptIds.length > 0
-				? ` concepts ${part.conceptIds.join(", ")}`
-				: "";
-		const symbols =
-			part.symbols.length > 0 ? ` symbols ${part.symbols.join(", ")}` : "";
+		lines.push(`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
+			`${carriedOf(part)}${identities(part)}`);
+	}
+
+	if (view.ceiling !== undefined) {
 		lines.push(
-			`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
-				`${budget ? ` (${part.carried}${budget})` : ""}${turns}${concepts}` +
-				`${symbols}`,
+			`  ceiling       ~${view.beforeCeiling ?? "?"} of ${view.ceiling} tokens` +
+				`${view.reduced ? " — parts reduced to fit" : ""}`,
 		);
 	}
 

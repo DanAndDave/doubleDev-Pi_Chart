@@ -39,6 +39,26 @@ export interface Config {
 	databaseUrl?: string;
 	/** Where the machine-wide Doc Store bundle lives. */
 	docBundle: string;
+	/**
+	 * Size Budgets in estimated tokens, beside the counts above. A part is
+	 * trimmed to whichever binds first, and `packTokens` bounds the whole
+	 * Context Pack however the parts divide it.
+	 *
+	 * Derived from measurement, not taste: the estimate runs ~1.15× low
+	 * against the harness's reported figures at the median and 1.447× at the
+	 * p90, so the ceiling is `(200,000 window − 28,000 measured Floor) / 1.5`.
+	 */
+	tailTokens: number;
+	recallTokens: number;
+	docTokens: number;
+	graphTokens: number;
+	packTokens: number;
+	/**
+	 * The share of the ceiling at which a Pack is reported as approaching it.
+	 * 0.75 fires on 3.1% of real Turns measured here — a signal rather than
+	 * a habit.
+	 */
+	packWarnShare: number;
 }
 
 export const DEFAULT_TAIL_TURNS = 8;
@@ -50,6 +70,18 @@ export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 /** What `compose.yaml` serves. Matching it is what makes setup one step. */
 export const DEFAULT_DATABASE_URL =
 	"postgres://context_manager:context_manager@localhost:55432/thread_store";
+export const DEFAULT_TAIL_TOKENS = 25_000;
+export const DEFAULT_RECALL_TOKENS = 8_000;
+export const DEFAULT_DOC_TOKENS = 5_000;
+export const DEFAULT_GRAPH_TOKENS = 3_000;
+/**
+ * `(200,000 − 28,000) / 1.5`: a window the operator is likely to have, less
+ * the Floor this project measures, divided by the estimator's measured p90
+ * bias. The parts default to 41,000 together, which leaves the current Turn
+ * 69,000 before the ceiling touches it — enough for 97.4% of real Turns.
+ */
+export const DEFAULT_PACK_TOKENS = 110_000;
+export const DEFAULT_PACK_WARN_SHARE = 0.75;
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
 	return {
@@ -67,8 +99,39 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		databaseUrl: env.CM_DATABASE_URL ?? DEFAULT_DATABASE_URL,
 		docBundle:
 			env.CM_DOC_BUNDLE ?? join(homedir(), ".context-manager", "bundle"),
+		tailTokens: count(env.CM_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),
+		recallTokens: count(env.CM_RECALL_TOKENS, DEFAULT_RECALL_TOKENS),
+		docTokens: count(env.CM_DOC_TOKENS, DEFAULT_DOC_TOKENS),
+		graphTokens: count(env.CM_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
+		packTokens: count(env.CM_PACK_TOKENS, DEFAULT_PACK_TOKENS),
+		packWarnShare: share(env.CM_PACK_WARN_SHARE, DEFAULT_PACK_WARN_SHARE),
 	};
 }
+
+/** The `Config` fields that hold a number, which is every Budget. */
+type NumericSetting = {
+	[Field in keyof Config]: Config[Field] extends number ? Field : never;
+}[keyof Config];
+
+/**
+ * Which field each Budget name sets. One table rather than a chain, because
+ * the names are now the product of a part and a denomination and a chain of
+ * ten branches stops being readable.
+ *
+ * Keyed to the numeric fields only, so a future entry naming `docBundle`
+ * fails to compile rather than writing a number into a path.
+ */
+const BUDGET_FIELDS: Record<string, NumericSetting> = {
+	tail: "tailTurns",
+	recall: "recallTurns",
+	docs: "docConcepts",
+	graph: "graphSymbols",
+	"tail-tokens": "tailTokens",
+	"recall-tokens": "recallTokens",
+	"docs-tokens": "docTokens",
+	"graph-tokens": "graphTokens",
+	pack: "packTokens",
+};
 
 /**
  * Applies a Budget change for the running session.
@@ -82,31 +145,29 @@ export function setBudget(
 	name: string,
 	value: string,
 ): { ok: true; budget: number } | { ok: false; reason: string } {
+	const field = BUDGET_FIELDS[name];
+	if (field === undefined) {
+		return {
+			ok: false,
+			reason:
+				`unknown budget "${name}"; expected tail, recall, docs, graph, ` +
+				`tail-tokens, recall-tokens, docs-tokens, graph-tokens or pack`,
+		};
+	}
+
 	const parsed = Number.parseInt(value, 10);
 	if (!Number.isFinite(parsed) || parsed < 0 || String(parsed) !== value.trim()) {
 		return { ok: false, reason: `"${value}" is not a count` };
 	}
 
-	if (name === "tail") {
-		config.tailTurns = parsed;
-		return { ok: true, budget: parsed };
-	}
-	if (name === "recall") {
-		config.recallTurns = parsed;
-		return { ok: true, budget: parsed };
-	}
-	if (name === "docs") {
-		config.docConcepts = parsed;
-		return { ok: true, budget: parsed };
-	}
-	if (name === "graph") {
-		config.graphSymbols = parsed;
-		return { ok: true, budget: parsed };
-	}
-	return {
-		ok: false,
-		reason: `unknown budget "${name}"; expected tail, recall, docs or graph`,
-	};
+	config[field] = parsed;
+	return { ok: true, budget: parsed };
+}
+
+/** A share in [0, 1], or the default when unset or unusable. */
+function share(raw: string | undefined, fallback: number): number {
+	const parsed = raw === undefined ? Number.NaN : Number.parseFloat(raw);
+	return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : fallback;
 }
 
 /** A cosine distance in [0, 2], or the default when unset or unusable. */

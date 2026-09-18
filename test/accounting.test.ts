@@ -4,9 +4,10 @@ import { MemoryAccounting, type CallAddress } from "../src/accounting.ts";
 import { assemble } from "../src/assembler.ts";
 import type { HarnessMessage } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
+import { budgets } from "./fixtures.ts";
 
 function pack(...messages: HarnessMessage[]) {
-	return assemble({ turns: reconstructTurns(messages) }, { tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 });
+	return assemble({ turns: reconstructTurns(messages) }, budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 }
 
 function at(turnIndex: number, callIndex: number): CallAddress {
@@ -149,5 +150,111 @@ describe("accounting", () => {
 		const [turn] = await store.readAccounting("conv-1");
 		expect(turn?.floorTokens).toBeUndefined();
 		expect(turn?.calls[0]?.approximateTokens).toBeGreaterThan(0);
+	});
+
+	test("records the estimate beside the size the harness reported", async () => {
+		const store = new MemoryAccounting();
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+
+		await store.recordMeasurements("conv-1", [
+			{ ...at(0, 0), snapshot: { promptTokens: 29352, nonMessageTokens: 25588 } },
+		]);
+
+		const [turn] = await store.readAccounting("conv-1");
+		const call = turn?.calls[0];
+		// Both figures, distinguishable: ours is the estimate the ceiling was
+		// applied to, theirs is what the window actually cost.
+		expect(call?.approximateTokens).toBeGreaterThan(0);
+		expect(call?.packTokens).toBe(29352 - 25588);
+		expect(call?.approximateTokens).not.toBe(call?.packTokens);
+	});
+
+	test("records why a part carried less, by reason", async () => {
+		const store = new MemoryAccounting();
+		const recalled = [1, 2, 3].map((index) => ({
+			turnIndex: index,
+			turn: {
+				index,
+				prompt: `prompt ${index}`,
+				messages: [
+					{ role: "user" as const, content: `prompt ${index}` },
+					{
+						role: "toolResult" as const,
+						toolName: "read",
+						toolCallId: `call-${index}`,
+						content: "x".repeat(1600),
+					},
+				],
+			},
+		}));
+
+		await store.recordPack(
+			"conv-1",
+			at(0, 0),
+			assemble(
+				{ turns: reconstructTurns([PROMPT]), recalled, rejected: 5 },
+				budgets({ recallTurns: 2, recallTokens: 500 }),
+			),
+			"thread-store",
+		);
+
+		const [turn] = await store.readAccounting("conv-1");
+		const recall = turn?.calls[0]?.parts.find(
+			(part) => part.source === "recalled",
+		);
+		// Three distinct facts, not one shortfall: five were never relevant
+		// enough, the count refused the third candidate, and the size Budget
+		// refused what was left.
+		expect(recall?.excluded?.irrelevant).toBe(5);
+		expect(recall?.excluded?.count).toBe(1);
+		expect(recall?.excluded?.size).toBeGreaterThan(0);
+	});
+
+	test("records what the ceiling cost a part and the pack", async () => {
+		const store = new MemoryAccounting();
+		const bulky = {
+			role: "toolResult" as const,
+			toolName: "read",
+			toolCallId: "call-1",
+			content: "y".repeat(8000),
+		};
+
+		await store.recordPack(
+			"conv-1",
+			at(0, 0),
+			assemble(
+				{
+					turns: [
+						{ index: 0, prompt: "older", messages: [PROMPT, bulky] },
+						{ index: 1, prompt: "current", messages: [PROMPT] },
+					],
+				},
+				budgets({ tailTurns: 1, packTokens: 300 }),
+			),
+			"thread-store",
+		);
+
+		const [turn] = await store.readAccounting("conv-1");
+		const call = turn?.calls[0];
+		const tail = call?.parts.find((part) => part.source === "verbatim-tail");
+
+		expect(call?.ceiling).toBe(300);
+		expect(call?.beforeCeiling).toBeGreaterThan(300);
+		expect(call?.approximateTokens).toBeLessThanOrEqual(300);
+		expect(tail?.withoutCeiling).toBeGreaterThan(tail?.approximateTokens ?? 0);
+		expect(tail?.shortened).toBe(true);
+	});
+
+	test("a record written before these reasons existed still reads", async () => {
+		const store = new MemoryAccounting();
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+
+		const [turn] = await store.readAccounting("conv-1");
+		const part = turn?.calls[0]?.parts[0];
+		// Nothing was excluded, so the detail is absent rather than zeroed —
+		// which is also how a row from an earlier version reads.
+		expect(part?.excluded).toBeUndefined();
+		expect(part?.withoutCeiling).toBeUndefined();
+		expect(part?.shortened).toBeUndefined();
 	});
 });

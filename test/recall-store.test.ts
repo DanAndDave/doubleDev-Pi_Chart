@@ -7,6 +7,7 @@ import { assemble } from "../src/assembler.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import type { JournalTurn } from "../src/journal.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
+import { budgets } from "./fixtures.ts";
 
 const databaseUrl = process.env.CM_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
@@ -156,8 +157,7 @@ describeStore("per-part detail round-trips", () => {
 	});
 
 	test("a recalled part's turns and budget survive a round trip", async () => {
-		const pack = assemble(
-			{
+		const pack = assemble({
 				turns: [
 					{ index: 1, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
 					{ prompt: "current", messages: [{ role: "user", content: "current" }] },
@@ -166,9 +166,7 @@ describeStore("per-part detail round-trips", () => {
 					{ turnIndex: 7, turn: { index: 7, prompt: "older", messages: [] } },
 					{ turnIndex: 9, turn: { index: 9, prompt: "oldest", messages: [] } },
 				],
-			},
-			{ tailTurns: 2, recallTurns: 1, docConcepts: 0, graphSymbols: 0 },
-		);
+			}, budgets({ tailTurns: 2, recallTurns: 1, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
 
 		const [turn] = await store.readAccounting("conv-1");

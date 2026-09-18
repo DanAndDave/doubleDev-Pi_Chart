@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { assemble } from "../src/assembler.ts";
 import { readJournal, type JournalTurn } from "../src/journal.ts";
 import type { TurnSink, TurnSource } from "../src/thread-store.ts";
+import { budgets } from "./fixtures.ts";
 
 export const JOURNAL_FIXTURE = new URL(
 	"./fixtures/journal-tool-session.jsonl",
@@ -121,17 +122,11 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 	test(`${name}: emptying and re-ingesting rebuilds the identical pack`, async () => {
 		const store = await fresh();
 		await store.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
-		const before = assemble(
-			{ turns: await store.recentTurns("conv-1", 2) },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 },
-		);
+		const before = assemble({ turns: await store.recentTurns("conv-1", 2) }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 
 		const rebuilt = await fresh();
 		await rebuilt.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
-		const after = assemble(
-			{ turns: await rebuilt.recentTurns("conv-1", 2) },
-			{ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 },
-		);
+		const after = assemble({ turns: await rebuilt.recentTurns("conv-1", 2) }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 
 		expect(after).toEqual(before);
 	});

@@ -156,6 +156,16 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS call_count INTEGER`,
 		],
 	},
+	{
+		version: 9,
+		statements: [
+			// What the pack ceiling was, and what the parts came to before it
+			// bound. Both absent on older rows, which read back as a Call
+			// whose ceiling is unknown rather than as one with no ceiling.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS ceiling INTEGER`,
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS before_ceiling INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -188,6 +198,8 @@ interface AccountingRow {
 	tail_source: TailSource | null;
 	budgets: JsonColumn;
 	rejected: number | null;
+	ceiling: number | null;
+	before_ceiling: number | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -479,11 +491,13 @@ export class PostgresStore implements
 		await this.sql`
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
-				 approximate_tokens, unassembled, tail_source, budgets, rejected)
+				 approximate_tokens, unassembled, tail_source, budgets, rejected,
+				 ceiling, before_ceiling)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
-				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected}
+				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
+				${pack.ceiling}, ${pack.beforeCeiling}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -493,7 +507,9 @@ export class PostgresStore implements
 				unassembled = FALSE,
 				tail_source = EXCLUDED.tail_source,
 				budgets = EXCLUDED.budgets,
-				rejected = EXCLUDED.rejected`;
+				rejected = EXCLUDED.rejected,
+				ceiling = EXCLUDED.ceiling,
+				before_ceiling = EXCLUDED.before_ceiling`;
 	}
 
 	async recordUnassembled(
@@ -533,7 +549,7 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected
+			       rejected, ceiling, before_ceiling
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -560,6 +576,8 @@ export class PostgresStore implements
 				undefined,
 			),
 			rejected: row.rejected ?? undefined,
+			ceiling: row.ceiling ?? undefined,
+			beforeCeiling: row.before_ceiling ?? undefined,
 		}));
 
 		return groupByTurn(conversationId, calls);
