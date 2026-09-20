@@ -531,7 +531,7 @@ describe("recall wiring", () => {
 							},
 						},
 					],
-					rejected: 0,
+					rejected: 0, unsearched: 0,
 				}),
 			},
 		});
@@ -565,7 +565,7 @@ describe("recall wiring", () => {
 			recall: {
 				similarTurns: async () => {
 					asked = true;
-					return { turns: [], rejected: 0 };
+					return { turns: [], rejected: 0, unsearched: 0 };
 				},
 			},
 		});
@@ -574,6 +574,60 @@ describe("recall wiring", () => {
 		await cm.settle();
 
 		expect(asked).toBe(false);
+	});
+});
+
+describe("an embedding model that changed under the corpus", () => {
+	test("says so once, naming both models and the turns affected", async () => {
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			embed: async () => undefined,
+			vectorModels: async () => ({
+				inUse: "Xenova/bge-small-en-v1.5",
+				others: [{ model: "some/other-model", turns: 42 }],
+			}),
+		});
+
+		await cm.agentEnd({}, ctx());
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+
+		const swap = cm.reported.filter((line) => line.includes("other-model"));
+		expect(swap).toHaveLength(1);
+		expect(swap[0]).toContain("Xenova/bge-small-en-v1.5");
+		expect(swap[0]).toContain("42");
+	});
+
+	test("stays quiet when every vector came from the model in use", async () => {
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			embed: async () => undefined,
+			vectorModels: async () => ({ inUse: "pinned", others: [] }),
+		});
+
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+
+		expect(cm.reported).toEqual([]);
+	});
+
+	test("a check that fails costs the report, not the turn", async () => {
+		let embedded = false;
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			embed: async () => {
+				embedded = true;
+			},
+			vectorModels: async () => {
+				throw new Error("store unreachable");
+			},
+		});
+
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+
+		expect(embedded).toBe(true);
+		expect(cm.reported.join("\n")).toContain("store unreachable");
 	});
 });
 
@@ -596,7 +650,7 @@ describe("the pack command", () => {
 							},
 						},
 					],
-					rejected: 0,
+					rejected: 0, unsearched: 0,
 				}),
 			},
 		});

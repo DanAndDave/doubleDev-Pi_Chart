@@ -18,7 +18,7 @@ import type { ConceptHit, ConceptSearch, IndexResult } from "./doc-index.ts";
 import type { JournalTurn } from "./journal.ts";
 import { splitConcept, type Section } from "./sections.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
-import { messageText } from "./messages.ts";
+import { embedFingerprint, embedText } from "./embed-text.ts";
 import type {
 	CorpusSearch,
 	FoundTurn,
@@ -27,6 +27,7 @@ import type {
 	TurnRecall,
 	TurnSink,
 	TurnSource,
+	VectorModels,
 } from "./thread-store.ts";
 
 /**
@@ -166,6 +167,45 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS before_ceiling INTEGER`,
 		],
 	},
+	{
+		version: 10,
+		statements: [
+			// The fingerprint of the text a Turn was embedded from. A Turn
+			// whose fingerprint changes has lost its vector's subject, so
+			// ingest nulls the vector rather than keeping one that describes
+			// content the Turn no longer has.
+			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS text_hash TEXT`,
+		],
+	},
+	{
+		version: 11,
+		statements: [
+			// Which model produced a vector. Null on every row written before
+			// this column existed, which is honest: their provenance is
+			// unknown, so they count as pending rather than as hits.
+			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS embedding_model TEXT`,
+		],
+	},
+	{
+		version: 12,
+		statements: [
+			// A Conversation-scoped recall computes distance over that
+			// Conversation's embedded Turns exactly. An HNSW index carries
+			// one vector column and no Conversation, so completeness has to
+			// come from reaching the Conversation's rows directly.
+			`CREATE INDEX IF NOT EXISTS turns_conversation_embedded_idx
+				ON turns (conversation_id) WHERE embedding IS NOT NULL`,
+		],
+	},
+	{
+		version: 13,
+		statements: [
+			// How many Turns of the Conversation held no valid vector when a
+			// recall ran: a Pack that came back short for want of embedding
+			// reads differently from one where nothing was relevant.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS unsearched INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -198,6 +238,7 @@ interface AccountingRow {
 	tail_source: TailSource | null;
 	budgets: JsonColumn;
 	rejected: number | null;
+	unsearched: number | null;
 	ceiling: number | null;
 	before_ceiling: number | null;
 }
@@ -260,19 +301,34 @@ export class PostgresStore implements
 		codebase?: string,
 	): Promise<void> {
 		for (const turn of turns) {
+			// The fingerprint of what this Turn will be embedded as, so a
+			// Turn re-ingested with different content loses the vector that
+			// described the content it had. Derived here rather than at
+			// embedding time because this is where the new content arrives.
+			const fingerprint = embedFingerprint(turn.messages);
 			await this.sql`
 				INSERT INTO turns
-					(conversation_id, turn_index, prompt, codebase, call_count)
+					(conversation_id, turn_index, prompt, codebase, call_count, text_hash)
 				VALUES (
 					${conversationId}, ${turn.turnIndex}, ${turn.prompt},
-					${codebase ?? null}, ${Math.max(turn.callCount, 1)}
+					${codebase ?? null}, ${Math.max(turn.callCount, 1)}, ${fingerprint}
 				)
 				ON CONFLICT (conversation_id, turn_index)
 				DO UPDATE SET
 					prompt = EXCLUDED.prompt,
 					call_count = EXCLUDED.call_count,
 					-- Never unset a Codebase a previous ingest knew.
-					codebase = COALESCE(EXCLUDED.codebase, turns.codebase)`;
+					codebase = COALESCE(EXCLUDED.codebase, turns.codebase),
+					text_hash = EXCLUDED.text_hash,
+					-- A vector outlives its content only while the content is
+					-- the same. Changed text is re-embedded by the pass that
+					-- embeds a new Turn, so there is one path, not two.
+					embedding = CASE
+						WHEN turns.text_hash IS DISTINCT FROM EXCLUDED.text_hash
+						THEN NULL ELSE turns.embedding END,
+					embedding_model = CASE
+						WHEN turns.text_hash IS DISTINCT FROM EXCLUDED.text_hash
+						THEN NULL ELSE turns.embedding_model END`;
 
 			for (const [ordinal, message] of turn.messages.entries()) {
 				// A message whose Call was never recorded belongs to the
@@ -299,29 +355,30 @@ export class PostgresStore implements
 	}
 
 	/**
-	 * Embeds Turns that have no vector yet. Runs after ingest and never on a
-	 * request's path; running it again is how a Conversation ingested before
-	 * embeddings existed catches up, so backfill and keeping-up are one path.
+	 * Embeds Turns whose stored vector is missing or no longer valid: a Turn
+	 * never embedded, one whose content changed, and one embedded by another
+	 * model. Runs after ingest and never on a request's path, so backfill,
+	 * repair and keeping-up are one path rather than three.
 	 */
 	async embedPending(conversationId?: string, batch = 32): Promise<number> {
 		if (!this.embedder) return 0;
-		if (this.embedder.dimensions !== PINNED_DIMENSIONS) {
+		const { model, dimensions } = await this.embedder.identity();
+		if (dimensions !== PINNED_DIMENSIONS) {
 			throw new Error(
-				`embedder produces ${this.embedder.dimensions} dimensions, ` +
+				`embedder produces ${dimensions} dimensions, ` +
 					`but the schema stores ${PINNED_DIMENSIONS}`,
 			);
 		}
 
 		const pending = (await this.sql`
-			SELECT conversation_id, turn_index, prompt
+			SELECT conversation_id, turn_index
 			FROM turns
-			WHERE embedding IS NULL
+			WHERE (embedding IS NULL OR embedding_model IS DISTINCT FROM ${model})
 				${conversationId ? this.sql`AND conversation_id = ${conversationId}` : this.sql``}
 			ORDER BY conversation_id, turn_index
 			LIMIT ${batch}`) as {
 			conversation_id: string;
 			turn_index: number;
-			prompt: string;
 		}[];
 		if (pending.length === 0) return 0;
 
@@ -338,12 +395,40 @@ export class PostgresStore implements
 			const vector = vectors[index];
 			if (!vector) continue;
 			await this.sql`
-				UPDATE turns SET embedding = ${JSON.stringify(vector)}::vector
+				UPDATE turns
+				SET embedding = ${JSON.stringify(vector)}::vector,
+					embedding_model = ${model}
 				WHERE conversation_id = ${row.conversation_id}
 					AND turn_index = ${row.turn_index}`;
 			embedded++;
 		}
 		return embedded;
+	}
+
+	/**
+	 * Which model made the vectors this store holds: the one in use, and any
+	 * other still present with how many Turns it accounts for. No others is
+	 * the ordinary case; anything else is a corpus mid-swap, which is
+	 * reported rather than ranked across.
+	 */
+	async vectorModels(): Promise<VectorModels> {
+		if (!this.embedder) return { inUse: "none", others: [] };
+		const { model } = await this.embedder.identity();
+		const rows = (await this.sql`
+			SELECT embedding_model, count(*)::int AS turns
+			FROM turns
+			WHERE embedding IS NOT NULL
+				AND embedding_model IS NOT NULL
+				AND embedding_model <> ${model}
+			GROUP BY embedding_model
+			ORDER BY embedding_model`) as {
+			embedding_model: string;
+			turns: number;
+		}[];
+		return {
+			inUse: model,
+			others: rows.map((row) => ({ model: row.embedding_model, turns: row.turns })),
+		};
 	}
 
 	/** What a Turn is embedded as: its prompt and everything answering it. */
@@ -356,18 +441,26 @@ export class PostgresStore implements
 			WHERE conversation_id = ${conversationId} AND turn_index = ${turnIndex}
 			ORDER BY ordinal ASC`) as { message: JsonColumn }[];
 
-		const parts: string[] = [];
+		const messages: HarnessMessage[] = [];
 		for (const row of rows) {
 			const message = decode<HarnessMessage | undefined>(row.message, undefined);
-			if (message) parts.push(messageText(message));
+			if (message) messages.push(message);
 		}
-		return parts.filter(Boolean).join("\n");
+		return embedText(messages);
 	}
 
 	/**
-	 * The Turns closest in meaning to a prompt, nearest first. Ties break on
-	 * Turn order so that repeated assembly cannot reorder them, which is what
-	 * keeps the determinism guarantee true through a retrieval step.
+	 * The Turns of this Conversation closest in meaning to a prompt, nearest
+	 * first. Ties break on Turn order so that repeated assembly cannot
+	 * reorder them, which is what keeps the determinism guarantee true
+	 * through a retrieval step.
+	 *
+	 * Exact over the Conversation rather than approximate over the corpus:
+	 * an HNSW index holds one vector column and no Conversation, so a
+	 * Conversation filter over it is a corpus-wide guess narrowed afterwards
+	 * and can come back short without saying so. Reaching the Conversation's
+	 * own rows costs its length — tens of Turns — and returns every
+	 * qualifying one whatever the corpus holds.
 	 */
 	async similarTurns(
 		conversationId: string,
@@ -375,57 +468,60 @@ export class PostgresStore implements
 		limit: number,
 		maxDistance: number,
 	): Promise<Recollections> {
-		const empty: Recollections = { turns: [], rejected: 0 };
+		const empty: Recollections = { turns: [], rejected: 0, unsearched: 0 };
 		if (!this.embedder || limit <= 0) return empty;
-		const [vector] = await this.embedder.embed([prompt]);
+		const { model } = await this.embedder.identity();
+		const [vector] = await this.embedder.embedQuery([prompt]);
 		if (!vector) return empty;
 
 		const embedding = JSON.stringify(vector);
-		// One scan: distance is computed once, the threshold filters, and the
-		// rejects are counted from the same scored set. Counting separately
-		// would re-score every Turn without the index, and the two scans
-		// could disagree if embedding ran between them.
+		// One statement, always one row: the Turns kept, the contenders the
+		// threshold refused, and the Turns of this Conversation that hold no
+		// valid vector and so were not searched at all. Counting separately
+		// would re-score the Conversation, and two scans could disagree if
+		// embedding ran between them.
 		//
-		// Only candidates that would have competed are counted: the nearest
+		// Only candidates that would have competed are refused: the nearest
 		// `limit` of them. Reporting every distant Turn in a long
 		// Conversation would say more about its length than its relevance.
-		const rows = (await this.sql`
+		const [row] = (await this.sql`
 			WITH scored AS (
 				SELECT turn_index, embedding <=> ${embedding}::vector AS distance
 				FROM turns
-				WHERE conversation_id = ${conversationId} AND embedding IS NOT NULL
+				WHERE conversation_id = ${conversationId}
+					AND embedding IS NOT NULL
+					AND embedding_model = ${model}
 			),
 			contenders AS (
 				SELECT * FROM scored ORDER BY distance ASC, turn_index ASC LIMIT ${limit}
 			)
-			SELECT turn_index,
+			SELECT
 				(SELECT count(*)::int FROM contenders WHERE distance > ${maxDistance})
-					AS rejected
-			FROM contenders
-			WHERE distance <= ${maxDistance}
-			ORDER BY distance ASC, turn_index ASC`) as {
-			turn_index: number;
+					AS rejected,
+				(SELECT count(*)::int FROM turns
+					WHERE conversation_id = ${conversationId}
+						AND (embedding IS NULL OR embedding_model IS DISTINCT FROM ${model}))
+					AS unsearched,
+				coalesce((
+					SELECT jsonb_agg(turn_index ORDER BY distance ASC, turn_index ASC)
+					FROM contenders WHERE distance <= ${maxDistance}
+				), '[]'::jsonb) AS kept`) as {
 			rejected: number;
+			unsearched: number;
+			kept: JsonColumn;
 		}[];
 
 		const turns: RecalledTurn[] = [];
-		for (const row of rows) {
-			const turn = await this.turnAt(conversationId, row.turn_index);
-			if (turn) turns.push({ turnIndex: row.turn_index, turn });
+		for (const turnIndex of decode<number[]>(row?.kept, [])) {
+			const turn = await this.turnAt(conversationId, turnIndex);
+			if (turn) turns.push({ turnIndex, turn });
 		}
 
-		// With no surviving row the subquery has nothing to ride on, so the
-		// count is asked for directly — the case that matters most to explain.
-		if (rows.length > 0) return { turns, rejected: rows[0]?.rejected ?? 0 };
-
-		const [counted] = (await this.sql`
-			SELECT count(*)::int AS rejected FROM (
-				SELECT embedding <=> ${embedding}::vector AS distance
-				FROM turns
-				WHERE conversation_id = ${conversationId} AND embedding IS NOT NULL
-				ORDER BY distance ASC LIMIT ${limit}
-			) contenders WHERE distance > ${maxDistance}`) as { rejected: number }[];
-		return { turns, rejected: counted?.rejected ?? 0 };
+		return {
+			turns,
+			rejected: row?.rejected ?? 0,
+			unsearched: row?.unsearched ?? 0,
+		};
 	}
 
 	private async turnAt(
@@ -492,12 +588,12 @@ export class PostgresStore implements
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
 				 approximate_tokens, unassembled, tail_source, budgets, rejected,
-				 ceiling, before_ceiling)
+				 unsearched, ceiling, before_ceiling)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
 				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
-				${pack.ceiling}, ${pack.beforeCeiling}
+				${pack.unsearched}, ${pack.ceiling}, ${pack.beforeCeiling}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -508,6 +604,7 @@ export class PostgresStore implements
 				tail_source = EXCLUDED.tail_source,
 				budgets = EXCLUDED.budgets,
 				rejected = EXCLUDED.rejected,
+				unsearched = EXCLUDED.unsearched,
 				ceiling = EXCLUDED.ceiling,
 				before_ceiling = EXCLUDED.before_ceiling`;
 	}
@@ -549,7 +646,7 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected, ceiling, before_ceiling
+			       rejected, unsearched, ceiling, before_ceiling
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -576,6 +673,7 @@ export class PostgresStore implements
 				undefined,
 			),
 			rejected: row.rejected ?? undefined,
+			unsearched: row.unsearched ?? undefined,
 			ceiling: row.ceiling ?? undefined,
 			beforeCeiling: row.before_ceiling ?? undefined,
 		}));
@@ -585,8 +683,13 @@ export class PostgresStore implements
 
 	/**
 	 * Every Conversation, searched on request. The same ordering and the
-	 * same relevance threshold as recall; the only thing missing is the
-	 * predicate confining it to one Conversation.
+	 * same relevance threshold as recall, and the same rule about which
+	 * vectors may be ranked; the only thing missing is the predicate
+	 * confining it to one Conversation.
+	 *
+	 * This is where the approximate index earns its place: over the whole
+	 * corpus an approximate neighbourhood is the point, and no caller is
+	 * promised every qualifying Turn.
 	 */
 	async searchAll(
 		query: string,
@@ -594,13 +697,15 @@ export class PostgresStore implements
 		maxDistance: number,
 	): Promise<FoundTurn[]> {
 		if (!this.embedder || limit <= 0) return [];
-		const [vector] = await this.embedder.embed([query]);
+		const { model } = await this.embedder.identity();
+		const [vector] = await this.embedder.embedQuery([query]);
 		if (!vector) return [];
 
 		const rows = (await this.sql`
 			SELECT conversation_id, turn_index, codebase
 			FROM turns
 			WHERE embedding IS NOT NULL
+				AND embedding_model = ${model}
 				AND (embedding <=> ${JSON.stringify(vector)}::vector) <= ${maxDistance}
 			ORDER BY embedding <=> ${JSON.stringify(vector)}::vector ASC,
 				conversation_id ASC, turn_index ASC
@@ -670,9 +775,10 @@ export class PostgresStore implements
 	 */
 	async indexConcepts(concepts: Concept[], batch = 32): Promise<IndexResult> {
 		if (!this.embedder) return { embedded: 0, contested: [] };
-		if (this.embedder.dimensions !== PINNED_DIMENSIONS) {
+		const { dimensions } = await this.embedder.identity();
+		if (dimensions !== PINNED_DIMENSIONS) {
 			throw new Error(
-				`embedder produces ${this.embedder.dimensions} dimensions, ` +
+				`embedder produces ${dimensions} dimensions, ` +
 					`but the schema stores ${PINNED_DIMENSIONS}`,
 			);
 		}

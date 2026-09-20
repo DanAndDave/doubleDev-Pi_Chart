@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_DOC_MAX_DISTANCE, DEFAULT_RECALL_MAX_DISTANCE } from "../src/config.ts";
+import { embedText } from "../src/embed-text.ts";
 import {
 	LocalEmbedder,
 	PINNED_DIMENSIONS,
@@ -102,23 +103,53 @@ describeModel("LocalEmbedder", () => {
 	);
 });
 
-// The threshold's default only means anything against the real model, so this
-// is where the measured number is checked rather than assumed.
+// The threshold's default only means anything against the real model, and
+// only through the path recall actually takes: a query carrying the model's
+// instruction, against a Turn composed the way the Thread Store composes it.
 describeModel("the default relevance threshold", () => {
 	test(
-		"keeps a paraphrase and rejects an unrelated turn",
+		"keeps the turn that answered a question and rejects an unrelated one",
 		async () => {
 			const embedder = new LocalEmbedder(BUN);
-			const [prompt, paraphrase, unrelated] = await embedder.embed([
+			const turn = embedText([
+				{ role: "user", content: "where should the parsed config live" },
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "c1",
+							name: "read",
+							arguments: { path: "src/config.ts" },
+						},
+					],
+				},
+				{
+					role: "toolResult",
+					toolCallId: "c1",
+					toolName: "read",
+					content: [{ type: "text", text: "export function loadConfig(env) {}" }],
+				},
+				{
+					role: "assistant",
+					content:
+						"we keep the parsed configuration in memory instead of " +
+						"re-reading it each turn",
+				},
+			]);
+			const [answering, unrelated] = await embedder.embed([
+				turn,
+				"Proof the sourdough overnight at 22°C, then bake at 240°C with steam.",
+			]);
+			// Asked in other words, and derived the way a recall query is.
+			const [query] = await embedder.embedQuery([
 				"what did we decide about caching parsed configuration",
-				"we keep the parsed configuration in memory instead of re-reading it",
-				"name a river, one word only",
 			]);
 
 			// Cosine distance is what pgvector's <=> returns and what the
 			// threshold is expressed in.
-			const near = 1 - cosine(prompt ?? [], paraphrase ?? []);
-			const far = 1 - cosine(prompt ?? [], unrelated ?? []);
+			const near = 1 - cosine(query ?? [], answering ?? []);
+			const far = 1 - cosine(query ?? [], unrelated ?? []);
 
 			expect(near).toBeLessThan(DEFAULT_RECALL_MAX_DISTANCE);
 			expect(far).toBeGreaterThan(DEFAULT_RECALL_MAX_DISTANCE);

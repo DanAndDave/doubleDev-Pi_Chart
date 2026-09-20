@@ -111,6 +111,16 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
+	// A recall the store could not complete is a different fact from one
+	// that found nothing worth carrying, and the difference is repairable:
+	// those Turns come back once embedding catches up.
+	if (view.unsearched > 0) {
+		lines.push(
+			`  recall        searched all but ${view.unsearched} turns of this ` +
+				`conversation (awaiting embedding)`,
+		);
+	}
+
 	// Said only when it is news: a session spent running without the store
 	// should be visible afterwards rather than mysterious.
 	if (view.tailSource === "harness-fallback") {

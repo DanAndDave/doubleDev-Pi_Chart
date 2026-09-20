@@ -1,15 +1,38 @@
 import { findBun } from "./bun-runtime.ts";
 
 /**
+ * What a loaded embedder is: which model, and how wide its vectors are.
+ *
+ * Reported by the thing that loaded the model rather than declared beside
+ * it, because `CM_EMBED_MODEL` can replace the pinned model at startup and
+ * a declared constant would then describe a model nothing is running. Every
+ * stored vector records this, so two vector spaces can never be ranked
+ * against one another.
+ */
+export interface EmbedderIdentity {
+	model: string;
+	dimensions: number;
+}
+
+/**
  * Turns text into a vector so Turns can be found by meaning.
  *
  * Injected rather than imported, so the default suite runs without a model
  * download and so the model behind it can be swapped on evidence later.
  */
 export interface Embedder {
-	/** Vectors this embedder produces. Recorded with the schema. */
-	readonly dimensions: number;
+	/** The model actually loaded and the width it produces. */
+	identity(): Promise<EmbedderIdentity>;
+	/** Embeds content as it is stored: no instruction, no derivation. */
 	embed(texts: string[]): Promise<number[][]>;
+	/**
+	 * Embeds text as a question about stored content rather than as stored
+	 * content. The pinned model is trained asymmetrically — a query carries
+	 * an instruction, a passage carries none — so the two are separate
+	 * calls: applying the derivation to both would discard the asymmetry and
+	 * weld every stored vector to a prompt string.
+	 */
+	embedQuery(texts: string[]): Promise<number[][]>;
 }
 
 /** The model this project is pinned to, and the width of its output. */
@@ -17,15 +40,41 @@ export const PINNED_MODEL = "Xenova/bge-small-en-v1.5";
 export const PINNED_DIMENSIONS = 384;
 
 /**
+ * What bge-small-en-v1.5 expects in front of a short query. The model was
+ * trained with it on the query side and without it on the passage side, so
+ * it belongs to the model rather than to the caller — and it never reaches
+ * a stored vector.
+ */
+export const QUERY_INSTRUCTION =
+	"Represent this sentence for searching relevant passages: ";
+
+/**
  * A deterministic stand-in: a hash-derived unit vector. Shares no behaviour
  * with a real model beyond being stable and the right width, which is exactly
  * what tests of ranking mechanics need and no more than they should assume.
  */
 export class StubEmbedder implements Embedder {
-	constructor(readonly dimensions: number = PINNED_DIMENSIONS) {}
+	constructor(
+		private readonly dimensions: number = PINNED_DIMENSIONS,
+		/** Named so a test can stand in for a second model, not just a second width. */
+		private readonly model: string = "stub",
+	) {}
+
+	async identity(): Promise<EmbedderIdentity> {
+		return { model: this.model, dimensions: this.dimensions };
+	}
 
 	async embed(texts: string[]): Promise<number[][]> {
 		return texts.map((text) => this.vector(text));
+	}
+
+	/**
+	 * The same vector as `embed`: the instruction belongs to the real
+	 * model's training, and a stand-in that imitated it would make every
+	 * query in the default suite drift by a constant nobody measured.
+	 */
+	async embedQuery(texts: string[]): Promise<number[][]> {
+		return this.embed(texts);
 	}
 
 	private vector(text: string): number[] {
@@ -54,10 +103,11 @@ export class StubEmbedder implements Embedder {
  * rather than once per batch.
  */
 export class LocalEmbedder implements Embedder {
-	readonly dimensions = PINNED_DIMENSIONS;
 	private worker?: Worker;
 	private nextId = 0;
 	private readonly pending = new Map<number, Resolver>();
+	/** Asked once and remembered: the model is loaded once per worker. */
+	private handshake?: Promise<EmbedderIdentity>;
 
 	constructor(
 		/** Where Bun is. Found when unset, so `CM_BUN` is a rescue, not a step. */
@@ -69,12 +119,60 @@ export class LocalEmbedder implements Embedder {
 			.pathname,
 	) {}
 
+	/**
+	 * What the worker actually loaded, asked of the worker rather than
+	 * assumed: `CM_EMBED_MODEL` can replace the pinned model, and the width
+	 * is measured from a vector the loaded model produced.
+	 */
+	async identity(): Promise<EmbedderIdentity> {
+		this.handshake ??= this.ask({ identify: true })
+			.then((reply) => {
+				const model = reply.model;
+				const dimensions = reply.dimensions;
+				if (typeof model !== "string" || typeof dimensions !== "number") {
+					throw new Error("embedder did not report the model it loaded");
+				}
+				return { model, dimensions };
+			})
+			.catch((error: unknown) => {
+				// A failed handshake must not be remembered as the answer:
+				// the next attempt starts a fresh worker.
+				this.handshake = undefined;
+				throw error;
+			});
+		return this.handshake;
+	}
+
+	/**
+	 * A query, with the instruction the model was trained to expect in front
+	 * of one. Only here: the passage side stays bare, so rewording the
+	 * instruction never invalidates a stored vector.
+	 */
+	async embedQuery(texts: string[]): Promise<number[][]> {
+		return this.embed(texts.map((text) => `${QUERY_INSTRUCTION}${text}`));
+	}
+
 	async embed(texts: string[]): Promise<number[][]> {
 		if (texts.length === 0) return [];
 
+		const { dimensions } = await this.identity();
+		const reply = await this.ask({ texts });
+		const vectors = reply.vectors ?? [];
+		for (const vector of vectors) {
+			if (vector.length !== dimensions) {
+				throw new Error(
+					`embedder produced ${vector.length} dimensions, expected ${dimensions}`,
+				);
+			}
+		}
+		return vectors;
+	}
+
+	/** One line of JSON out, one line back, or a failure nobody waits past. */
+	private async ask(request: Record<string, unknown>): Promise<Reply> {
 		const worker = await this.start();
 		const id = this.nextId++;
-		const { promise, resolve, reject } = Promise.withResolvers<number[][]>();
+		const { promise, resolve, reject } = Promise.withResolvers<Reply>();
 		this.pending.set(id, { resolve, reject });
 
 		// A dead worker must surface as a failure, never as a promise nobody
@@ -86,22 +184,14 @@ export class LocalEmbedder implements Embedder {
 		deadline.unref?.();
 
 		try {
-			worker.stdin.write(JSON.stringify({ id, texts }) + "\n");
+			worker.stdin.write(JSON.stringify({ id, ...request }) + "\n");
 		} catch (error) {
 			clearTimeout(deadline);
 			this.fail(error instanceof Error ? error : new Error(String(error)));
 		}
 
 		try {
-			const vectors = await promise;
-			for (const vector of vectors) {
-				if (vector.length !== this.dimensions) {
-					throw new Error(
-						`embedder produced ${vector.length} dimensions, expected ${this.dimensions}`,
-					);
-				}
-			}
-			return vectors;
+			return await promise;
 		} finally {
 			clearTimeout(deadline);
 		}
@@ -111,6 +201,7 @@ export class LocalEmbedder implements Embedder {
 	close(): void {
 		this.worker?.process.kill();
 		this.worker = undefined;
+		this.handshake = undefined;
 		this.settleAll(new Error("embedder stopped"));
 	}
 
@@ -118,6 +209,7 @@ export class LocalEmbedder implements Embedder {
 	private fail(error: Error): void {
 		this.worker?.process.kill();
 		this.worker = undefined;
+		this.handshake = undefined;
 		this.settleAll(error);
 	}
 
@@ -190,7 +282,7 @@ export class LocalEmbedder implements Embedder {
 	}
 
 	private deliver(line: string): void {
-		let reply: { id?: number; vectors?: number[][]; error?: string };
+		let reply: Reply & { id?: number; error?: string };
 		try {
 			reply = JSON.parse(line) as typeof reply;
 		} catch {
@@ -201,12 +293,19 @@ export class LocalEmbedder implements Embedder {
 		if (!waiting) return;
 		this.pending.delete(reply.id);
 		if (reply.error !== undefined) waiting.reject(new Error(reply.error));
-		else waiting.resolve(reply.vectors ?? []);
+		else waiting.resolve(reply);
 	}
 }
 
+/** What one line back from the worker can carry. */
+interface Reply {
+	vectors?: number[][];
+	model?: string;
+	dimensions?: number;
+}
+
 interface Resolver {
-	resolve: (vectors: number[][]) => void;
+	resolve: (reply: Reply) => void;
 	reject: (error: Error) => void;
 }
 

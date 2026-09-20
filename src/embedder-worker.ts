@@ -11,7 +11,9 @@ import { PINNED_MODEL } from "./embedder.ts";
 
 interface Request {
 	id: number;
-	texts: string[];
+	texts?: string[];
+	/** Asks what was loaded rather than what was pinned. */
+	identify?: boolean;
 }
 
 const model = process.env.CM_EMBED_MODEL ?? PINNED_MODEL;
@@ -27,7 +29,23 @@ for await (const line of console) {
 	}
 
 	try {
-		const output = await extract(request.texts, {
+		if (request.identify === true) {
+			// The width is measured from a vector this model produced, not
+			// read off a constant: a swapped model that happens to be 384
+			// wide is then recorded as itself rather than as the pinned one.
+			const probe = await extract([""], { pooling: "mean", normalize: true });
+			const [vector] = probe.tolist() as number[][];
+			process.stdout.write(
+				JSON.stringify({
+					id: request.id,
+					model,
+					dimensions: vector?.length ?? 0,
+				}) + "\n",
+			);
+			continue;
+		}
+
+		const output = await extract(request.texts ?? [], {
 			pooling: "mean",
 			normalize: true,
 		});

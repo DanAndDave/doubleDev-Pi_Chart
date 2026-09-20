@@ -49,11 +49,30 @@ export interface RecalledTurn {
 	turn: Turn;
 }
 
-/** What retrieval found, and what it refused as not relevant enough. */
+/** What retrieval found, what it refused, and what it could not see. */
 export interface Recollections {
 	turns: RecalledTurn[];
 	/** Turns near enough to rank but too distant to be worth carrying. */
 	rejected: number;
+	/**
+	 * Turns of this Conversation holding no valid vector, so no search could
+	 * reach them. A recall that came back short because the Conversation is
+	 * still being embedded is a different fact from one where nothing was
+	 * relevant, and only this tells them apart.
+	 */
+	unsearched: number;
+}
+
+/** Which model made the vectors a store holds. */
+export interface VectorModels {
+	/** The model embedding runs under now. */
+	inUse: string;
+	/**
+	 * Models that produced stored vectors and are no longer in use, with the
+	 * Turns each accounts for. Those Turns are not ranked: two vector spaces
+	 * in one table make ranking arbitrary, so they count as pending instead.
+	 */
+	others: { model: string; turns: number }[];
 }
 
 /** Finds Turns by meaning rather than recency. */

@@ -28,13 +28,13 @@ Underneath sit a vector that outlives its content (`src/postgres-store.ts:318` a
 
 Each message of a Turn gets a share of a character budget: prompt and assistant text whole where they fit, each tool call as its name and arguments, each tool result head-and-tail within its share. A message under its share releases the remainder, so a small Turn embeds whole.
 
-The alternative is what exists — concatenate and let the tokenizer cut — and it is why the p10 Turn embeds 1.1% of itself: one `read` result at the front consumes the window and the conclusion never reaches the model. Shares make coverage a function of the Turn's shape rather than of the order its largest message arrived in. Task 1 measures the budget against the 373 Turns here; the target is the median Turn's conclusion inside its own vector, not a maximal byte count.
+The alternative is what exists — concatenate and let the tokenizer cut — and it is why the p10 Turn embeds 1.1% of itself: one `read` result at the front consumes the window and the conclusion never reaches the model. Shares make coverage a function of the Turn's shape rather than of the order its largest message arrived in. Task 1 measured the budget against the 383 Turns here and chose **1,200 characters with a 180-character floor on any one share**: the target was the median Turn's conclusion inside its own vector, not a maximal byte count, and of the 48 Turns larger than the model's cut, 3 carried their own conclusion before and 47 do now — while byte coverage *falls*, from a 7.9% median to 4.8%, because tool results are most of the bytes and least of the meaning.
 
 ### The query instruction is applied query-side only
 
 bge-small-en-v1.5 (`src/embedder.ts:16`) is trained asymmetrically: queries carry an instruction, passages carry none. Prefixing both sides discards that asymmetry and welds every stored vector to a prompt string, so rewording it would re-embed the corpus. Query-side only keeps stored vectors passage-side, which makes the delta spec's "stored vectors SHALL remain valid" free rather than defended.
 
-Both changes move distances, so the 0.50 threshold no longer stands on its measurement. Task 1 re-derives it.
+Both changes move distances, so the 0.50 threshold no longer stands on its measurement. Task 1 re-derived it as **0.52**: over 99 real Turns a prompt asked in other words reaches its own Turn within it 92% of the time while nothing off-topic does. The measurement also refuted the plan's assumption that the derivation brings a genuine Turn *nearer* — it moves every distance outward, genuine included — so what it buys is separation and rank (35 of 99 ranked first against 33, and 0 off-topic admitted at 0.52 against 8 for the bare prompt). The delta spec's scenario was corrected to that claim rather than the measurement being explained away.
 
 ### The hash covers the derived embed text
 
@@ -56,7 +56,7 @@ Pairing therefore happens where messages become protocol messages: `assemble()`,
 
 ### A Conversation-scoped recall is exact; the ANN index serves the corpus-wide path
 
-`turns_embedding_idx` cannot carry `conversation_id` — HNSW indexes one vector column — so a Conversation filter is either post-filtered from a corpus-wide candidate set, returning short, or seq-scanned. Task 1 runs `EXPLAIN (ANALYZE)` over a seeded corpus and records which plan today's query gets, settling the audit's `[INFERENCE]` with evidence rather than promoting it.
+`turns_embedding_idx` cannot carry `conversation_id` — HNSW indexes one vector column — so a Conversation filter is either post-filtered from a corpus-wide candidate set, returning short, or seq-scanned. Task 1 ran `EXPLAIN (ANALYZE)` over a seeded corpus and **settled the audit's `[INFERENCE]`: neither shape occurs today**. At 20,000 Turns and again at 200,000, the planner reaches the Conversation's rows through `turns_pkey`'s leading column and scores them exactly, so recall does not silently come back short — but completeness rests on the primary key's column order rather than on anything the query asks for.
 
 The fix does not depend on that answer: the Conversation-scoped query gets a b-tree on `(conversation_id)` where `embedding IS NOT NULL` and computes distance exactly over that Conversation's Turns. Cost is bounded by Conversation length — tens of Turns, sixteen in the worst session here — not by corpus size, so completeness is a property rather than a tuning parameter. The alternative, `hnsw.iterative_scan` with a raised `hnsw.ef_search`, keeps an approximate answer to a question whose spec now says "every qualifying Turn". HNSW stays for the corpus-wide search, where approximation is the point.
 

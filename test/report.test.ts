@@ -44,6 +44,7 @@ function view(overrides: Partial<CallView> = {}): CallView {
 		floorShare: 26_000 / 30_000,
 		unassembled: false,
 		rejected: 0,
+		unsearched: 0,
 		...overrides,
 	};
 }
@@ -347,6 +348,40 @@ describe("rendering a call that recalled nothing", () => {
 		const text = renderCall(view({ rejected: 0 }));
 
 		expect(text).not.toContain("not relevant enough");
+	});
+
+	test("a recall that came back short reads differently from an irrelevant one", () => {
+		const noRecall = [
+			{
+				source: "current-turn" as const,
+				approximateTokens: 18,
+				carried: 1,
+				turnIndices: [4],
+				conceptIds: [],
+				symbols: [],
+				trimmed: false,
+				dropped: 0,
+				irrelevant: 0,
+			},
+		];
+		const short = renderCall(
+			view({ parts: noRecall, rejected: 0, unsearched: 7 }),
+		);
+		const irrelevant = renderCall(
+			view({ parts: noRecall, rejected: 7, unsearched: 0 }),
+		);
+
+		expect(short).toContain("7 turns of this conversation");
+		expect(short).toContain("awaiting embedding");
+		expect(short).not.toContain("not relevant enough");
+		expect(irrelevant).toContain("7 not relevant enough");
+		expect(irrelevant).not.toContain("awaiting embedding");
+	});
+
+	test("stays quiet when the whole conversation was searched", () => {
+		const text = renderCall(view({ unsearched: 0 }));
+
+		expect(text).not.toContain("awaiting embedding");
 	});
 });
 

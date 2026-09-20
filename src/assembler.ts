@@ -1,10 +1,13 @@
 import {
+	isToolCall,
 	messageText,
+	renderCall,
 	type ContentBlock,
 	type HarnessMessage,
-	type ToolCallBlock,
 	type Turn,
 } from "./messages.ts";
+import { elide, ELIDED_WHOLE, ELISION } from "./elision.ts";
+import { shares } from "./shares.ts";
 import type { ConceptHit } from "./doc-index.ts";
 import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
 import type { RecalledTurn } from "./thread-store.ts";
@@ -118,6 +121,13 @@ export interface Pack {
 	 * hang it on, and that is exactly the case worth explaining.
 	 */
 	rejected: number;
+	/**
+	 * Turns of the Conversation retrieval could not see, because they hold
+	 * no valid vector yet. Call-level for the same reason as `rejected`, and
+	 * distinct from it: a recall thinned by re-embedding is not a
+	 * Conversation with nothing relevant in it.
+	 */
+	unsearched: number;
 	/** The pack ceiling in force, and whether it had to bind. */
 	ceiling: number;
 	/**
@@ -153,6 +163,8 @@ export interface AssembleInput {
 	recalled?: RecalledTurn[];
 	/** How many candidates retrieval refused as not relevant enough. */
 	rejected?: number;
+	/** How many Turns of the Conversation retrieval could not see at all. */
+	unsearched?: number;
 	/** Concepts found in the Doc Store, most relevant first. */
 	concepts?: ConceptHit[];
 	/** Neighbourhoods of the symbols this prompt refers to. */
@@ -169,13 +181,21 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		turns,
 		recalled = [],
 		rejected = 0,
+		unsearched = 0,
 		concepts = [],
 		structure = [],
 	} = input;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
-	const byCount = config.tailTurns > 0 ? completed.slice(-config.tailTurns) : [];
+	// Withheld here rather than at ingest: the Journal recorded what
+	// happened, and an unanswered call is part of what happened. It is the
+	// Context Window that may not carry one — a provider refuses a call with
+	// no result outright — so the refusal belongs where messages become
+	// protocol messages, which is also where Turns from the live array pass.
+	const byCount = (
+		config.tailTurns > 0 ? completed.slice(-config.tailTurns) : []
+	).map(paired);
 
 	const parts: PackPart[] = [];
 
@@ -187,7 +207,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		eligible,
 		config.recallTurns,
 		config.recallTokens,
-		(each) => [asRecollection(each)],
+		(each, allowance) => [asRecollection(each, allowance)],
 		"shorten",
 	);
 	if (recollections.kept.length > 0) {
@@ -321,7 +341,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 				eligible,
 				config.recallTurns,
 				room,
-				(each) => [asRecollection(each)],
+				(each, allowance) => [asRecollection(each, allowance)],
 				"shorten",
 			);
 			return {
@@ -352,6 +372,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			graph: config.graphSymbols,
 		},
 		rejected,
+		unsearched,
 		ceiling: config.packTokens,
 		beforeCeiling,
 		approximateTokens: totalOf(parts),
@@ -384,13 +405,14 @@ interface Fitted<T> {
  * is too large. A Concept is dropped — the bundle holds others and
  * `walk_documentation` reaches the rest at no Budget — while a recollection
  * is shortened, because the Conversation has exactly one Turn that said the
- * thing and half of it is worth more than none of it.
+ * thing and half of it is worth more than none of it. A renderer that takes
+ * an allowance decides for itself what within it gives way.
  */
 function fit<T>(
 	candidates: T[],
 	countBudget: number,
 	tokenBudget: number,
-	render: (candidate: T) => HarnessMessage[],
+	render: (candidate: T, allowance?: number) => HarnessMessage[],
 	whenNothingFits: "drop" | "shorten" = "drop",
 ): Fitted<T> {
 	const budget = Math.max(tokenBudget, 0);
@@ -419,15 +441,24 @@ function fit<T>(
 	// has exactly one Turn that said the thing, and half of it is worth more
 	// than none of it. Concepts are dropped instead — the bundle holds others
 	// and `walk_documentation` reaches the rest at no Budget.
-	if (whenNothingFits === "shorten" && refused !== undefined) {
-		const result = shortenTurn(render(refused), budget - tokens);
+	// Below the shortest length worth carrying there is nothing to shorten
+	// to: a recollection reduced to a header and two markers costs Budget
+	// and says nothing, so it is excluded for size like any other candidate.
+	if (
+		whenNothingFits === "shorten" &&
+		refused !== undefined &&
+		budget - tokens >= SHORTEST_TOKENS
+	) {
+		const room = budget - tokens;
+		const rendered = render(refused, room);
+		const cost = approximateTokens(rendered);
 		// Only if it actually fits: a part that overran its own Budget would
 		// make every Budget a suggestion.
-		if (result.shortened && tokens + result.tokens <= budget) {
+		if (cost <= room) {
 			return {
 				kept: [...kept, refused],
-				messages: [...messages, ...result.messages],
-				tokens: tokens + result.tokens,
+				messages: [...messages, ...rendered],
+				tokens: tokens + cost,
 				excludedByCount: Math.max(candidates.length - allowed.length, 0),
 				excludedBySize: Math.max(excludedBySize - 1, 0),
 				shortened: true,
@@ -498,6 +529,47 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 	};
 }
 
+/**
+ * A Turn with its unanswered tool calls withheld.
+ *
+ * A provider rejects a Context Window carrying a call with no result, so a
+ * Turn the agent was interrupted mid-tool cannot be replayed as it stands.
+ * Only the call goes: the prompt, the prose, and every answered call with
+ * its result stay, and a message left with nothing but the withheld call
+ * goes with it rather than arriving empty.
+ *
+ * A Turn whose calls were all answered is returned as it came, by identity,
+ * so a tail assembled under this rule is the same object graph as one
+ * assembled without it.
+ */
+function paired(turn: Turn): Turn {
+	const answered = answeredCalls(turn.messages);
+	let withheld = false;
+
+	const messages: HarnessMessage[] = [];
+	for (const message of turn.messages) {
+		const content = message.content;
+		if (!Array.isArray(content)) {
+			messages.push(message);
+			continue;
+		}
+		const kept = content.filter(
+			(block) =>
+				!isToolCall(block) || answered.has(block.id),
+		);
+		if (kept.length === content.length) {
+			messages.push(message);
+			continue;
+		}
+		withheld = true;
+		// A message that carried nothing but the withheld call has nothing
+		// left to say; one that also carried text keeps the text.
+		if (kept.length > 0) messages.push({ ...message, content: kept });
+	}
+
+	return withheld ? { ...turn, messages } : turn;
+}
+
 function exclusion(
 	irrelevant: number,
 	fitted: { excludedByCount: number; excludedBySize: number },
@@ -566,18 +638,122 @@ function asCuratedKnowledge(hit: ConceptHit): HarnessMessage {
  * A recalled Turn enters the window as one attributed message, not as a
  * replayed exchange: the model must be able to tell what was said just now
  * from what is being remembered.
+ *
+ * It carries what the Turn did as well as what came back. A result with no
+ * call attached is an answer to a question nobody can see, and until this
+ * carried calls that is what a recalled tool-using Turn was: `messageText`
+ * returns text blocks only, so the call vanished and its output survived.
+ *
+ * `allowance` is the estimated tokens the recollection may cost. Over it,
+ * the outputs are shortened and the actions are not: the action is the
+ * short, irreplaceable half.
  */
-function asRecollection(recalled: RecalledTurn): HarnessMessage {
-	const transcript = recalled.turn.messages
-		.map((message) => `${message.role}: ${messageText(message)}`)
-		.filter((line) => line.trim().length > line.indexOf(":") + 1)
-		.join("\n");
+function asRecollection(
+	recalled: RecalledTurn,
+	allowance = Number.POSITIVE_INFINITY,
+): HarnessMessage {
+	const header = `[recalled from turn ${recalled.turnIndex} of this conversation]`;
+	const lines = recollectionLines(recalled.turn.messages);
+	const whole = recollection(header, lines.map((line) => line.text));
+	if (approximateTokens([whole]) <= allowance) return whole;
 
+	// What the outputs may spend together: the allowance, less everything
+	// that is not an output and may not be shortened. Sized by construction
+	// then checked, because JSON escaping makes the estimate of the
+	// shortened message a non-linear function of the characters kept.
+	const fixed = lines
+		.filter((line) => !line.output)
+		.reduce((total, line) => total + line.text.length + 1, header.length);
+	const outputs = lines.filter((line) => line.output);
+	let room = Math.max(allowance * 4 - fixed, 0);
+
+	let best = whole;
+	while (room >= 0) {
+		const allocation = shares(
+			outputs.map((line) => line.text.length),
+			room,
+		);
+		let at = 0;
+		const shortened = lines.map((line) => {
+			if (!line.output) return line.text;
+			const allowed = allocation[at++] ?? 0;
+			return shortenLine(line.text, allowed);
+		});
+		best = { ...recollection(header, shortened), cmShortened: true };
+		if (approximateTokens([best]) <= allowance || room === 0) break;
+		room = Math.floor(room * 0.9) - 1;
+		if (room < 0) room = 0;
+	}
+	return best;
+}
+
+/** One line of a recollection, and whether shortening may touch it. */
+interface RecollectionLine {
+	text: string;
+	/** True for what an action returned, which is what gives way first. */
+	output: boolean;
+}
+
+function recollection(header: string, lines: string[]): HarnessMessage {
 	return {
 		role: "user",
-		content: `[recalled from turn ${recalled.turnIndex} of this conversation]\n${transcript}`,
+		content: `${header}\n${lines.filter((line) => line !== "").join("\n")}`,
 		cmRecalled: true,
 	};
+}
+
+/** A recalled Turn as attributed lines: who said it, or what was called. */
+function recollectionLines(messages: HarnessMessage[]): RecollectionLine[] {
+	const answered = answeredCalls(messages);
+	const lines: RecollectionLine[] = [];
+
+	for (const message of messages) {
+		const text = messageText(message).trim();
+		if (text !== "") {
+			lines.push({
+				text: `${message.role}: ${text}`,
+				output: message.role === "toolResult",
+			});
+		}
+
+		const content = message.content;
+		if (!Array.isArray(content)) continue;
+		for (const block of content) {
+			if (!isToolCall(block)) continue;
+			const call = block;
+			// A call nothing answered is history worth having: this is text,
+			// not protocol, so it is labelled rather than withheld the way
+			// the verbatim tail must withhold it.
+			const unanswered = answered.has(call.id) ? "" : " — no result recorded";
+			lines.push({
+				text: `${message.role}: ${renderCall(call)}${unanswered}`,
+				output: false,
+			});
+		}
+	}
+	return lines;
+}
+
+/** The calls of a Turn that a result in the same Turn answered. */
+function answeredCalls(messages: HarnessMessage[]): Set<string> {
+	const answered = new Set<string>();
+	for (const message of messages) {
+		if (message.role !== "toolResult") continue;
+		if (typeof message.toolCallId === "string") answered.add(message.toolCallId);
+	}
+	return answered;
+}
+
+/** One output line, head and tail, within the characters it may spend. */
+function shortenLine(text: string, allowed: number): string {
+	if (text.length <= allowed) return text;
+	const half = Math.floor((allowed - ELISION(0, false).length) / 2);
+	if (half < SHORTEST_HALF_CHARACTERS / 2) {
+		// No room for a head and a tail worth reading: the line says only
+		// that it had output and how much of it went.
+		return ELIDED_WHOLE(Math.ceil(text.length / 4));
+	}
+	return elide(text, half, Math.ceil((text.length - half * 2) / 4), false);
 }
 
 /**
@@ -621,17 +797,6 @@ function serialized(message: HarnessMessage): string {
 	}
 	return JSON.stringify(sent);
 }
-
-/**
- * Marks the gap a shortened message leaves, in the message's own text.
- *
- * `details` is named separately when the shortening dropped it, because a
- * marker that counted only the text would understate what went: on a real
- * tool result the harness's `details` can rival the content it summarises.
- */
-const ELISION = (tokens: number, withoutDetails: boolean) =>
-	`\n… [context-manager elided ~${tokens} tokens from the middle of this` +
-	`${withoutDetails ? " result, and its tool metadata" : " result"}]\n`;
 
 /**
  * The fewest estimated tokens worth carrying of a shortened message: below
@@ -680,7 +845,7 @@ function shorten(message: HarnessMessage, allowance: number): Shortened {
 	const cost = approximateTokens([message]);
 	if (cost <= allowance) return { message, tokens: cost, shortened: false };
 
-	if (message.role === "toolResult" || message.cmRecalled === true) {
+	if (message.role === "toolResult") {
 		return shortenText(message, allowance, cost);
 	}
 	if (message.role === "assistant") return shortenPayloads(message, allowance);
@@ -755,7 +920,7 @@ function shortenPayloads(
 	const others = cost - payloadCost(blocks);
 	// What the payloads may take together, shared evenly among them so one
 	// enormous call cannot starve the rest.
-	const calls = blocks.filter((block) => block.type === "toolCall").length;
+	const calls = blocks.filter(isToolCall).length;
 	if (calls === 0) return { message, tokens: cost, shortened: false };
 	const each = Math.max(
 		Math.floor((allowance - others) / calls),
@@ -764,8 +929,8 @@ function shortenPayloads(
 
 	let shortened = false;
 	const kept = blocks.map((block) => {
-		if (block.type !== "toolCall") return block;
-		const call = block as ToolCallBlock;
+		if (!isToolCall(block)) return block;
+		const call = block;
 		const passed = JSON.stringify(call.arguments ?? null);
 		if (Math.ceil(passed.length / 4) <= each) return block;
 		const half = Math.max(
@@ -786,34 +951,20 @@ function shortenPayloads(
 function payloadCost(blocks: ContentBlock[]): number {
 	let characters = 0;
 	for (const block of blocks) {
-		if (block.type !== "toolCall") continue;
-		characters += JSON.stringify((block as ToolCallBlock).arguments ?? null).length;
+		if (!isToolCall(block)) continue;
+		characters += JSON.stringify(block.arguments ?? null).length;
 	}
 	return Math.ceil(characters / 4);
-}
-
-/** Head, marker, tail — the shape every shortened payload takes. */
-function elide(
-	text: string,
-	half: number,
-	removed: number,
-	withoutDetails: boolean,
-): string {
-	return (
-		`${text.slice(0, half)}` +
-		`${ELISION(removed, withoutDetails)}` +
-		`${text.slice(-half)}`
-	);
 }
 
 /**
  * Shortens a Turn's messages until they fit an allowance, oldest payload
  * first: the newest result is the one the Turn is still acting on.
  *
- * Every message carrying a payload is a candidate — tool results,
- * recollections, and the arguments of assistant tool calls — because on a
- * real working Turn the write calls are most of the bytes. `shorten` decides
- * what within a message may go; this decides the order they are asked.
+ * Every message carrying a payload is a candidate — tool results and the
+ * arguments of assistant tool calls — because on a real working Turn the
+ * write calls are most of the bytes. `shorten` decides what within a
+ * message may go; this decides the order they are asked.
  */
 function shortenTurn(
 	messages: HarnessMessage[],
@@ -828,9 +979,7 @@ function shortenTurn(
 		.map((message, index) => ({ message, index }))
 		.filter(
 			({ message }) =>
-				message.role === "toolResult" ||
-				message.role === "assistant" ||
-				message.cmRecalled === true,
+				message.role === "toolResult" || message.role === "assistant",
 		);
 
 	for (const { index } of shortenable) {

@@ -137,10 +137,10 @@ A stored vector SHALL cease to be valid when the Turn's content changes, and whe
 
 The system SHALL derive a recall query's vector in the form the embedding model expects of a query, and SHALL NOT apply that derivation to the Turns it stores, so that a change to how queries are formed never invalidates a stored vector. The relevance minimum SHALL be the minimum measured under the query derivation in use.
 
-#### Scenario: A derived query is no further from its turn
+#### Scenario: A derived query keeps its turn and refuses unrelated content
 
-- **WHEN** the same prompt is used for recall with and without the query derivation
-- **THEN** the distance to the Turn that genuinely answers it SHALL be no greater with the derivation than without it
+- **WHEN** a prompt is derived as a query and scored against the Turn that genuinely answers it and against unrelated content
+- **THEN** the answering Turn SHALL fall within the relevance minimum and the unrelated content SHALL fall outside it
 
 #### Scenario: Stored turns are unaffected by how queries are formed
 

@@ -64,3 +64,27 @@ export function messageText(message: HarnessMessage): string {
 	}
 	return parts.join("\n");
 }
+
+/**
+ * Whether a content block is a tool call, narrowing it to one.
+ *
+ * A guard rather than a cast at each use: `ContentBlock` admits blocks this
+ * project does not know, so `type === "toolCall"` alone narrows to "a
+ * toolCall or something unknown that says it is one".
+ */
+export function isToolCall(block: ContentBlock): block is ToolCallBlock {
+	return block.type === "toolCall" && "name" in block;
+}
+
+/**
+ * How a tool call reads as text: the name it was made with and the arguments
+ * it carried.
+ *
+ * One rendering, because two places need a call to read the same way — the
+ * text a Turn is embedded as, and the recollection an agent reads. A call
+ * rendered one way in the vector and another in the Pack would be findable
+ * by words it is never shown with.
+ */
+export function renderCall(call: ToolCallBlock): string {
+	return `${call.name}(${JSON.stringify(call.arguments ?? {})})`;
+}

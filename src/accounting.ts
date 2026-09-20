@@ -31,6 +31,11 @@ export interface CallAccounting extends CallAddress {
 	budgets?: { tail: number; recall: number; docs: number; graph?: number };
 	/** Candidates refused as not relevant enough, even when none survived. */
 	rejected?: number;
+	/**
+	 * Turns of the Conversation retrieval could not see, for want of a valid
+	 * vector. Absent on records written before it was recorded.
+	 */
+	unsearched?: number;
 	/** The Pack ceiling in force for this Call. Absent on older records. */
 	ceiling?: number;
 	/**
@@ -210,6 +215,7 @@ export class MemoryAccounting implements AccountingStore {
 		call.tailSource = tailSource;
 		call.budgets = pack.budgets;
 		call.rejected = pack.rejected;
+		call.unsearched = pack.unsearched;
 		call.ceiling = pack.ceiling;
 		call.beforeCeiling = pack.beforeCeiling;
 	}

@@ -63,6 +63,12 @@ export interface CallView {
 	 * part to carry it.
 	 */
 	rejected: number;
+	/**
+	 * Turns of the Conversation retrieval could not see, for want of a valid
+	 * vector. A recall thinned by re-embedding reads differently from one
+	 * where nothing was relevant.
+	 */
+	unsearched: number;
 	/** The Pack ceiling in force. Absent on records that predate it. */
 	ceiling?: number;
 	/** What the parts came to before the ceiling reduced them. */
@@ -129,6 +135,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		tailSource: call.tailSource,
 		budgets: call.budgets,
 		rejected: call.rejected ?? 0,
+		unsearched: call.unsearched ?? 0,
 		ceiling: call.ceiling,
 		beforeCeiling: call.beforeCeiling,
 		// Reduced, not merely ceilinged: both figures exist on every recent

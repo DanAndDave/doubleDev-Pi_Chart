@@ -53,6 +53,7 @@ import {
 	type TurnRecall,
 	type TurnSink,
 	type TurnSource,
+	type VectorModels,
 } from "./thread-store.ts";
 import { reconstructTurns } from "./turns.ts";
 
@@ -64,6 +65,12 @@ export interface Dependencies {
 	recall?: TurnRecall;
 	/** Embeds newly ingested Turns. Runs after a Turn, never before one. */
 	embed?: (conversationId: string) => Promise<unknown>;
+	/**
+	 * Which model produced the store's vectors. Asked once a session, so a
+	 * model swap is reported in the session that caused it rather than
+	 * inferred later from thin recall.
+	 */
+	vectorModels?: () => Promise<VectorModels>;
 	/** Releases whatever the session held open. */
 	close?: () => Promise<void> | void;
 	/** Shows text to the person running the session. */
@@ -128,6 +135,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const sweeping = new Map<string, Promise<void>>();
 	/** The Conversation the command inspects: whichever one is running. */
 	let lastConversation = UNKNOWN_CONVERSATION;
+	/** Said once a session: a model swap is a condition, not a per-Turn event. */
+	let swapReported = false;
 	/** Conversations already told their packs are approaching the ceiling. */
 	const warnedNearCeiling = new Set<string>();
 
@@ -312,6 +321,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					turns: current ? [...tail, current] : tail,
 					recalled: recalled.turns,
 					rejected: recalled.rejected,
+					unsearched: recalled.unsearched,
 					concepts,
 					structure,
 				},
@@ -389,11 +399,41 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			deps.report(`Ingest failed: ${describe(error)}`);
 			return;
 		}
+		reportModelSwap();
 		try {
 			await deps.embed?.(conversationId);
 		} catch (error) {
 			deps.report(`Embedding failed: ${describe(error)}`);
 		}
+	}
+
+	/**
+	 * Says so, once, when the store holds vectors from another model.
+	 *
+	 * Loud is reserved for the condition, not for each Turn it affects: the
+	 * Turns concerned are simply not recalled until the background pass has
+	 * re-embedded them, and a swap nobody is told about looks like recall
+	 * quietly getting worse.
+	 */
+	function reportModelSwap(): void {
+		const check = deps.vectorModels;
+		if (swapReported || !check) return;
+		swapReported = true;
+		inBackground(
+			"Embedding model check",
+			(async () => {
+				const { inUse, others } = await check();
+				if (others.length === 0) return;
+				const named = others
+					.map((each) => `${each.turns} from ${each.model}`)
+					.join(", ");
+				deps.report(
+					`Embedding model in use is ${inUse}, but the store holds vectors ` +
+						`${named}. Those turns are not recalled until the background ` +
+						`pass has re-embedded them.`,
+				);
+			})(),
+		);
 	}
 
 	/**
@@ -707,7 +747,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		conversationId: string,
 		current: Turn | undefined,
 	): Promise<Recollections> {
-		const none: Recollections = { turns: [], rejected: 0 };
+		const none: Recollections = { turns: [], rejected: 0, unsearched: 0 };
 		if (!deps.recall || !current || deps.config.recallTurns <= 0) return none;
 		try {
 			// Over-fetch: the Assembler drops what the verbatim tail already
@@ -933,6 +973,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		bundle: () => readBundle(config.docBundle),
 		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),
+		vectorModels: () => store.vectorModels(),
 		close: () => {
 			embedder.close();
 		},

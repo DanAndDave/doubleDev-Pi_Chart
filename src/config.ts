@@ -8,8 +8,10 @@ export interface Config {
 	recallTurns: number;
 	/**
 	 * How distant a Turn may be and still be worth recalling, as cosine
-	 * distance. Measured, not chosen: genuine hits land at 0.30-0.39 and
-	 * unrelated prompts at 0.51 and above on the pinned model.
+	 * distance. Measured, not chosen: under the query derivation and the
+	 * bounded embed text, a prompt asked in other words reaches its own Turn
+	 * within 0.52 on 92% of 99 real Turns here, and nothing off-topic comes
+	 * within it at all.
 	 */
 	recallMaxDistance: number;
 	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
@@ -63,7 +65,14 @@ export interface Config {
 
 export const DEFAULT_TAIL_TURNS = 8;
 export const DEFAULT_RECALL_TURNS = 4;
-export const DEFAULT_RECALL_MAX_DISTANCE = 0.5;
+/**
+ * The relevance minimum, re-measured under the query derivation and the
+ * bounded embed text (the old 0.50 was measured on a hand-written prompt and
+ * paraphrase). Of 99 real Turns, 0.52 keeps 91 asked in other words and
+ * admits none of an off-topic control; the bare prompt at the same distance
+ * keeps 95 but admits 8, which is what the derivation buys.
+ */
+export const DEFAULT_RECALL_MAX_DISTANCE = 0.52;
 export const DEFAULT_DOC_CONCEPTS = 2;
 export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;

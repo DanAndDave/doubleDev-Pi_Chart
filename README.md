@@ -61,7 +61,7 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | --- | --- | --- |
 | `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
 | `CM_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
-| `CM_RECALL_MAX_DISTANCE` | `0.5` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: genuine hits land at 0.30–0.39 and unrelated prompts at 0.51+ on the pinned model. |
+| `CM_RECALL_MAX_DISTANCE` | `0.52` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: over 99 real Turns, a prompt asked in other words reaches its own Turn within 0.52 in 92% of cases and no off-topic text comes within it at all. |
 | `CM_DATABASE_URL` | this project's compose default | Thread Store connection. An unreachable store degrades to the harness's own history. |
 | `CM_BUN` | found | The Bun that runs the embedding worker. Located automatically — including under version managers, whose shims fail outside a directory they know. Set it only to override. |
 | `CM_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
@@ -80,6 +80,10 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 ## Recall
 
 Ingested Turns are embedded with a pinned local model, so a decision made far outside the verbatim tail can still reach the model. A Turn is recalled only when it is similar enough to be worth carrying, so a Conversation with nothing relevant to say contributes nothing rather than its least-irrelevant Turns. Recalled Turns arrive as an attributed recollection — `[recalled from turn N of this conversation]` — under their own Budget, and can never displace the verbatim tail or the current prompt.
+
+A Turn is embedded as a **bounded representation of the whole Turn**: its prompt, what the agent said, each tool call with the arguments it was made with, and what those calls returned. The model reads 512 tokens and silently drops the rest, so the parts compete for a share of a character allowance rather than being concatenated and cut — of the 48 Turns here larger than that cut, 3 used to carry their own conclusion inside their vector and 47 now do, and none carried a tool call at all before. A recall query carries the model's query instruction; a stored Turn never does, so rewording the instruction cannot invalidate the corpus.
+
+A stored vector is valid only for the content and the model that produced it. A Turn whose text changes loses its vector and is re-embedded by the same background pass that embeds a new Turn; a vector produced by another embedding model is never ranked, counts as pending, and the condition is reported once naming both models. Recall over the current Conversation is exact rather than approximate — every Turn of it holding a valid vector is scored — so a growing corpus cannot quietly starve one Conversation's recall; `/pack` says when a recall could not see part of its Conversation because embedding has not caught up.
 
 The model runs **out of process**, under the project's own Bun. The harness's bundled runtime cannot load the model's native dependencies (`Could not load the "sharp" module`), so the worker is spawned on first use and reused for the session. Nothing leaves the machine and no API key is needed; the first run downloads the model and caches it.
 
