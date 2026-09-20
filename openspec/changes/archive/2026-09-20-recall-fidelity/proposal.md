@@ -32,10 +32,10 @@ Two silent corruptions sit underneath. `embedPending` selects `WHERE embedding I
 
 ## Impact
 
-- **Schema:** a text hash and an embedding-model column on `turns`, and a new definition for `turns_embedding_idx`.
+- **Schema:** a text hash and an embedding-model column on `turns`, and a partial b-tree on `(conversation_id)` where an embedding exists. `turns_embedding_idx` is left alone — task 1.1 settled the `[INFERENCE]` the other way than this proposal first assumed, and `design.md` records why: the Conversation-scoped path stops going through the approximate index at all rather than being tuned to behave.
 - **Migration:** every Turn re-embedded once — 373 Turns here, batched 32 against the embedder's 120 s budget (`src/embedder.ts:66`), off the request path.
 - **Assembly:** recollections grow: tool calls are text not carried before. Hence the block on `token-budgets` — the clamp must exist first.
-- **Performance:** one hash per Turn per ingest; a raised `ef_search` costs more per recall Call.
+- **Performance:** one hash per Turn per ingest. No `hnsw.ef_search` or `hnsw.iterative_scan` is set, because nothing needs them once the Conversation-scoped read is exact.
 - **Configuration:** `CM_EMBED_MODEL` becomes a recorded choice, not a silent one. Documenting it stays with `audit-docs-debt`.
-- **Triage:** the audit marks the ANN plan choice `[INFERENCE]`; `EXPLAIN` against a seeded corpus settles it, which an agent can run — hence `ready-for-agent`.
+- **Triage:** the audit marked the ANN plan choice `[INFERENCE]`; task 1.1 settled it with `EXPLAIN` against a seeded corpus, and the change sidesteps the approximate path rather than asserting a plan for it.
 - **Unblocks:** `store-hygiene`. Completes the recall half of the defect the audit pairs with pack size.

@@ -23,10 +23,11 @@
 
 ## 4. Elision in its own module
 
-- [ ] 4.1 Move the elision family to `src/elision.ts`, exporting `elide(message, allowance)` and `elideTurn(messages, allowance)` and keeping the rest private
+- [ ] 4.0 `src/elision.ts` now exists: `recall-fidelity` created it to share the marker between the Assembler and the embed text, exporting `ELISION`, `ELIDED_WHOLE` and `elide(text, half, removed, withoutDetails): string`. This group is therefore a rename and a merge, not a move — reconcile the two contracts and verify the embed text's caller still marks a gap identically
+- [ ] 4.1 Move the rest of the elision family into it, exporting `elide(message, allowance)` and `elideTurn(messages, allowance)` and keeping `shortenText`, `shortenPayloads`, `payloadCost` and both floors private, without breaking the text-level `elide` the embed text calls
 - [ ] 4.2 Verify `src/assembler.ts` no longer imports `ContentBlock` or `ToolCallBlock`
 - [ ] 4.3 Move the shortening tests to `test/elision.test.ts` with their assertions untouched, and verify none needed editing to pass
-- [ ] 4.4 Verify the baseline is unchanged
+- [ ] 4.4 Verify the baseline is unchanged, embed text included — `embedFingerprint` is derived from the composed text, so a marker that shifts by one character re-embeds the whole corpus
 
 ## 5. Verification
 
