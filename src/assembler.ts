@@ -657,27 +657,49 @@ function asRecollection(
 	const whole = recollection(header, lines.map((line) => line.text));
 	if (approximateTokens([whole]) <= allowance) return whole;
 
-	// What the outputs may spend together: the allowance, less everything
-	// that is not an output and may not be shortened. Sized by construction
-	// then checked, because JSON escaping makes the estimate of the
-	// shortened message a non-linear function of the characters kept.
+	// Outputs give way first: what an action returned is the bulk, and the
+	// prose around it is what says why the Turn did anything.
+	const outputsOnly = fitRecollection(header, lines, allowance, (line) => line.output);
+	if (approximateTokens([outputsOnly]) <= allowance) return outputsOnly;
+
+	// Outputs alone could not get it under — a Turn whose bulk is the agent's
+	// own prose — so the prose gives way too. Shortened and marked beats
+	// dropped: the Conversation has exactly one Turn that said the thing, and
+	// `context-assembly` requires it carried rather than lost.
+	return fitRecollection(header, lines, allowance, () => true);
+}
+
+/**
+ * Renders a recollection whose shortenable lines are shrunk until the whole
+ * fits its allowance.
+ *
+ * Sized by construction then checked, because JSON escaping makes the
+ * estimate of the shortened message a non-linear function of the characters
+ * kept. `shortenable` decides which lines may give way; what it excludes is
+ * charged as fixed cost.
+ */
+function fitRecollection(
+	header: string,
+	lines: RecollectionLine[],
+	allowance: number,
+	shortenable: (line: RecollectionLine) => boolean,
+): HarnessMessage {
 	const fixed = lines
-		.filter((line) => !line.output)
+		.filter((line) => !shortenable(line))
 		.reduce((total, line) => total + line.text.length + 1, header.length);
-	const outputs = lines.filter((line) => line.output);
+	const giving = lines.filter(shortenable);
 	let room = Math.max(allowance * 4 - fixed, 0);
 
-	let best = whole;
+	let best = recollection(header, lines.map((line) => line.text));
 	while (room >= 0) {
 		const allocation = shares(
-			outputs.map((line) => line.text.length),
+			giving.map((line) => line.text.length),
 			room,
 		);
 		let at = 0;
 		const shortened = lines.map((line) => {
-			if (!line.output) return line.text;
-			const allowed = allocation[at++] ?? 0;
-			return shortenLine(line.text, allowed);
+			if (!shortenable(line)) return line.text;
+			return shortenLine(line.text, allocation[at++] ?? 0);
 		});
 		best = { ...recollection(header, shortened), cmShortened: true };
 		if (approximateTokens([best]) <= allowance || room === 0) break;
@@ -827,19 +849,24 @@ interface ShortenedMessages {
 }
 
 /**
- * Shortens one message to a token allowance, keeping the head and the tail of
- * whatever payload it carries. Head-only would be the wrong half: the end of
- * a tool result is where the error, the total, or the last hunk is.
+ * Shortens one message of the verbatim tail or the current Turn to a token
+ * allowance, keeping the head and the tail of whatever payload it carries.
+ * Head-only would be the wrong half: the end of a tool result is where the
+ * error, the total, or the last hunk is.
  *
- * What counts as payload: a tool result's text, a recollection's transcript,
- * and the arguments of an assistant's tool calls. That last one is measured,
- * not assumed — on the audited Conversation 84% of the largest Turn is the
- * file contents an assistant passed to `write`, so a rule that spared every
- * assistant message would leave the tail Budget unenforceable.
+ * What counts as payload here: a tool result's text, and the arguments of an
+ * assistant's tool calls. That last one is measured, not assumed — on the
+ * audited Conversation 84% of the largest Turn is the file contents an
+ * assistant passed to `write`, so a rule that spared every assistant message
+ * would leave the tail Budget unenforceable.
  *
  * What is never shortened: a user prompt, and an assistant's own text. Those
  * are the reasoning a pack exists to carry, and a shortened instruction is a
  * corrupted one.
+ *
+ * A recollection is shortened by `asRecollection`, not here. It is rendered
+ * line by line from its Turn, so it gives way by line — outputs first, then
+ * prose — which this function cannot express.
  */
 function shorten(message: HarnessMessage, allowance: number): Shortened {
 	const cost = approximateTokens([message]);

@@ -91,7 +91,7 @@ describe("what a turn is embedded as", () => {
 		expect(once).toContain('read({"path":"defaults.ts"})');
 	});
 
-	test("a budget too small to seat everything keeps the prompt and the conclusion", () => {
+	test("an allowance too small to seat everything keeps the prompt and the conclusion", () => {
 		const messages: HarnessMessage[] = [
 			{ role: "user", content: "which port does the store listen on" },
 			result("a".repeat(5_000), "c1"),

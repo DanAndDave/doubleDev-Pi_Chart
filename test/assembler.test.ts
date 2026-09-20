@@ -589,6 +589,42 @@ describe("shortening", () => {
 		expect(text).toContain("elided");
 		expect(pack.approximateTokens).toBeLessThanOrEqual(600);
 	});
+
+	test("a recollection whose bulk is prose is shortened rather than dropped", () => {
+		// The fixture above is tool-result heavy, so it passes even when only
+		// outputs may give way. This Turn's bulk is the agent's own prose: if
+		// prose cannot give way the recollection never fits and `fit` drops
+		// it, which `context-assembly` forbids.
+		const reasoning = "because ".repeat(3000);
+		const pack = assemble(
+			{
+				turns: [turnOf(9)],
+				recalled: [
+					{
+						turnIndex: 4,
+						turn: {
+							index: 4,
+							prompt: "why did that work",
+							messages: [
+								{ role: "user", content: "why did that work" },
+								{ role: "assistant", content: reasoning },
+							],
+						},
+					},
+				],
+			},
+			budgets({ recallTurns: 1, recallTokens: 400 }),
+		);
+		const part = pack.parts.find((each) => each.source === "recalled");
+		const text = messageText(part?.messages[0] ?? { role: "user" });
+
+		expect(part?.carried).toBe(1);
+		expect(part?.turnIndices).toEqual([4]);
+		expect(part?.shortened).toBe(true);
+		expect(text).toContain("[recalled from turn 4 of this conversation]");
+		expect(text).toContain("elided");
+		expect(part?.approximateTokens).toBeLessThanOrEqual(400);
+	});
 });
 
 describe("a budget below what must be carried", () => {

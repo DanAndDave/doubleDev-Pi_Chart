@@ -84,19 +84,36 @@ export function embedText(
 	const parts = contributions(messages);
 	if (parts.length === 0) return "";
 
-	// Who gets a seat, when there are more contributions than the allowance
-	// can give a readable share to: by kind, then by recency, because a
-	// Turn's last actions and last words are what it arrived at.
-	const seats = Math.max(Math.floor(characters / SHORTEST_SHARE), 1);
-	const seated = parts
+	// Who gets a seat: by kind, then by recency, because a Turn's last
+	// actions and last words are what it arrived at. A contribution is
+	// seated while the allowance can still give every seated one a readable
+	// share — its own length if that is small, `SHORTEST_SHARE` if it will
+	// have to be elided.
+	//
+	// Counted rather than capped at `characters / SHORTEST_SHARE`: that cap
+	// discarded contributions while the allowance sat almost untouched,
+	// because eight short messages need eight short shares, not eight
+	// floors. The thread-store delta requires every other message of a Turn
+	// to contribute when the representation can carry them.
+	const ordered = parts
 		.map((part, order) => ({ part, order }))
 		.sort(
 			(a, b) =>
 				a.part.rank - b.part.rank ||
 				b.part.at - a.part.at ||
 				a.order - b.order,
-		)
-		.slice(0, seats)
+		);
+
+	const admitted: { part: Contribution; order: number }[] = [];
+	let needed = 0;
+	for (const candidate of ordered) {
+		const claim = Math.min(candidate.part.text.length, SHORTEST_SHARE);
+		if (admitted.length > 0 && needed + claim > characters) break;
+		needed += claim;
+		admitted.push(candidate);
+	}
+
+	const seated = admitted
 		.sort((a, b) => a.order - b.order)
 		.map((each) => each.part);
 
