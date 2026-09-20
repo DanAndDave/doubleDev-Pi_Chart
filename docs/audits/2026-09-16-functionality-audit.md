@@ -171,8 +171,8 @@ Every finding above is tracked as an OpenSpec change folder under `openspec/chan
 | # | Change | Owns | Blocked by |
 | --- | --- | --- | --- |
 | 1 | `token-budgets` — **shipped**, archived `2026-09-17` | Token Budget per part, Pack ceiling and its reduction order, head-and-tail elision, exclusion reasons in Accounting, whole-message estimate, the report when a Pack nears its ceiling. | — |
-| 2 | `recall-fidelity` | Tool calls rendered in recollections, bounded embed text, query-side instruction prefix, content hash, per-vector model provenance, orphaned tool calls, Conversation-honest ANN. | — |
-| 3 | `store-hygiene` | Codebase set once, incremental batched ingest, `turns.ingested_at` and retention, per-Store deadlines, `runProcess` timeout, the Journal miss, `CM_PG_PORT` in code, the Concept candidate-set tiebreak, and the connection pool that is never closed. | `recall-fidelity` |
+| 2 | `recall-fidelity` — **shipped**, archived `2026-09-20` | Tool calls rendered in recollections, bounded per-message embed text, query-side instruction prefix, content hash and per-vector model provenance, orphaned tool calls refused by the tail, and an exact Conversation-scoped recall. | — |
+| 3 | `store-hygiene` | Codebase set once, incremental batched ingest, `turns.ingested_at` and retention, per-Store deadlines, `runProcess` timeout, the Journal miss, `CM_PG_PORT` in code, the Concept candidate-set tiebreak, and the connection pool that is never closed. | — |
 | 4 | `doc-authoring` | A write surface for Concepts at machine trust, in-Conversation reindex, section-level attribution, OKF `not:`/`sources:`/`description`, unreadable and unlisted Concepts. | — |
 | 5 | `structure-freshness` | Re-extraction across a Conversation with a stale caveat, Turn-wide symbol candidates, path matching, relation-ranked truncation, cached indexes, Graph Store off the Postgres branch. | — |
 | 6 | `pack-why` | Rejected-candidate ledger, Call addressing, irrelevance for every part, compaction awareness, estimate-versus-reported reconciliation. | — |

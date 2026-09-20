@@ -1,10 +1,10 @@
 ## Context
 
-This ticket is what makes the rest of the queue measurable. Every figure in `docs/audits/2026-09-16-functionality-audit.md` was derived by reading Journals with a throwaway script, because the inspector could answer none of them: the 526,302-token Turn, the 974,861-token eight-Turn tail, the 1.35–1.49× estimator bias, and the 8.6% reduction that justifies `token-budgets`. Those are questions about a Conversation's own Accounting, asked from outside it, because from inside it `/pack` answers `3 not relevant enough` (`src/report.ts:108-112`) and `dropped` is `candidates − carried` (`src/inspection.ts:151-152`).
+This ticket is what makes the rest of the queue measurable. Every figure in `docs/audits/2026-09-16-functionality-audit.md` was derived by reading Journals with a throwaway script, because the inspector could answer none of them: the 526,302-token Turn, the 974,861-token eight-Turn tail, the 1.35–1.49× estimator bias, and the 8.6% reduction that justifies `token-budgets`. Those are questions about a Conversation's own Accounting, asked from outside it, because from inside it `/pack` answers `3 not relevant enough` (`src/report.ts:108-122`) and `dropped` is `candidates − carried` (`src/inspection.ts:158-159`).
 
-`token-budgets` has since put names behind part of that. `recordPart` retains four distinct exclusion reasons — `irrelevant`, `count`, `size`, `ceiling` — plus `withoutCeiling`, `shortened` and `tokenBudget` (`src/accounting.ts:115-146`), and `renderCall` renders every one of them for every part, including a part with no count Budget (`src/report.ts:20-75`). So the *reasons* are already recorded and already read.
+`token-budgets` has since put names behind part of that. `recordPart` retains four distinct exclusion reasons — `irrelevant`, `count`, `size`, `ceiling` — plus `withoutCeiling`, `shortened` and `tokenBudget` (`src/accounting.ts:120-151`), and `renderCall` renders every one of them for every part, including a part with no count Budget (`src/report.ts:20-75`). So the *reasons* are already recorded and already read.
 
-What is still missing is identity. Every reason is a count: which Turn was refused, at what distance, against which threshold, is nowhere — `recordPart` has no field for it, so no reader can have one. Nor is anything addressable: `inspect` reads `calls[calls.length - 1]` and `[- 2]` (`src/extension.ts:689-695`) while `readAccounting` already returns every Call in order (`src/postgres-store.ts:548-555`). And the retrieval side still refuses silently — `searchConcepts` returns hits already filtered with no count of what it excluded, so `curated` has nothing to report even now that the renderer would print it.
+What is still missing is identity. Every reason is a count: which Turn was refused, at what distance, against which threshold, is nowhere — `recordPart` has no field for it, so no reader can have one. Nor is anything addressable: `inspect` reads `calls[calls.length - 1]` and `[- 2]` (`src/extension.ts:729-735`) while `readAccounting` already returns every Call in order (`src/postgres-store.ts:645-652`). And the retrieval side still refuses silently — `searchConcepts` returns hits already filtered with no count of what it excluded, so `curated` has nothing to report even now that the renderer would print it.
 
 This slice adds the identities, the addressing, and the retrieval-side counts. See `proposal.md` and the two delta specs.
 
@@ -28,7 +28,7 @@ This slice adds the identities, the addressing, and the retrieval-side counts. S
 
 ### The ledger keeps a bounded ranked head per part, not every candidate
 
-Each part records its nearest excluded candidates, distance ascending, the remainder surviving as a count per reason. Task 1 measures the bound before it is set: over the audit's Journals, at what rank does the Turn a user would actually ask about appear? The proposed default is 5 per part, which the over-fetch each Store already performs (`src/extension.ts:715-720,746-750,770-773`) makes cheap — a Call's whole candidate set is around twenty items.
+Each part records its nearest excluded candidates, distance ascending, the remainder surviving as a count per reason. Task 1 measures the bound before it is set: over the audit's Journals, at what rank does the Turn a user would actually ask about appear? The proposed default is 5 per part, which the over-fetch each Store already performs (`src/extension.ts:755-760,786-790,810-813`) makes cheap — a Call's whole candidate set is around twenty items.
 
 Retaining all of them loses twice: that detail rides in the `parts` JSONB read whole on every `/pack`, and diagnostic value falls monotonically with distance. Retaining only counts is the present failure.
 
@@ -38,7 +38,7 @@ Deliberately not retained: the text of any candidate not carried, any embedding,
 
 ### The ledger is written where Accounting already is
 
-`recordPack` runs through `inBackground`, off the request path (`src/extension.ts:333-336`), and the detail rides in the existing `parts` JSONB plus one Call-level field, which `decode` already tolerates absent (`src/postgres-store.ts:561-566`). No migration, no backfill, no latency where the model waits. A separate table would buy a migration and a join for a few hundred bytes. Calls already recorded stay unexplainable, and the delta says so: reporting "nothing excluded" for them is the same lie in a new place.
+`recordPack` runs through `inBackground`, off the request path (`src/extension.ts:343-346`), and the detail rides in the existing `parts` JSONB plus one Call-level field, which `decode` already tolerates absent (`src/postgres-store.ts:658-663`). No migration, no backfill, no latency where the model waits. A separate table would buy a migration and a join for a few hundred bytes. Calls already recorded stay unexplainable, and the delta says so: reporting "nothing excluded" for them is the same lie in a new place.
 
 ### A call is addressed absolutely, and a missing address is refused
 
@@ -46,15 +46,13 @@ An address is a Turn and optionally a Call within it; bare means the latest Call
 
 ### Retrieval hands over its near misses, mirroring `Recollections`
 
-`Recollections` already carries `{ turns, rejected }` (`src/thread-store.ts:52-57`). `searchConcepts` returns hits already filtered by distance and status, discarding the distance it computed (`src/postgres-store.ts:819-865`), so the curated part has no refusal count to report at all. It takes the same shape — hits, a refusal count, ranked near misses — with `ConceptHit` carrying its distance. The refusals come free: `nearest` already holds every candidate's distance before `best` filters at `distance <= maxDistance` (`:820-834`), so heading that set is one branch over the same rows. A second query would double the ANN cost where the model waits.
-
-Structure has no distance — `neighbourhoods` returns what the graph held for the symbols in play — so its exclusions are Budget-only and it reports *no relevance threshold* rather than zero refusals. A part that cannot refuse must not read like one that refused nothing.
+`Recollections` already carries `{ turns, rejected, unsearched }` (`src/thread-store.ts:53-64`) — `recall-fidelity` added the third, which is the shape this argues for: a count of what a Store could not reach, beside what it refused. `searchConcepts` returns hits already filtered by distance and status, discarding the distance it computed (`src/postgres-store.ts:925-971`), so the curated part has no refusal count to report at all. It takes the same shape — hits, a refusal count, ranked near misses — with `ConceptHit` carrying its distance. The refusals come free: `nearest` already holds every candidate's distance before `best` filters at `distance <= maxDistance` (`:926-940`), so heading that set is one branch over the same rows. A second query would double the ANN cost where the model waits.
 
 ### Compaction is detected from the reported epoch, recorded, and not acted on further
 
-`ContextSnapshot.compactionEpoch` arrives per Call (`src/messages.ts:22-26`) and `reconcile` already walks every snapshot in the branch (`src/extension.ts:783-794`), so detection is a comparison against the last epoch seen — no new source of truth. The one observed compaction is epoch 0→1 at 822,279 reported tokens.
+`ContextSnapshot.compactionEpoch` arrives per Call (`src/messages.ts:22-26`) and `reconcile` already walks every snapshot in the branch (`src/extension.ts:823-834`), so detection is a comparison against the last epoch seen — no new source of truth. The one observed compaction is epoch 0→1 at 822,279 reported tokens.
 
-The extension records it, reports it once, and stops. `addressOf` numbers Turns by counting `role === "user"` entries in the branch (`src/extension.ts:822-848`), so a compaction rewriting that branch renumbers the addresses this ticket depends on — but whether it does is `[INFERENCE]`, and task 7 reads that Journal. If the branch keeps its pre-compaction prompts, the record is a caveat; if not, re-deriving positions is its own change, because renumbering Accounting against an unread assumption would corrupt the only ordered record there is.
+The extension records it, reports it once, and stops. `addressOf` numbers Turns by counting `role === "user"` entries in the branch (`src/extension.ts:862-888`), so a compaction rewriting that branch renumbers the addresses this ticket depends on — but whether it does is `[INFERENCE]`, and task 7 reads that Journal. If the branch keeps its pre-compaction prompts, the record is a caveat; if not, re-deriving positions is its own change, because renumbering Accounting against an unread assumption would corrupt the only ordered record there is.
 
 ### The inspector renders estimate, reported and their ratio side by side
 

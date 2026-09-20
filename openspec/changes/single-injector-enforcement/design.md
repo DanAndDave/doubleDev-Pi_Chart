@@ -1,6 +1,6 @@
 ## Context
 
-`context-assembly` carries a `SHALL` with no code behind it: "no content originating from the harness's memory backend SHALL appear in any Context Pack". `session_start` asks the harness, remembers the answer and reports (`src/extension.ts:254-278`); the `context` handler then assembles identically whether `memoryOff` is `true`, `false` or `undefined` (`:281-338`). ADR-0003 is the reason the invariant exists — two systems injecting into one Context Window makes a bad Pack undiagnosable.
+`context-assembly` carries a `SHALL` with no code behind it: "no content originating from the harness's memory backend SHALL appear in any Context Pack". `session_start` asks the harness, remembers the answer and reports (`src/extension.ts:263-287`); the `context` handler then assembles identically whether `memoryOff` is `true`, `false` or `undefined` (`:290-348`). ADR-0003 is the reason the invariant exists — two systems injecting into one Context Window makes a bad Pack undiagnosable.
 
 `proposal.md` set out four options and recommended stripping memory-originated messages inside `assemble()`, on the open question of whether such messages are identifiable. **That question is now answered, and the answer removes the option.** Every backend injects into the system prompt, not the message array:
 
@@ -24,7 +24,7 @@ That also makes the requirement's present wording unfalsifiable in the wrong dir
 
 - Filtering memory content out of a Pack. There is nothing there to filter.
 - Refusing to assemble. See the decision below.
-- Reading, parsing or measuring the harness's memory content. Its size already shows up in `floorTokens`, which is recorded per Call (`src/accounting.ts:229-235`); this slice adds the state, not the payload.
+- Reading, parsing or measuring the harness's memory content. Its size already shows up in `floorTokens`, which is recorded per Call (`src/accounting.ts:235-241`); this slice adds the state, not the payload.
 - Disabling the backend on the user's behalf. `memory.backend` is the user's configuration file.
 
 ## Decisions
@@ -34,7 +34,7 @@ That also makes the requirement's present wording unfalsifiable in the wrong dir
 Two of the proposal's four options are now unavailable and one is wrong:
 
 - **Strip in `assemble()`** — impossible. The content is in the Floor. The evidence is above.
-- **Refuse to assemble when the backend is active** — available, and rejected. Returning `undefined` hands the Turn to the harness's own accumulating array (`src/extension.ts:339-349`), which is the unbounded Context Window this project exists to replace. Trading a diagnosable Window for an ungoverned one makes the failure worse, and it punishes the user for a setting in a file rather than fixing it. It is also unrecoverable from inside a Conversation.
+- **Refuse to assemble when the backend is active** — available, and rejected. Returning `undefined` hands the Turn to the harness's own accumulating array (`src/extension.ts:349-359`), which is the unbounded Context Window this project exists to replace. Trading a diagnosable Window for an ungoverned one makes the failure worse, and it punishes the user for a setting in a file rather than fixing it. It is also unrecoverable from inside a Conversation.
 - **Keep it advisory** — the current behaviour, and insufficient on its own: one stderr line at `session_start` is missable and leaves nothing behind.
 - **Rewrite the requirement to match what is enforceable, and make the detection durable** — chosen. The spec names the Window, the check stays at `session_start`, the report becomes unmissable, and the state is recorded per Call so the Conversation's Accounting answers "was this window contaminated" long after the line scrolled away.
 
@@ -42,13 +42,13 @@ This is a deliberate spec edit, not drift: the old sentence is kept as its own s
 
 ### Unknown is its own state, and is never rounded to off
 
-`memoryOff` is already tri-state (`src/extension.ts:258-260`): `true`, `false`, or `undefined` when the harness does not answer. The existing code reports the silent case explicitly, and that judgement holds — an invariant that cannot be checked is not a confirmed one.
+`memoryOff` is already tri-state (`src/extension.ts:267-269`): `true`, `false`, or `undefined` when the harness does not answer. The existing code reports the silent case explicitly, and that judgement holds — an invariant that cannot be checked is not a confirmed one.
 
 So the recorded state is three-valued too. Rounding unknown to off would make a harness without the status call indistinguishable from a verified-clean one; rounding it to active would make every such harness report contamination it may not have.
 
 ### The state rides the existing Accounting write, not a new path
 
-`recordPack` already runs through `inBackground` off the request path (`src/extension.ts:333-336`), and `call_accounting` already takes per-Call fields through the migration list (`src/postgres-store.ts:102-113`). One nullable column, written with the row that is already being written, costs nothing on the path the model waits for and is reversible on ADR-0002's terms — drop the database, re-ingest, lose only the state of Calls already gone.
+`recordPack` already runs through `inBackground` off the request path (`src/extension.ts:343-346`), and `call_accounting` already takes per-Call fields through the migration list (`src/postgres-store.ts:103-114`). One nullable column, written with the row that is already being written, costs nothing on the path the model waits for and is reversible on ADR-0002's terms — drop the database, re-ingest, lose only the state of Calls already gone.
 
 The alternative — a separate table, or a session-level record — loses the join that makes the question answerable: "which Calls were exposed" is a per-Call question because a Conversation can start with the backend active and be fixed mid-flight.
 
@@ -60,7 +60,7 @@ The check happens at `session_start` and the answer does not change within a Con
 
 ### Nothing is measured about the memory payload itself
 
-A tempting extra is to report how many tokens the backend's block costs. `floorTokens` already carries it — the Floor is measured per Call and reported (`src/accounting.ts:229-235`) — and attributing a slice of the Floor to a component the Assembler cannot see would require parsing the system prompt, which this project does not do and should not start doing.
+A tempting extra is to report how many tokens the backend's block costs. `floorTokens` already carries it — the Floor is measured per Call and reported (`src/accounting.ts:235-241`) — and attributing a slice of the Floor to a component the Assembler cannot see would require parsing the system prompt, which this project does not do and should not start doing.
 
 ## Risks / Trade-offs
 

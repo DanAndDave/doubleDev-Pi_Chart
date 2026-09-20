@@ -4,7 +4,7 @@ Triage: ready-for-agent
 
 ## Why
 
-The `context-assembly` spec promises that "no content originating from the harness's memory backend SHALL appear in any Context Pack" (`openspec/specs/context-assembly/spec.md:84-91`). Nothing in `src/` makes that true. `session_start` asks the harness, remembers the answer and reports it (`src/extension.ts:254-278`); the `context` handler then assembles identically whether `memoryOff` is `true`, `false` or `undefined` (`:224-274`). `/context-manager` prints it as a failed check (`src/install.ts:91-101`), still advisory — the first `partial` row of the audit's Spec conformance table.
+The `context-assembly` spec promises that "no content originating from the harness's memory backend SHALL appear in any Context Pack" (`openspec/specs/context-assembly/spec.md:84-91`). Nothing in `src/` makes that true. `session_start` asks the harness, remembers the answer and reports it (`src/extension.ts:263-287`); the `context` handler then assembles identically whether `memoryOff` is `true`, `false` or `undefined` (`:224-274`). `/context-manager` prints it as a failed check (`src/install.ts:91-101`), still advisory — the first `partial` row of the audit's Spec conformance table.
 
 So a user who ignores one stderr line runs a whole Conversation with two injectors. ADR-0003 is why the invariant exists: two systems injecting into one Context Window makes a bad Pack undiagnosable, and the setting is one key to reverse (`docs/adr/0003-deterministic-assembler.md:5`). Accounting attributes nothing to the contamination, so the diagnosis is gone afterwards too.
 
@@ -19,7 +19,7 @@ Two consequences. Stripping is impossible: there is nothing in the message array
 So, of the four options originally set out:
 
 - **Strip memory-originated messages** in `assemble()` — **unavailable**. Evidence above. This was the recommendation; it is withdrawn.
-- **Refuse to assemble** when the backend is active — available and **rejected**: returning `undefined` hands the Turn to the harness's accumulating array (`src/extension.ts:339-349`), trading a diagnosable Context Window for the ungoverned one this project exists to replace, unrecoverably from inside a Conversation.
+- **Refuse to assemble** when the backend is active — available and **rejected**: returning `undefined` hands the Turn to the harness's accumulating array (`src/extension.ts:349-359`), trading a diagnosable Context Window for the ungoverned one this project exists to replace, unrecoverably from inside a Conversation.
 - **Keep it advisory** — the current behaviour; one missable stderr line that leaves nothing behind.
 - **Rewrite the requirement to what is enforceable, and make the detection durable** — **chosen**. The invariant is named over the Context Window, the check stays at Conversation start, the report becomes unmissable, and the state is recorded per Call so a contaminated Conversation is identifiable long after the line scrolled past. The Pack-level assertion survives as its own scenario, because it is still true.
 

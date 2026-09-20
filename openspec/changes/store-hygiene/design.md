@@ -1,8 +1,8 @@
 ## Context
 
-The Thread Store works and is unguarded. Ingest is idempotent per row but not incremental: every sweep reads the whole Journal and drives one awaited statement per message, untransacted (`src/postgres-store.ts:262-301`, `src/extension.ts:732-734`) — 25,069 statements across sixteen Turns on the worst Journal here, 3,371 in the final sweep. That same `DO UPDATE` lets `EXCLUDED` win the Codebase (`:320`) while the caller always passes `process.cwd()` (`src/extension.ts:934`), so resuming from a subdirectory rewrites the provenance `cross-conversation-search` exists to report.
+The Thread Store works and is unguarded. Ingest is idempotent per row but not incremental: every sweep reads the whole Journal and drives one awaited statement per message, untransacted (`src/postgres-store.ts:303-357`, `src/extension.ts:772-774`) — 25,069 statements across sixteen Turns on the worst Journal here, 3,371 in the final sweep. That same `DO UPDATE` lets `EXCLUDED` win the Codebase (`:330`) while the caller always passes `process.cwd()` (`src/extension.ts:974`), so resuming from a subdirectory rewrites the provenance `cross-conversation-search` exists to report.
 
-Nothing else is bounded. No Store call on the `context` path carries a deadline (`src/extension.ts:296-308`); `runProcess` has no timeout and no kill (`src/process.ts:17-33`), and a promise nobody settles also suppresses its caller's failure report. An unfindable Journal returns silently (`src/extension.ts:727-735`) from a one-root glob (`src/journal.ts:87-96`). No migration gives `turns` a timestamp (`src/postgres-store.ts:50-175`), nothing deletes outside `pruneConcepts` and `truncate()`, and `CM_PG_PORT` is honoured by `compose.yaml:10` and read by nothing in `src/` (`src/config.ts:71-72,86-108`).
+Nothing else is bounded. No Store call on the `context` path carries a deadline (`src/extension.ts:305-317`); `runProcess` has no timeout and no kill (`src/process.ts:17-33`), and a promise nobody settles also suppresses its caller's failure report. An unfindable Journal returns silently (`src/extension.ts:767-775`) from a one-root glob (`src/journal.ts:87-96`). No migration gives `turns` a timestamp (`src/postgres-store.ts:51-215`), nothing deletes outside `pruneConcepts` and `truncate()`, and `CM_PG_PORT` is honoured by `compose.yaml:10` and read by nothing in `src/` (`src/config.ts:80-81,95-117`).
 
 Evidence: `docs/audits/2026-09-16-functionality-audit.md:121,131,133,143,145,157-159`. `token-budgets` has landed, so a Pack has a ceiling and Accounting records why a part carried less; this slice bounds the Stores that fill it. See `proposal.md` and the three delta specs.
 
@@ -54,13 +54,13 @@ Off by default because retention length is policy about someone else's history, 
 
 ### Deadlines live in the `context` handler's per-Store helpers
 
-`tailFor`, `recallFor`, `conceptsFor` and `structureFor` (`src/extension.ts:404,706,741,761`) each own one Store and each already catch and report. Each gains a deadline around its await and, on expiry, reports and returns the empty value it already returns when its Store refuses. `assemble()` cannot hold it — it is pure and is handed results, not promises — and deadlines inside each Store would implement the same race four times.
+`tailFor`, `recallFor`, `conceptsFor` and `structureFor` (`src/extension.ts:444,746,781,801`) each own one Store and each already catch and report. Each gains a deadline around its await and, on expiry, reports and returns the empty value it already returns when its Store refuses. `assemble()` cannot hold it — it is pure and is handed results, not promises — and deadlines inside each Store would implement the same race four times.
 
-Numbers, which task 1 confirms against this machine's store: **1,500 ms** for the tail, one indexed read ordered by Turn; **5,000 ms** each for recall, Concepts and structure, which embed a query or shell out. The three run in parallel (`:247-251`), so a Call waits at worst 6,500 ms against an unbounded wait today. The embedder's 120 s (`src/embedder.ts:66`) stops being reachable from the request path and stays on the off-path backfill.
+Numbers, which task 1 confirms against this machine's store: **1,500 ms** for the tail, one indexed read ordered by Turn; **5,000 ms** each for recall, Concepts and structure, which embed a query or shell out. The three run in parallel (`:247-251`), so a Call waits at worst 6,500 ms against an unbounded wait today. The embedder's 120 s (`src/embedder.ts:116`) stops being reachable from the request path and stays on the off-path backfill.
 
 ### `runProcess` takes a deadline, kills the child, and returns what it got
 
-A fourth positional `timeoutMs?` on `runProcess` and `RunCommand`. On expiry the child gets `SIGTERM`, then `SIGKILL` after a grace period, and the call returns `{ ok: false, output }` carrying the partial output and naming the timeout — `src/embedder.ts:66,83-86` exactly: a bounded wait that fails loudly instead of a promise nobody settles.
+A fourth positional `timeoutMs?` on `runProcess` and `RunCommand`. On expiry the child gets `SIGTERM`, then `SIGKILL` after a grace period, and the call returns `{ ok: false, output }` carrying the partial output and naming the timeout — `src/embedder.ts:116,181-184` exactly: a bounded wait that fails loudly instead of a promise nobody settles.
 
 Positional rather than an options object because `RunCommand` has three implementations and several test fakes (`src/graph-store.ts:60`, `src/install.ts:57`, `src/spec-store.ts:67`), and a fake ignoring a fourth argument keeps compiling. Partial output rather than none because "graphify printed this much and stopped" is the diagnosis. The deadline is the caller's, since the commands differ by two orders of magnitude: `graphify extract` 60 s, `openspec validate` 30 s, `docker compose up -d --wait` 120 s, `python3 -m venv` and `pip install` 300 s.
 
@@ -70,7 +70,7 @@ Positional rather than an options object because `RunCommand` has three implemen
 
 ### The Concept candidate set is totally ordered
 
-`, identity ASC` in the inner `nearest` CTE (`src/postgres-store.ts:819-826`), the tiebreak `similarTurns` already carries (`:399,406`). The outer ordering is total but can only order the candidates it was handed, and HNSW is approximate: the same prompt can pull a different Concept after a rebuild, the flicker ADR-0003 forbids. By identity rather than `concept_id`, so the tiebreak survives a `git mv` — what identity was assigned for.
+`, identity ASC` in the inner `nearest` CTE (`src/postgres-store.ts:925-932`), the tiebreak `similarTurns` already carries (`:496,406`). The outer ordering is total but can only order the candidates it was handed, and HNSW is approximate: the same prompt can pull a different Concept after a rebuild, the flicker ADR-0003 forbids. By identity rather than `concept_id`, so the tiebreak survives a `git mv` — what identity was assigned for.
 
 ### A journal miss is a report and a count
 
@@ -96,7 +96,7 @@ Final ingest or retention and resource cleanup need `try`/`finally` or equivalen
 | Requirement | Seam |
 | --- | --- |
 | The Journal is ingested into the store — Codebase set once | Store boundary (`CM_DATABASE_URL`): ingest, ingest again from a subdirectory, read the Codebase back. |
-| The Journal is ingested into the store — resume adds only what is new, and an unflushed final Turn is corrected | Store boundary with a counting `sql` tag passed to the constructor (`src/postgres-store.ts:226-229`): statements per second ingest against Turns added; then a truncated Turn re-ingested whole. |
+| The Journal is ingested into the store — resume adds only what is new, and an unflushed final Turn is corrected | Store boundary with a counting `sql` tag passed to the constructor (`src/postgres-store.ts:267-270`): statements per second ingest against Turns added; then a truncated Turn re-ingested whole. |
 | Every turn records when it was ingested | Store boundary: read the arrival time, re-ingest and assert it unchanged, a row with none reads absent. |
 | Retention bounds the store only when it is configured | Store boundary: backdated arrival times, retention on and off, Accounting read back after. |
 | A journal that cannot be found is reported | Extension boundary (`test/extension.test.ts`), stub reporter and a finder that finds nothing. |

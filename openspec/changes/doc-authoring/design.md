@@ -2,7 +2,7 @@
 
 The Doc Store reads. The only write anywhere in a bundle is `ensureIdentities` inserting one frontmatter line (`src/doc-store.ts:264-290`), and both archived proposals excluded authoring by name.
 
-The parts exist: conformance is checked (`src/concept.ts:88-91`), identity is written atomically (`:275-285`), the index is hash-keyed and incremental (`src/postgres-store.ts:705-731`). Missing are a write surface, an index pass narrow enough for mid-Turn, and honesty in three places — a section labelled as a Concept (`src/assembler.ts:556-563`), an unreadable Concept served as empty (`src/doc-store.ts:140`, `src/extension.ts:485-493`), a Concept hidden by a listing that omits it (`src/doc-store.ts:239-254`). See `proposal.md` and the deltas.
+The parts exist: conformance is checked (`src/concept.ts:88-91`), identity is written atomically (`:275-285`), the index is hash-keyed and incremental (`src/postgres-store.ts:811-837`). Missing are a write surface, an index pass narrow enough for mid-Turn, and honesty in three places — a section labelled as a Concept (`src/assembler.ts:628-635`), an unreadable Concept served as empty (`src/doc-store.ts:140`, `src/extension.ts:525-533`), a Concept hidden by a listing that omits it (`src/doc-store.ts:239-254`). See `proposal.md` and the deltas.
 
 ## Goals / Non-Goals
 
@@ -33,17 +33,17 @@ Exactly as `ensureIdentities` writes (`src/doc-store.ts:283-285`), for the reaso
 
 ### The single-Concept re-index is the existing incremental path, scoped
 
-`indexConcepts` already embeds only sections whose hash moved (`src/postgres-store.ts:728-731`). What it is not is scopable: `pruneConcepts` deletes every indexed identity absent from the map passed to it (`:782-788`), so handing it one Concept empties the corpus. The scoped entry point prunes within the given identity only, and is otherwise the same code. Rejected: re-passing the whole bundle per write — it embeds nothing extra but re-parses every file, growing with the corpus rather than the edit. Session start stays the full reconciler.
+`indexConcepts` already embeds only sections whose hash moved (`src/postgres-store.ts:834-837`). What it is not is scopable: `pruneConcepts` deletes every indexed identity absent from the map passed to it (`:888-894`), so handing it one Concept empties the corpus. The scoped entry point prunes within the given identity only, and is otherwise the same code. Rejected: re-passing the whole bundle per write — it embeds nothing extra but re-parses every file, growing with the corpus rather than the edit. Session start stays the full reconciler.
 
 ### `verified:` is refused, not discouraged
 
-Trust is derived from verifiers (`src/concept.ts:145-158`) and retrieval orders on it (`src/postgres-store.ts:849`). Rejected: allowing the key and telling the model not to use it. A convention held only in a tool description lapses the moment that description falls out of the window, and the failure is silent and permanent — a self-awarded human tier ranks a draft above a reviewed Concept forever. The refusal is explicit rather than a silent strip: an agent told nothing believes it recorded a review.
+Trust is derived from verifiers (`src/concept.ts:145-158`) and retrieval orders on it (`src/postgres-store.ts:955`). Rejected: allowing the key and telling the model not to use it. A convention held only in a tool description lapses the moment that description falls out of the window, and the failure is silent and permanent — a self-awarded human tier ranks a draft above a reviewed Concept forever. The refusal is explicit rather than a silent strip: an agent told nothing believes it recorded a review.
 
 The same hole sits one step along — revise a reviewed Concept and its review vouches for text no human read. So a verification older than the Concept's most recent machine-recorded change stops counting toward the tier. Derived, not destructive: the dated signature stays for whoever re-reviews. Rejected: deleting the review, and refusing the revision, which puts a human in front of every correction.
 
 ### Attribution names the part and points at the rest
 
-The curated header becomes the Concept, the part carried and how many parts exist — `[curated knowledge: metrics/gross-margin — section 2 of 4]` — plus the note that the whole Concept is readable through `walk_documentation` at no Budget. That pointer turns a fragment from a false answer into a lead. Section index is already stored (`src/postgres-store.ts:705-718`) and the count is a window count over those rows, so the schema is untouched.
+The curated header becomes the Concept, the part carried and how many parts exist — `[curated knowledge: metrics/gross-margin — section 2 of 4]` — plus the note that the whole Concept is readable through `walk_documentation` at no Budget. That pointer turns a fragment from a false answer into a lead. Section index is already stored (`src/postgres-store.ts:811-824`) and the count is a window count over those rows, so the schema is untouched.
 
 ### A Concept's summary joins the matched text, if measurement allows
 
@@ -55,7 +55,7 @@ The listing wins because its order and wording are the author's judgement about 
 
 ### Unreadable is reported by the surface that already knows
 
-`open` already returns the problem (`src/doc-store.ts:140`); the walk tool ignores it and renders the empty body (`src/extension.ts:485-493`). A rendering fix plus a broken-entry marker in a Level; the reader is unchanged.
+`open` already returns the problem (`src/doc-store.ts:140`); the walk tool ignores it and renders the empty body (`src/extension.ts:525-533`). A rendering fix plus a broken-entry marker in a Level; the reader is unchanged.
 
 ## Risks / Trade-offs
 
