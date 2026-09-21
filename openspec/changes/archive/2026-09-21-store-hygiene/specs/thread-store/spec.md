@@ -162,4 +162,3 @@ The system SHALL release every Store resource it constructs when the session end
 
 - **WHEN** extension dependencies are repeatedly started and shut down
 - **THEN** database connection use SHALL return to its pre-session baseline rather than accumulate across sessions
-[openspec/changes/store-hygiene/design.md#D870]
