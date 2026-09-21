@@ -517,3 +517,54 @@ describeModel("retrieval under the real model", () => {
 		300_000,
 	);
 });
+
+describeStore("a candidate set nothing can reorder", () => {
+	let store: PostgresStore;
+	let sql: SQL;
+
+	beforeAll(async () => {
+		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		await store.migrate();
+		sql = new SQL(databaseUrl ?? "");
+	});
+
+	afterAll(async () => {
+		await store?.close();
+		await sql?.end();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+	});
+
+	/**
+	 * More Concepts than the candidate set admits, all saying the same
+	 * thing: the candidate window then cuts through a run of ties, which is
+	 * where an approximate index decides for itself unless something else
+	 * does.
+	 */
+	const TIED = Array.from({ length: 60 }, (_, index) =>
+		concept(
+			`decisions/tied-${String(index).padStart(2, "0")}`,
+			`id-tied-${String(index).padStart(2, "0")}`,
+			"## Decision\n\nWe keep parsed configuration in memory rather than re-reading it.",
+			"type: Decision\ntitle: Caching parsed configuration",
+		),
+	);
+
+	test("the same query selects the same concepts, twice and after a rebuild", async () => {
+		await store.indexConcepts(TIED);
+
+		const first = await store.searchConcepts("caching parsed configuration", 4, 2);
+		const again = await store.searchConcepts("caching parsed configuration", 4, 2);
+		// The index is discarded and rebuilt from unchanged Concepts, which
+		// is what reshuffles an approximate graph.
+		await sql`REINDEX INDEX concept_sections_embedding_idx`;
+		const rebuilt = await store.searchConcepts("caching parsed configuration", 4, 2);
+
+		const ids = (hits: { conceptId: string }[]) => hits.map((hit) => hit.conceptId);
+		expect(ids(first)).toHaveLength(4);
+		expect(ids(again)).toEqual(ids(first));
+		expect(ids(rebuilt)).toEqual(ids(first));
+	});
+});

@@ -4,8 +4,6 @@
 
 The system SHALL ingest the harness's Journal into the Thread Store: each Turn's prompt, the agent's responses, every tool call with its result, and any artifact produced. Ingested content SHALL be addressed by Conversation, Turn, and Call, and SHALL record the Codebase the Conversation belongs to, so content found later can be attributed to where it came from.
 
-The extension also constructs a Postgres Store for every dependency set but its shutdown callback closes only the embedder, despite `PostgresStore.close()` existing. Repeated extension sessions therefore leave SQL pools alive until PostgreSQL refuses new clients; that is the observed reason the final store-backed token-budget check cannot currently obtain a connection.
-
 A Turn's Codebase SHALL be recorded when that Turn is first stored, and SHALL NOT be replaced by a later ingest, whatever Codebase that ingest runs from. A Turn happened in one place; resuming its Conversation elsewhere does not move it.
 
 A Turn answered in several Calls SHALL record which Call each piece of content belongs to, so a recollection can say where within a Turn it came from. Content whose Call cannot be established SHALL be addressed to the Turn's first Call rather than refused.
@@ -17,7 +15,6 @@ Ingesting a Conversation again SHALL add only what is new. The work an ingest pe
 - **WHEN** a Conversation containing a tool-using Turn has been ingested
 - **THEN** that Turn's prompt, response, tool call, and tool result SHALL each be retrievable, addressed to that Conversation and Turn
 
-- Every Store resource constructed for a session is released when that session ends, even if the final sweep fails.
 #### Scenario: A failed tool result is kept as it happened
 
 - **WHEN** a Turn contains a tool call that errored

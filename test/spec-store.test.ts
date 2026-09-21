@@ -191,6 +191,24 @@ describe("diagnosing content", () => {
 		expect(report.valid).toBeUndefined();
 		expect(report.detail).toContain("not found");
 	});
+
+	test("an openspec that hangs is bounded", async () => {
+		const bounds: (number | undefined)[] = [];
+		const specStore = new SpecStore({
+			run: async (_command, _args, _cwd, timeoutMs) => {
+				bounds.push(timeoutMs);
+				return { ok: true, output: "All items valid" };
+			},
+		});
+
+		await specStore.diagnose("/work/project");
+		await specStore.initialize("/work/project");
+
+		// Both commands, because either one hanging holds up a session
+		// start with nothing to say about why.
+		expect(bounds).toHaveLength(2);
+		for (const bound of bounds) expect(bound).toBeGreaterThan(0);
+	});
 });
 
 describe("initializing", () => {

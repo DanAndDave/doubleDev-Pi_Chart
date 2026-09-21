@@ -40,6 +40,15 @@ Ingest reads `max(turn_index)` for the Conversation and skips Turns below it, re
 
 The alternative is a content hash per Turn compared before writing. That is `recall-fidelity`'s column, it answers a different question — did this Turn's text change, for vector invalidation — and it still reads a hash per Turn. The high-water mark reads one number.
 
+Built, the highest Turn is reconsidered rather than re-written: the one read
+brings back its `text_hash` and its stored message count alongside its index,
+and a highest Turn matching both is skipped. Unconditionally re-writing it
+would break the delta's "Re-ingesting a conversation that has not grown does
+nothing" — a sweep over an unchanged Conversation would still write a Turn and
+all of its messages. Both fields, because the embed text is bounded: a message
+appended past that bound moves the count and leaves the hash alone. The read
+stays one statement, so the resumption argument above is unchanged.
+
 Each Turn is one transaction, its messages one multi-row insert. Per Turn rather than per sweep: an interrupted sweep then leaves whole Turns stored, which is what makes resuming cheap. That turns 3,371 statements into roughly two per new Turn.
 
 ### `turns.ingested_at` is nullable and is never backfilled

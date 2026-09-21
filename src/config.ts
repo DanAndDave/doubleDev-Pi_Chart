@@ -2,6 +2,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface Config {
+	/**
+	 * What the environment asked for and did not get, in words. Reported
+	 * once at session start: a setting silently ignored is a setting
+	 * someone believes is in force.
+	 */
+	problems: string[];
 	/** Completed Turns carried verbatim ahead of the current one. */
 	tailTurns: number;
 	/** How many recalled Turns a pack may carry. Zero disables recall. */
@@ -61,6 +67,24 @@ export interface Config {
 	 * a habit.
 	 */
 	packWarnShare: number;
+	/**
+	 * How long a Call may wait on each Store before its part is treated as
+	 * absent, in milliseconds. Measured, not chosen: against this machine's
+	 * 388-Turn store the tail's worst read was 47.9 ms and recall's 81.4 ms,
+	 * of which most is embedding the query. The tail's is lower because it
+	 * is one indexed read — anything slower is a Store in trouble rather
+	 * than a Store working.
+	 */
+	tailDeadlineMs: number;
+	recallDeadlineMs: number;
+	docDeadlineMs: number;
+	graphDeadlineMs: number;
+	/**
+	 * How old a Turn may be before retention retires it, in days. Unset
+	 * means retention never runs: how long the Store keeps a Turn is
+	 * their policy, not this project's default.
+	 */
+	retainDays?: number;
 }
 
 export const DEFAULT_TAIL_TURNS = 8;
@@ -76,9 +100,15 @@ export const DEFAULT_RECALL_MAX_DISTANCE = 0.52;
 export const DEFAULT_DOC_CONCEPTS = 2;
 export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
-/** What `compose.yaml` serves. Matching it is what makes setup one step. */
-export const DEFAULT_DATABASE_URL =
-	"postgres://context_manager:context_manager@localhost:55432/thread_store";
+/**
+ * What `compose.yaml` serves, on the port it was told to serve. `CM_PG_PORT`
+ * is honoured by the Compose file, so the extension has to dial the same
+ * port or setup's two halves disagree about which store exists.
+ */
+export const DEFAULT_PG_PORT = 55432;
+export function defaultDatabaseUrl(port: number = DEFAULT_PG_PORT): string {
+	return `postgres://context_manager:context_manager@localhost:${port}/thread_store`;
+}
 export const DEFAULT_TAIL_TOKENS = 25_000;
 export const DEFAULT_RECALL_TOKENS = 8_000;
 export const DEFAULT_DOC_TOKENS = 5_000;
@@ -91,9 +121,14 @@ export const DEFAULT_GRAPH_TOKENS = 3_000;
  */
 export const DEFAULT_PACK_TOKENS = 110_000;
 export const DEFAULT_PACK_WARN_SHARE = 0.75;
+/** Per-Store deadlines on the `context` path, in milliseconds. */
+export const DEFAULT_TAIL_DEADLINE_MS = 1_500;
+export const DEFAULT_RETRIEVAL_DEADLINE_MS = 5_000;
 
 export function loadConfig(env: Record<string, string | undefined>): Config {
+	const problems: string[] = [];
 	return {
+		problems,
 		tailTurns: count(env.CM_TAIL_TURNS, DEFAULT_TAIL_TURNS),
 		recallTurns: count(env.CM_RECALL_TURNS, DEFAULT_RECALL_TURNS),
 		recallMaxDistance: distance(
@@ -105,7 +140,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		graphExtract: env.CM_GRAPH === "on",
 		specsVerify: env.CM_SPECS !== "off",
 		docMaxDistance: distance(env.CM_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
-		databaseUrl: env.CM_DATABASE_URL ?? DEFAULT_DATABASE_URL,
+		databaseUrl:
+			env.CM_DATABASE_URL ??
+			defaultDatabaseUrl(count(env.CM_PG_PORT, DEFAULT_PG_PORT)),
 		docBundle:
 			env.CM_DOC_BUNDLE ?? join(homedir(), ".context-manager", "bundle"),
 		tailTokens: count(env.CM_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),
@@ -114,6 +151,17 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		graphTokens: count(env.CM_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
 		packTokens: count(env.CM_PACK_TOKENS, DEFAULT_PACK_TOKENS),
 		packWarnShare: share(env.CM_PACK_WARN_SHARE, DEFAULT_PACK_WARN_SHARE),
+		tailDeadlineMs: count(env.CM_TAIL_DEADLINE_MS, DEFAULT_TAIL_DEADLINE_MS),
+		recallDeadlineMs: count(
+			env.CM_RECALL_DEADLINE_MS,
+			DEFAULT_RETRIEVAL_DEADLINE_MS,
+		),
+		docDeadlineMs: count(env.CM_DOC_DEADLINE_MS, DEFAULT_RETRIEVAL_DEADLINE_MS),
+		graphDeadlineMs: count(
+			env.CM_GRAPH_DEADLINE_MS,
+			DEFAULT_RETRIEVAL_DEADLINE_MS,
+		),
+		retainDays: days(env.CM_RETAIN_DAYS, problems),
 	};
 }
 
@@ -189,4 +237,28 @@ function distance(raw: string | undefined, fallback: number): number {
 function count(raw: string | undefined, fallback: number): number {
 	const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+/**
+ * A retention age in days, or nothing.
+ *
+ * Unset means retention is off, which is the default and not a problem. A
+ * value that cannot be read is refused *and said aloud*: silently treating
+ * it as unset would leave someone believing their Store is being bounded,
+ * and silently treating it as a number would delete stored Turns on a typo.
+ */
+function days(
+	raw: string | undefined,
+	problems: string[],
+): number | undefined {
+	if (raw === undefined || raw.trim() === "") return undefined;
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== raw.trim()) {
+		problems.push(
+			`CM_RETAIN_DAYS is "${raw}", which is not a number of days above zero. ` +
+				`Retention stays off.`,
+		);
+		return undefined;
+	}
+	return parsed;
 }

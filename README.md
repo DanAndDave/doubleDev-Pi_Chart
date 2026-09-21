@@ -76,6 +76,11 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `CM_DOC_TOKENS` | `5000` | Size Budget for curated knowledge. A Concept too large for it is dropped rather than shortened — the bundle holds others, and `walk_documentation` reaches the rest at no Budget. |
 | `CM_GRAPH_TOKENS` | `3000` | Size Budget for structure. |
 | `CM_PACK_WARN_SHARE` | `0.75` | The share of the ceiling at which the extension says a Conversation's packs are creeping up. Reported once per Conversation; a pack that cannot be brought under the ceiling at all is reported every time. |
+| `CM_TAIL_DEADLINE_MS` | `1500` | How long a Call waits for the verbatim tail before assembling without it. The tail is one indexed read — 47.9 ms at worst against this machine's 388-Turn store — so anything slower is a Store in trouble. |
+| `CM_RECALL_DEADLINE_MS` | `5000` | How long a Call waits for recall. Its worst measured read is 81.4 ms, most of it embedding the query, and a fresh embedder adds 350 ms loading the model. |
+| `CM_DOC_DEADLINE_MS` | `5000` | How long a Call waits for curated knowledge. |
+| `CM_GRAPH_DEADLINE_MS` | `5000` | How long a Call waits for structure. |
+| `CM_RETAIN_DAYS` | unset | Retire Turns that entered the Store longer ago than this, with their messages. Unset means nothing is ever removed: how long the Store keeps a Turn is your policy. Turns stored before arrival times were recorded have no age and are never retired, and Accounting survives whatever goes. |
 
 ## Recall
 

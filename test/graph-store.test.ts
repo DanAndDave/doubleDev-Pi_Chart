@@ -12,6 +12,7 @@ const FIXTURE = readFileSync(
 interface Recorded {
 	command: string;
 	args: string[];
+	timeoutMs?: number;
 }
 
 /**
@@ -37,8 +38,8 @@ function store(options: {
 			options.changedAt ? options.changedAt() : extracted ? 1 : undefined,
 		read: async () => options.graph ?? FIXTURE,
 		makeDirectory: async () => {},
-		run: async (command, args): Promise<CommandResult> => {
-			ran.push({ command, args });
+		run: async (command, args, _cwd, timeoutMs): Promise<CommandResult> => {
+			ran.push({ command, args, timeoutMs });
 			const failing = options.fails;
 			if (failing && `${command} ${args.join(" ")}`.includes(failing)) {
 				return { ok: false, output: `${failing} exploded` };
@@ -186,6 +187,22 @@ describe("keeping a codebase's graph current", () => {
 		await expect(graphStore.refresh("/work/project")).rejects.toThrow(
 			/graphify extract failed for \/work\/project/,
 		);
+	});
+
+	test("every program it runs is bounded", async () => {
+		const { store: graphStore, ran } = store({});
+
+		await graphStore.refresh("/work/project");
+
+		// Installing, checking the version, extracting: a graphify that
+		// hangs on any of them would otherwise hang the session that asked
+		// for structure, and the deadline is the only thing that ends it.
+		expect(ran.map((each) => each.args[0])).toEqual([
+			"-m",
+			"install",
+			"extract",
+		]);
+		for (const each of ran) expect(each.timeoutMs).toBeGreaterThan(0);
 	});
 });
 

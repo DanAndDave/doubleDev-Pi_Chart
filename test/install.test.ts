@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-	DEFAULT_DATABASE_URL,
+	defaultDatabaseUrl,
 	loadConfig,
 	type Config,
 } from "../src/config.ts";
@@ -34,7 +34,20 @@ function installation(options: {
 describe("what an unconfigured install does", () => {
 	test("the thread store points at what this project serves", () => {
 		// The setting existed only to repeat the compose file back at us.
-		expect(loadConfig({}).databaseUrl).toBe(DEFAULT_DATABASE_URL);
+		expect(loadConfig({}).databaseUrl).toBe(defaultDatabaseUrl());
+	});
+
+	test("the port compose was told to serve is the port the extension dials", () => {
+		// `compose.yaml` honours `CM_PG_PORT`; until now the extension read
+		// it nowhere and dialled 55432 while the container listened
+		// elsewhere, so nothing was recorded and nothing recalled.
+		expect(loadConfig({ CM_PG_PORT: "6543" }).databaseUrl).toContain(":6543/");
+		expect(loadConfig({}).databaseUrl).toContain(":55432/");
+		// A configured URL still outranks the port.
+		expect(
+			loadConfig({ CM_PG_PORT: "6543", CM_DATABASE_URL: "postgres://x/y" })
+				.databaseUrl,
+		).toBe("postgres://x/y");
 	});
 
 	test("a configured store still wins", () => {
@@ -136,6 +149,27 @@ describe("setting an installation up", () => {
 		expect(ran).toEqual([
 			["docker", "compose", "up", "-d", "--wait", "/work/project"],
 		]);
+	});
+
+	test("a docker that never returns is bounded", async () => {
+		const bounds: (number | undefined)[] = [];
+		const install = new Installation({
+			bun: async () => "/usr/bin/bun",
+			reachable: async () => true,
+			exists: async () => true,
+			root: "/work/project",
+			run: async (_command, _args, _cwd, timeoutMs) => {
+				bounds.push(timeoutMs);
+				return { ok: true, output: "" };
+			},
+		});
+
+		await install.setup(config());
+
+		// `--wait` waits for a healthy container, and a daemon that never
+		// answers would otherwise hold setup open with no output at all.
+		expect(bounds).toEqual([expect.any(Number)]);
+		expect(bounds[0]).toBeGreaterThan(0);
 	});
 
 	test("the project root holds the compose file", async () => {

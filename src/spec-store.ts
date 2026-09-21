@@ -32,6 +32,12 @@ export interface ContentReport {
 }
 
 /**
+ * How long `openspec` may take before it is stopped. It validates a tree of
+ * markdown — 0.39 s over this Codebase — so 30 s is a hang, not a slow run.
+ */
+const OPENSPEC_MS = 30_000;
+
+/**
  * What `openspec init` creates, and therefore what this project's work can
  * assume. Anchored to the tool's own output rather than to a document about
  * it: everything here was observed after running it on a bare directory.
@@ -116,6 +122,7 @@ export class SpecStore {
 				this.openspec,
 				["validate", "--all", "--strict"],
 				codebase,
+				OPENSPEC_MS,
 			);
 		} catch (error) {
 			return {
@@ -138,6 +145,7 @@ export class SpecStore {
 			this.openspec,
 			["init", ".", "--tools", "none"],
 			codebase,
+			OPENSPEC_MS,
 		);
 		if (!result.ok) {
 			throw new Error(`openspec init failed for ${codebase}: ${result.output}`);

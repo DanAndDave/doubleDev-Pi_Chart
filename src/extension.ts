@@ -35,7 +35,7 @@ import {
 	renderSearch,
 	renderSummary,
 } from "./report.ts";
-import { findJournal, readJournal } from "./journal.ts";
+import { findJournal, readJournal, SESSION_ROOT } from "./journal.ts";
 import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
 import type {
 	BranchEntry,
@@ -71,6 +71,21 @@ export interface Dependencies {
 	 * inferred later from thin recall.
 	 */
 	vectorModels?: () => Promise<VectorModels>;
+	/**
+	 * Retires Turns older than an age, returning how many went. Absent when
+	 * nothing durable is stored; called at shutdown, never on a request.
+	 */
+	retire?: (olderThanDays: number) => Promise<number>;
+	/**
+	 * How a deadline waits. Injected so a test can expire one without
+	 * spending the time, and so nothing on the request path holds a timer
+	 * the harness does not know about.
+	 */
+	after?: (ms: number) => Promise<void>;
+	/** Where a Conversation's Journal is. A seam for the miss. */
+	findJournal?: (conversationId: string) => Promise<string | undefined>;
+	/** Where Journals were looked for, named when one cannot be found. */
+	sessionRoot?: string;
 	/** Releases whatever the session held open. */
 	close?: () => Promise<void> | void;
 	/** Shows text to the person running the session. */
@@ -209,6 +224,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		// A setting silently ignored is a setting someone believes is in
+		// force; retention in particular would be believed to be bounding a
+		// Store it never touched.
+		for (const problem of deps.config.problems) deps.report(problem);
+
 		if (deps.specs && deps.config.specsVerify) {
 			const specs = deps.specs;
 			const codebase = deps.codebase ?? process.cwd();
@@ -369,9 +389,39 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	// headless run can exit mid-ingest. `session_shutdown` is awaited, which
 	// makes it the sweep that guarantees a Turn is stored before exit.
 	pi.on("session_shutdown", async (_event, ctx) => {
-		await store(conversationOf(ctx));
-		await deps.close?.();
+		// Cleanup in `finally`: a final sweep that throws must still give
+		// back what the session took. Measured — a session that never
+		// released its pool held 200 sockets after 16.5 hours, and the
+		// Store then refused every new client.
+		try {
+			await store(conversationOf(ctx));
+			await retire();
+		} finally {
+			await deps.close?.();
+		}
 	});
+
+	/**
+	 * Retires Turns older than the configured age. Never on a request's
+	 * path, and never at all unless someone asked for it: how long the
+	 * Store keeps a Turn is their policy, not this project's default.
+	 */
+	async function retire(): Promise<void> {
+		const age = deps.config.retainDays;
+		if (!deps.retire || age === undefined) return;
+		try {
+			const retired = await deps.retire(age);
+			if (retired > 0) {
+				deps.report(
+					`Retention removed ${retired} turn${retired === 1 ? "" : "s"} ` +
+						`older than ${age} day${age === 1 ? "" : "s"}. ` +
+						`Their accounting is kept.`,
+				);
+			}
+		} catch (error) {
+			deps.report(`Retention failed: ${describe(error)}`);
+		}
+	}
 
 	/**
 	 * Ingests and embeds. Runs after a response, never before a request.
@@ -446,16 +496,64 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		live: Turn[],
 		tailTurns: number,
 	): Promise<{ tail: Turn[]; tailSource: TailSource }> {
+		const fallback = {
+			tail: live.slice(0, -1),
+			tailSource: "harness-fallback" as const,
+		};
 		try {
-			const stored = await deps.turns.recentTurns(conversationId, tailTurns);
-			if (stored.length > 0) return { tail: stored, tailSource: "thread-store" };
+			const stored = await inTime(
+				"Thread Store",
+				deps.config.tailDeadlineMs,
+				deps.turns.recentTurns(conversationId, tailTurns),
+			);
+			// A Store that ran out of time is a Store that is not there for
+			// this Call: the harness still has the history, and the fallback
+			// is recorded exactly as an unreachable Store's is.
+			if (!stored.answered) return fallback;
+			if (stored.value.length > 0) {
+				return { tail: stored.value, tailSource: "thread-store" };
+			}
 		} catch (error) {
 			reportSafely(`Thread Store unreachable, using harness history: ${describe(error)}`);
-			return { tail: live.slice(0, -1), tailSource: "harness-fallback" };
+			return fallback;
 		}
 		// An empty store is not a failure: a Conversation's first Turns predate
 		// any ingest, and the harness still has them.
-		return { tail: live.slice(0, -1), tailSource: "harness-fallback" };
+		return fallback;
+	}
+
+	/**
+	 * A Store call, bounded.
+	 *
+	 * A Store that accepts the request and never answers costs its part,
+	 * not the Turn: the wait is bounded by configuration rather than by the
+	 * slowest Store, and running out of time is reported in its own words
+	 * so it reads differently from a Store that refused the connection —
+	 * the two call for different remedies.
+	 */
+	async function inTime<T>(
+		store: string,
+		deadlineMs: number,
+		work: Promise<T>,
+	): Promise<{ answered: true; value: T } | { answered: false }> {
+		if (deadlineMs <= 0) return { answered: true, value: await work };
+
+		const expired = Symbol("deadline");
+		const first = await Promise.race([
+			work,
+			(deps.after ?? sleep)(deadlineMs).then(() => expired),
+		]);
+		if (first === expired) {
+			// Nobody is waiting on the Store's answer now, so a late failure
+			// must not surface as an unhandled rejection.
+			void work.catch(() => undefined);
+			reportSafely(
+				`${store} did not answer within ${deadlineMs}ms; ` +
+					`pack assembled without its part`,
+			);
+			return { answered: false };
+		}
+		return { answered: true, value: first as T };
 	}
 
 	if (pi.registerTool && deps.search) {
@@ -752,26 +850,57 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		try {
 			// Over-fetch: the Assembler drops what the verbatim tail already
 			// carries, and only it knows what that is.
-			return await deps.recall.similarTurns(
-				conversationId,
-				current.prompt,
-				deps.config.recallTurns + deps.config.tailTurns,
-				deps.config.recallMaxDistance,
+			const found = await inTime(
+				"Recall",
+				deps.config.recallDeadlineMs,
+				deps.recall.similarTurns(
+					conversationId,
+					current.prompt,
+					deps.config.recallTurns + deps.config.tailTurns,
+					deps.config.recallMaxDistance,
+				),
 			);
+			return found.answered ? found.value : none;
 		} catch (error) {
 			reportSafely(`Recall unavailable, pack assembled without it: ${describe(error)}`);
 			return none;
 		}
 	}
 
+	/**
+	 * Stores what the Journal holds, and says what happened.
+	 *
+	 * A Journal nobody can find used to return in silence, which on a
+	 * machine whose session root differs is the whole Thread Store: nothing
+	 * recorded, nothing recalled, and every setup check passing. It is now
+	 * a report naming the Conversation and where it was looked for.
+	 */
 	async function ingestJournal(
 		conversationId: string,
 		sink: TurnSink,
 		codebase?: string,
 	): Promise<void> {
-		const path = await findJournal(conversationId);
-		if (!path) return;
-		await sink.ingest(conversationId, await readJournal(path), codebase);
+		const path = await (deps.findJournal ?? findJournal)(conversationId);
+		if (!path) {
+			reportSafely(
+				`No journal found for conversation ${conversationId} under ` +
+					`${deps.sessionRoot ?? SESSION_ROOT}; nothing was ingested, so the ` +
+					`tail comes from the harness's own history`,
+			);
+			return;
+		}
+		const recorded = await readJournal(path);
+		if (recorded.length === 0) {
+			// Read, and there was nothing in it. Said aloud because it looks
+			// exactly like a healthy Store holding nothing yet, and the two want
+			// different remedies.
+			reportSafely(`The journal at ${path} holds no turns yet; nothing was ingested`);
+			return;
+		}
+		const stored = await sink.ingest(conversationId, recorded, codebase);
+		if (stored > 0) {
+			deps.report(`Ingested ${stored} turn${stored === 1 ? "" : "s"}.`);
+		}
 	}
 
 	/**
@@ -783,11 +912,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		try {
 			// Over-fetch, as recall does: the Assembler applies the Budget,
 			// so what the Budget excluded is visible rather than invisible.
-			return await deps.docs.searchConcepts(
-				current.prompt,
-				deps.config.docConcepts * 2,
-				deps.config.docMaxDistance,
+			const found = await inTime(
+				"Doc Store",
+				deps.config.docDeadlineMs,
+				deps.docs.searchConcepts(
+					current.prompt,
+					deps.config.docConcepts * 2,
+					deps.config.docMaxDistance,
+				),
 			);
+			return found.answered ? found.value : [];
 		} catch (error) {
 			reportSafely(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
 			return [];
@@ -803,7 +937,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	): Promise<Neighbourhood[]> {
 		if (!deps.graph || !current || deps.config.graphSymbols <= 0) return [];
 		try {
-			const graph = await deps.graph.graph(deps.codebase ?? process.cwd());
+			const found = await inTime(
+				"Graph Store",
+				deps.config.graphDeadlineMs,
+				deps.graph.graph(deps.codebase ?? process.cwd()),
+			);
+			if (!found.answered) return [];
+			const graph = found.value;
 			if (!graph) return [];
 			// Over-fetch, as the other Stores do, so what the Budget excluded
 			// is visible in the accounting rather than invisible.
@@ -921,6 +1061,18 @@ function describe(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * How a deadline waits when nothing else was injected: a timer that does
+ * not hold the process open, because it bounds someone else's slowness and
+ * is never work of its own.
+ */
+function sleep(ms: number): Promise<void> {
+	const { promise, resolve } = Promise.withResolvers<void>();
+	const timer = setTimeout(resolve, ms);
+	timer.unref?.();
+	return promise;
+}
+
 export default function contextManager(pi: ExtensionAPI): void {
 	const config = loadConfig(process.env);
 
@@ -974,8 +1126,17 @@ export default function contextManager(pi: ExtensionAPI): void {
 		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),
 		vectorModels: () => store.vectorModels(),
-		close: () => {
-			embedder.close();
+		retire: (olderThanDays) => store.retire(olderThanDays),
+		close: async () => {
+			// Both are attempted, whichever fails: the Store's pool is the
+			// resource a long session exhausts, so it goes back first, and
+			// the embedder's worker is a process that must not outlive the
+			// session either way.
+			try {
+				await store.close();
+			} finally {
+				embedder.close();
+			}
 		},
 		accounting: store,
 		report: reportToStderr,

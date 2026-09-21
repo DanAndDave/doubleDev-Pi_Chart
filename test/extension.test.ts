@@ -16,7 +16,11 @@ import {
 	type TailSource,
 } from "../src/accounting.ts";
 import { assemble, type Pack } from "../src/assembler.ts";
-import { DEFAULT_TAIL_TURNS } from "../src/config.ts";
+import {
+	DEFAULT_RETRIEVAL_DEADLINE_MS,
+	DEFAULT_TAIL_TURNS,
+	loadConfig,
+} from "../src/config.ts";
 import { register, type Dependencies } from "../src/extension.ts";
 import { MemoryTurnSource } from "../src/thread-store.ts";
 import type {
@@ -29,7 +33,7 @@ import type {
 	LifecycleHandler,
 } from "../src/harness.ts";
 import type { ContextSnapshot } from "../src/messages.ts";
-import { settings } from "./fixtures.ts";
+import { JOURNAL_FIXTURE, settings } from "./fixtures.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
@@ -41,6 +45,7 @@ interface Harness {
 	context: ContextHandler;
 	sessionStart: LifecycleHandler;
 	agentEnd: LifecycleHandler;
+	sessionShutdown: LifecycleHandler;
 	reported: string[];
 	recorded: Recorded[];
 	measured: Measurement[];
@@ -60,6 +65,7 @@ function harness(overrides: Overrides = {}): Harness {
 	let context: ContextHandler | undefined;
 	let sessionStart: LifecycleHandler | undefined;
 	let agentEnd: LifecycleHandler | undefined;
+	let sessionShutdown: LifecycleHandler | undefined;
 
 	const commands: Record<string, CommandDefinition> = {};
 	const tools: Record<string, ToolDefinition> = {};
@@ -69,6 +75,9 @@ function harness(overrides: Overrides = {}): Harness {
 			if (event === "context") context = handler as ContextHandler;
 			if (event === "session_start") sessionStart = handler as LifecycleHandler;
 			if (event === "agent_end") agentEnd = handler as LifecycleHandler;
+			if (event === "session_shutdown") {
+				sessionShutdown = handler as LifecycleHandler;
+			}
 		},
 		registerCommand(name: string, command: CommandDefinition) {
 			commands[name] = command;
@@ -131,13 +140,14 @@ function harness(overrides: Overrides = {}): Harness {
 		}),
 	});
 
-	if (!context || !sessionStart || !agentEnd) {
+	if (!context || !sessionStart || !agentEnd || !sessionShutdown) {
 		throw new Error("extension did not register its handlers");
 	}
 
 	return {
 		context,
 		sessionStart,
+		sessionShutdown,
 		agentEnd,
 		reported,
 		recorded,
@@ -608,7 +618,9 @@ describe("an embedding model that changed under the corpus", () => {
 		await cm.agentEnd({}, ctx());
 		await cm.settle();
 
-		expect(cm.reported).toEqual([]);
+		// Scoped to the swap: a sweep with no Journal to read reports that
+		// separately, and it is not what this case is about.
+		expect(cm.reported.filter((line) => line.includes("model"))).toEqual([]);
 	});
 
 	test("a check that fails costs the report, not the turn", async () => {
@@ -1511,5 +1523,322 @@ describe("walking the documentation bundle", () => {
 		// assembly carries.
 		expect(JSON.stringify(before?.messages)).toContain("curated knowledge");
 		expect(after?.messages).toEqual(before?.messages);
+	});
+});
+
+describe("a store that misses its deadline", () => {
+	const prompt = [{ role: "user" as const, content: "what did we decide" }];
+
+	/** A Store call that never answers, and a clock that expires instantly. */
+	function stalled(): { after: (ms: number) => Promise<void>; waited: number[] } {
+		const waited: number[] = [];
+		return {
+			waited,
+			after: async (ms) => {
+				waited.push(ms);
+			},
+		};
+	}
+
+	test("a silent store costs its part, not the turn", async () => {
+		const clock = stalled();
+		const cm = harness({
+			after: clock.after,
+			// Not the default, so what bounded the wait is unambiguous.
+			config: { recallTurns: 2, recallDeadlineMs: 2_500 },
+			recall: {
+				// Never settles: the Store took the request and went quiet.
+				similarTurns: () => new Promise(() => {}),
+			},
+		});
+
+		const result = await cm.context({ messages: prompt }, ctx());
+		await cm.settle();
+
+		expect(result?.messages).toBeDefined();
+		// Bounded by recall's own deadline, and no other Store's.
+		expect(clock.waited).toContain(2_500);
+		expect(clock.waited).not.toContain(DEFAULT_RETRIEVAL_DEADLINE_MS);
+		expect(cm.reported.join("\n")).toContain("did not answer within 2500ms");
+		// What the pack did not carry, the accounting does not claim.
+		expect(cm.recorded[0]?.pack?.parts.map((part) => part.source)).not.toContain(
+			"recalled",
+		);
+	});
+
+	test("a missed deadline reads differently from a refused connection", async () => {
+		const missed = harness({
+			after: stalled().after,
+			config: { recallTurns: 2 },
+			recall: { similarTurns: () => new Promise(() => {}) },
+		});
+		const refused = harness({
+			config: { recallTurns: 2 },
+			recall: {
+				similarTurns: async () => {
+					throw new Error("ECONNREFUSED");
+				},
+			},
+		});
+
+		await missed.context({ messages: prompt }, ctx());
+		await refused.context({ messages: prompt }, ctx());
+
+		expect(missed.reported.join("\n")).toContain("did not answer within");
+		expect(refused.reported.join("\n")).toContain("Recall unavailable");
+		expect(refused.reported.join("\n")).not.toContain("did not answer within");
+	});
+
+	test("one slow store does not cost the others", async () => {
+		const store = new MemoryTurnSource();
+		await store.ingest("conv-1", [
+			{
+				turnIndex: 0,
+				prompt: "an earlier turn",
+				messages: [{ role: "user", content: "an earlier turn" }],
+				callCount: 1,
+				calls: [0],
+			},
+		]);
+		const cm = harness({
+			after: stalled().after,
+			turns: store,
+			config: { tailTurns: 4, docConcepts: 2 },
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				searchConcepts: () => new Promise(() => {}),
+			},
+		});
+
+		const result = await cm.context({ messages: prompt }, ctx());
+
+		// The Doc Store went quiet; the tail the Thread Store served is
+		// still in the pack.
+		expect(JSON.stringify(result?.messages)).toContain("an earlier turn");
+		expect(JSON.stringify(result?.messages)).not.toContain("curated knowledge");
+	});
+
+	test("a tail that misses its deadline falls back to the harness's history", async () => {
+		const cm = harness({
+			after: stalled().after,
+			config: { tailTurns: 4 },
+			turns: { recentTurns: () => new Promise(() => {}) },
+		});
+
+		await cm.context(
+			{
+				messages: [
+					{ role: "user", content: "older prompt" },
+					{ role: "assistant", content: "older answer" },
+					...prompt,
+				],
+			},
+			ctx(),
+		);
+		await cm.settle();
+
+		expect(cm.recorded[0]?.tailSource).toBe("harness-fallback");
+	});
+
+	test("a deadline nothing exceeds changes nothing", async () => {
+		const answering = {
+			indexConcepts: async () => ({ embedded: 0, contested: [] }),
+			searchConcepts: async () => [],
+		};
+		const bounded = harness({ config: { docConcepts: 2 }, docs: answering });
+		const unbounded = harness({
+			config: { docConcepts: 2, docDeadlineMs: 0 },
+			docs: answering,
+		});
+
+		const withDeadline = await bounded.context({ messages: prompt }, ctx());
+		const without = await unbounded.context({ messages: prompt }, ctx());
+
+		expect(withDeadline?.messages).toEqual(without?.messages);
+		expect(bounded.reported).toEqual([]);
+	});
+
+	test("every store failing still supplies a pack, waiting only its deadlines", async () => {
+		const clock = stalled();
+		const cm = harness({
+			after: clock.after,
+			config: {
+				tailTurns: 4,
+				recallTurns: 2,
+				docConcepts: 2,
+				graphSymbols: 2,
+				tailDeadlineMs: 1_500,
+				recallDeadlineMs: 5_000,
+				docDeadlineMs: 5_000,
+				graphDeadlineMs: 5_000,
+			},
+			turns: { recentTurns: () => new Promise(() => {}) },
+			recall: { similarTurns: () => new Promise(() => {}) },
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				searchConcepts: () => new Promise(() => {}),
+			},
+			// Only the two methods assembly reaches for; the Store itself
+			// needs a machine with graphify on it.
+			graph: {
+				graph: () => new Promise(() => {}),
+				refresh: async () => undefined,
+			} as unknown as GraphStore,
+		});
+
+		const result = await cm.context({ messages: prompt }, ctx());
+
+		expect(result?.messages?.length).toBeGreaterThan(0);
+		// Nothing waited longer than the largest deadline configured.
+		expect(Math.max(...clock.waited)).toBe(5_000);
+	});
+});
+
+describe("a journal that cannot be found", () => {
+	test("is reported, naming the conversation and where it was looked for", async () => {
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => undefined,
+			sessionRoot: "/somewhere/else",
+		});
+
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+
+		const miss = cm.reported.find((line) => line.includes("No journal"));
+		expect(miss).toContain("conv-1");
+		expect(miss).toContain("/somewhere/else");
+	});
+
+	test("an empty journal reads differently from a journal never found", async () => {
+		const empty = await mkdtemp(join(tmpdir(), "cm-journal-"));
+		const path = join(empty, "conv-1.jsonl");
+		await Bun.write(path, "");
+		const read = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => path,
+		});
+		const missing = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => undefined,
+		});
+
+		await read.agentEnd({}, ctx());
+		await missing.agentEnd({}, ctx());
+		await read.settle();
+		await missing.settle();
+
+		expect(read.reported.join("\n")).toContain("holds no turns yet");
+		expect(read.reported.join("\n")).not.toContain("No journal found");
+		expect(missing.reported.join("\n")).toContain("No journal found");
+	});
+
+	test("a journal with turns says how many were stored", async () => {
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => JOURNAL_FIXTURE,
+		});
+
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).toMatch(/Ingested \d+ turns/);
+	});
+
+	test("does not fail the turn", async () => {
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => undefined,
+		});
+
+		await cm.agentEnd({}, ctx());
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "still answered" }] },
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain("still answered");
+	});
+});
+
+describe("retention at the end of a session", () => {
+	test("runs only when an age is configured, and says what went", async () => {
+		const asked: number[] = [];
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => undefined,
+			config: { retainDays: 30 },
+			retire: async (days) => {
+				asked.push(days);
+				return 7;
+			},
+		});
+
+		await cm.sessionShutdown({}, ctx());
+
+		expect(asked).toEqual([30]);
+		expect(cm.reported.join("\n")).toContain("removed 7 turns older than 30 days");
+	});
+
+	test("does not run when no age is configured", async () => {
+		let asked = false;
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => undefined,
+			retire: async () => {
+				asked = true;
+				return 0;
+			},
+		});
+
+		await cm.sessionShutdown({}, ctx());
+
+		expect(asked).toBe(false);
+	});
+
+	test("an unusable retention age is refused with a reason", () => {
+		const config = loadConfig({ CM_RETAIN_DAYS: "a fortnight" });
+
+		expect(config.retainDays).toBeUndefined();
+		expect(config.problems.join("\n")).toContain("CM_RETAIN_DAYS");
+	});
+});
+
+describe("what a session gives back when it ends", () => {
+	test("closes the constructed dependencies", async () => {
+		let closed = false;
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => undefined,
+			close: () => {
+				closed = true;
+			},
+		});
+
+		await cm.sessionShutdown({}, ctx());
+
+		expect(closed).toBe(true);
+	});
+
+	test("a failed final sweep does not skip cleanup", async () => {
+		let closed = false;
+		const cm = harness({
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => {
+				throw new Error("the session root is gone");
+			},
+			config: { retainDays: 30 },
+			retire: async () => {
+				throw new Error("retention failed too");
+			},
+			close: () => {
+				closed = true;
+			},
+		});
+
+		await cm.sessionShutdown({}, ctx());
+
+		expect(closed).toBe(true);
+		expect(cm.reported.join("\n")).toContain("Ingest failed");
 	});
 });

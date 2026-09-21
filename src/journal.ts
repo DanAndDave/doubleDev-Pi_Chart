@@ -80,13 +80,16 @@ export async function readJournal(path: string): Promise<JournalTurn[]> {
 	return turns;
 }
 
+/** Where the harness keeps its Journals, unless told otherwise. */
+export const SESSION_ROOT = join(homedir(), ".omp", "agent", "sessions");
+
 /**
  * Where the harness keeps a Conversation's Journal. The directory encodes the
  * working directory, so the Conversation id alone is not enough to find it.
  */
 export async function findJournal(
 	conversationId: string,
-	sessionRoot = join(homedir(), ".omp", "agent", "sessions"),
+	sessionRoot = SESSION_ROOT,
 ): Promise<string | undefined> {
 	const glob = new Bun.Glob(`*/*${conversationId}*.jsonl`);
 	for await (const match of glob.scan({ cwd: sessionRoot, absolute: true })) {

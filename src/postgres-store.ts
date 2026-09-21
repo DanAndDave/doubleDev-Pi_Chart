@@ -206,6 +206,19 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS unsearched INTEGER`,
 		],
 	},
+	{
+		version: 14,
+		statements: [
+			// When a Turn entered the Store, so retention can judge its age.
+			// Added without a default and given one afterwards, deliberately:
+			// `ADD COLUMN ... DEFAULT now()` fills every existing row, which
+			// would date the whole Store one migration old and let retention
+			// retire all of it together. A row written before this column has
+			// nothing to say about when it arrived, so it says nothing.
+			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ`,
+			`ALTER TABLE turns ALTER COLUMN ingested_at SET DEFAULT now()`,
+		],
+	},
 ];
 
 /**
@@ -295,54 +308,95 @@ export class PostgresStore implements
 		await this.sql.end();
 	}
 
+	/**
+	 * Stores what the Journal holds and is not stored yet, and returns how
+	 * many Turns it wrote.
+	 *
+	 * Resumed rather than replayed: the Store is asked for its highest Turn
+	 * and everything below it is skipped, because a Journal is append-only
+	 * (ADR-0002). Only the highest is reconsidered, since the sweep that
+	 * stored it may have caught it mid-flush — `readJournal` drops a
+	 * partially written final line — and it is reconsidered against what is
+	 * stored rather than rewritten blindly, so a Conversation that has not
+	 * grown costs one read and no writes.
+	 *
+	 * Each Turn is one transaction with its messages as a single insert, so
+	 * an interrupted sweep leaves whole Turns behind and the next one
+	 * resumes from them.
+	 */
 	async ingest(
 		conversationId: string,
 		turns: JournalTurn[],
 		codebase?: string,
-	): Promise<void> {
+	): Promise<number> {
+		const stored = await this.storedHead(conversationId);
+		let written = 0;
+
 		for (const turn of turns) {
+			if (stored !== undefined && turn.turnIndex < stored.turnIndex) continue;
+
 			// The fingerprint of what this Turn will be embedded as, so a
 			// Turn re-ingested with different content loses the vector that
 			// described the content it had. Derived here rather than at
 			// embedding time because this is where the new content arrives.
 			const fingerprint = embedFingerprint(turn.messages);
-			await this.sql`
-				INSERT INTO turns
-					(conversation_id, turn_index, prompt, codebase, call_count, text_hash)
-				VALUES (
-					${conversationId}, ${turn.turnIndex}, ${turn.prompt},
-					${codebase ?? null}, ${Math.max(turn.callCount, 1)}, ${fingerprint}
-				)
-				ON CONFLICT (conversation_id, turn_index)
-				DO UPDATE SET
-					prompt = EXCLUDED.prompt,
-					call_count = EXCLUDED.call_count,
-					-- Never unset a Codebase a previous ingest knew.
-					codebase = COALESCE(EXCLUDED.codebase, turns.codebase),
-					text_hash = EXCLUDED.text_hash,
-					-- A vector outlives its content only while the content is
-					-- the same. Changed text is re-embedded by the pass that
-					-- embeds a new Turn, so there is one path, not two.
-					embedding = CASE
-						WHEN turns.text_hash IS DISTINCT FROM EXCLUDED.text_hash
-						THEN NULL ELSE turns.embedding END,
-					embedding_model = CASE
-						WHEN turns.text_hash IS DISTINCT FROM EXCLUDED.text_hash
-						THEN NULL ELSE turns.embedding_model END`;
+			// The highest Turn as stored is exactly the highest Turn as the
+			// Journal now has it: the same messages, composing to the same
+			// text. Both, because the embed text is bounded — an appended
+			// message beyond it moves the count and not the hash.
+			if (
+				stored !== undefined &&
+				turn.turnIndex === stored.turnIndex &&
+				stored.textHash === fingerprint &&
+				stored.messages === turn.messages.length
+			) {
+				continue;
+			}
 
-			for (const [ordinal, message] of turn.messages.entries()) {
-				// A message whose Call was never recorded belongs to the
-				// Turn's first: one Call is what such a Turn actually was.
-				const callIndex = turn.calls[ordinal] ?? 0;
-				await this.sql`
-					INSERT INTO turn_messages
-						(conversation_id, turn_index, ordinal, call_index, role, message,
-						 tool_name, is_error)
+			await this.sql.begin(async (tx: SQL) => {
+				await tx`
+					INSERT INTO turns
+						(conversation_id, turn_index, prompt, codebase, call_count, text_hash)
 					VALUES (
-						${conversationId}, ${turn.turnIndex}, ${ordinal}, ${callIndex},
-						${message.role}, ${JSON.stringify(message)}::jsonb,
-						${message.toolName ?? null}, ${message.isError === true}
+						${conversationId}, ${turn.turnIndex}, ${turn.prompt},
+						${codebase ?? null}, ${Math.max(turn.callCount, 1)}, ${fingerprint}
 					)
+					ON CONFLICT (conversation_id, turn_index)
+					DO UPDATE SET
+						prompt = EXCLUDED.prompt,
+						call_count = EXCLUDED.call_count,
+						text_hash = EXCLUDED.text_hash,
+						-- The Codebase is deliberately not updated here: a Turn
+						-- happened in one place, and resuming its Conversation
+						-- from another directory does not move it. Not COALESCE
+						-- either — that backfills a Turn stored without one
+						-- from wherever the sweep happens to be running.
+						--
+						-- A vector outlives its content only while the content
+						-- is the same. Changed text is re-embedded by the pass
+						-- that embeds a new Turn, so there is one path, not two.
+						embedding = CASE
+							WHEN turns.text_hash IS DISTINCT FROM EXCLUDED.text_hash
+							THEN NULL ELSE turns.embedding END,
+						embedding_model = CASE
+							WHEN turns.text_hash IS DISTINCT FROM EXCLUDED.text_hash
+							THEN NULL ELSE turns.embedding_model END`;
+
+				const rows = turn.messages.map((message, ordinal) => ({
+					conversation_id: conversationId,
+					turn_index: turn.turnIndex,
+					ordinal,
+					// A message whose Call was never recorded belongs to the
+					// Turn's first: one Call is what such a Turn actually was.
+					call_index: turn.calls[ordinal] ?? 0,
+					role: message.role,
+					message: JSON.stringify(message),
+					tool_name: message.toolName ?? null,
+					is_error: message.isError === true,
+				}));
+				if (rows.length === 0) return;
+				await tx`
+					INSERT INTO turn_messages ${tx(rows)}
 					ON CONFLICT (conversation_id, turn_index, ordinal)
 					DO UPDATE SET
 						call_index = EXCLUDED.call_index,
@@ -350,8 +404,36 @@ export class PostgresStore implements
 						message = EXCLUDED.message,
 						tool_name = EXCLUDED.tool_name,
 						is_error = EXCLUDED.is_error`;
-			}
+			});
+			written++;
 		}
+
+		return written;
+	}
+
+	/** The highest Turn a Conversation has stored, and what it holds. */
+	private async storedHead(conversationId: string): Promise<
+		{ turnIndex: number; textHash: string | null; messages: number } | undefined
+	> {
+		const [row] = (await this.sql`
+			SELECT t.turn_index, t.text_hash,
+				(SELECT count(*)::int FROM turn_messages m
+					WHERE m.conversation_id = t.conversation_id
+						AND m.turn_index = t.turn_index) AS messages
+			FROM turns t
+			WHERE t.conversation_id = ${conversationId}
+			ORDER BY t.turn_index DESC
+			LIMIT 1`) as {
+			turn_index: number;
+			text_hash: string | null;
+			messages: number;
+		}[];
+		if (!row) return undefined;
+		return {
+			turnIndex: row.turn_index,
+			textHash: row.text_hash,
+			messages: row.messages,
+		};
 	}
 
 	/**
@@ -702,7 +784,7 @@ export class PostgresStore implements
 		if (!vector) return [];
 
 		const rows = (await this.sql`
-			SELECT conversation_id, turn_index, codebase
+			SELECT conversation_id, turn_index, codebase, ingested_at
 			FROM turns
 			WHERE embedding IS NOT NULL
 				AND embedding_model = ${model}
@@ -713,6 +795,7 @@ export class PostgresStore implements
 			conversation_id: string;
 			turn_index: number;
 			codebase: string | null;
+			ingested_at: Date | null;
 		}[];
 
 		const found: FoundTurn[] = [];
@@ -724,6 +807,7 @@ export class PostgresStore implements
 				turn,
 				conversationId: row.conversation_id,
 				codebase: row.codebase ?? undefined,
+				ingestedAt: row.ingested_at?.toISOString(),
 				calls: await this.callsIn(row.conversation_id, row.turn_index),
 			});
 		}
@@ -928,7 +1012,13 @@ export class PostgresStore implements
 					embedding <=> ${embedding}::vector AS distance
 				FROM concept_sections
 				WHERE embedding IS NOT NULL
-				ORDER BY embedding <=> ${embedding}::vector
+				-- Identity breaks the tie, as it does for Turns: the index is
+				-- approximate, so two equally near sections at the edge of
+				-- the candidate window would otherwise be chosen by the
+				-- index's own traversal and swap places after a rebuild —
+				-- the flicker ADR-0003 forbids. By identity rather than
+				-- concept id, so the tiebreak survives a rename.
+				ORDER BY embedding <=> ${embedding}::vector, identity ASC, section_index ASC
 				LIMIT ${candidates}
 			),
 			best AS (
@@ -969,6 +1059,40 @@ export class PostgresStore implements
 			trust: row.trust,
 			stale: row.stale,
 		}));
+	}
+
+	/**
+	 * Retires Turns older than an age, with their messages, and says how
+	 * many went.
+	 *
+	 * A Turn with no arrival time is left alone: it was stored before the
+	 * Store recorded one, and an age nobody can establish is not an age
+	 * past the age retention keeps. Accounting is untouched — what a Call's Context
+	 * Window contained outlives the Turn, because it is a few numbers
+	 * against a Turn's whole content and the size problem is not there.
+	 *
+	 * The Journal remains the record (ADR-0002), so retention discards an
+	 * index and never the record itself.
+	 */
+	async retire(olderThanDays: number): Promise<number> {
+		if (!Number.isFinite(olderThanDays) || olderThanDays <= 0) return 0;
+
+		const cutoff = `${olderThanDays} days`;
+		const retired = (await this.sql`
+			WITH old AS (
+				DELETE FROM turns
+				WHERE ingested_at IS NOT NULL
+					AND ingested_at < now() - ${cutoff}::interval
+				RETURNING conversation_id, turn_index
+			),
+			cleared AS (
+				DELETE FROM turn_messages m
+				USING old
+				WHERE m.conversation_id = old.conversation_id
+					AND m.turn_index = old.turn_index
+			)
+			SELECT count(*)::int AS retired FROM old`) as { retired: number }[];
+		return retired[0]?.retired ?? 0;
 	}
 
 	/** Empties the store. The Journal remains the record it is rebuilt from. */

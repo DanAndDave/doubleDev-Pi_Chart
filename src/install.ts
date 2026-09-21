@@ -5,6 +5,13 @@ import type { Config } from "./config.ts";
 import { runProcess, type RunCommand } from "./process.ts";
 
 /**
+ * How long `docker compose up -d --wait` may take. It pulls an image on a
+ * machine that has never run it, which is the case the wait exists for;
+ * beyond this the daemon is not coming.
+ */
+const COMPOSE_MS = 120_000;
+
+/**
  * What a working installation needs, and how to get there.
  *
  * Installing the extension is one command; the parts it talks to — a
@@ -137,6 +144,7 @@ export class Installation {
 			"docker",
 			["compose", "up", "-d", "--wait"],
 			this.root,
+			COMPOSE_MS,
 		).catch((error: unknown) => ({
 			ok: false,
 			output: error instanceof Error ? error.message : String(error),

@@ -13,13 +13,13 @@ export interface TurnSource {
 	recentTurns(conversationId: string, limit: number): Promise<Turn[]>;
 }
 
-/** Ingests a Conversation's recorded Turns. */
+/** Ingests a Conversation's recorded Turns, and says how many it stored. */
 export interface TurnSink {
 	ingest(
 		conversationId: string,
 		turns: JournalTurn[],
 		codebase?: string,
-	): Promise<void>;
+	): Promise<number>;
 }
 
 /** A Turn found anywhere in the store, with where it came from. */
@@ -27,6 +27,12 @@ export interface FoundTurn extends RecalledTurn {
 	conversationId: string;
 	/** Absent for Turns ingested before Codebases were recorded. */
 	codebase?: string;
+	/**
+	 * When this Turn entered the Store, ISO 8601. Absent for Turns stored
+	 * before arrival times were recorded — nothing in such a Turn says when
+	 * it arrived, so nothing is invented.
+	 */
+	ingestedAt?: string;
 	/**
 	 * How many Calls the agent took answering this Turn. One for a Turn
 	 * answered directly, more for one it had to fight with.
@@ -89,12 +95,23 @@ export interface TurnRecall {
 export class MemoryTurnSource implements TurnSource, TurnSink {
 	private readonly byConversation = new Map<string, Map<number, Turn>>();
 
-	async ingest(conversationId: string, turns: JournalTurn[]): Promise<void> {
+	async ingest(conversationId: string, turns: JournalTurn[]): Promise<number> {
 		const existing =
 			this.byConversation.get(conversationId) ?? new Map<number, Turn>();
+		let written = 0;
 		for (const turn of turns) {
 			// Keyed by address, so re-ingesting the same Journal replaces rather
-			// than duplicates.
+			// than duplicates. Counted as written only when it is new or when
+			// it grew, so re-ingesting an unchanged Journal reports nothing
+			// stored, exactly as the durable Store does.
+			const before = existing.get(turn.turnIndex);
+			if (
+				!before ||
+				before.prompt !== turn.prompt ||
+				before.messages.length !== turn.messages.length
+			) {
+				written++;
+			}
 			existing.set(turn.turnIndex, {
 				index: turn.turnIndex,
 				prompt: turn.prompt,
@@ -102,6 +119,7 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 			});
 		}
 		this.byConversation.set(conversationId, existing);
+		return written;
 	}
 
 	async recentTurns(conversationId: string, limit: number): Promise<Turn[]> {
