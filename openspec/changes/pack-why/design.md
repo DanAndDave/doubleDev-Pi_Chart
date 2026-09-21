@@ -28,7 +28,21 @@ This slice adds the identities, the addressing, and the retrieval-side counts. S
 
 ### The ledger keeps a bounded ranked head per part, not every candidate
 
-Each part records its nearest excluded candidates, distance ascending, the remainder surviving as a count per reason. Task 1 measures the bound before it is set: over the audit's Journals, at what rank does the Turn a user would actually ask about appear? The proposed default is 5 per part, which the over-fetch each Store already performs (`src/extension.ts:755-760,786-790,810-813`) makes cheap — a Call's whole candidate set is around twenty items.
+Each part records its nearest excluded candidates, distance ascending, the remainder surviving as a count per reason. Task 1 measured the bound before it was set: over the audit's Journals, at what rank does the Turn a user would actually ask about appear?
+
+**Measured, and the proposed default of 5 is wrong.** Every Journal on this machine — 231 files, 403 Turns — pooled into one Conversation, because no single Conversation here is longer than 16 Turns and a long one is exactly the case a bounded ledger has to survive. For each Turn beyond the verbatim tail's reach, the Turn a user would ask about is stood in for by the earlier Turn sharing the most distinctive vocabulary with the prompt (inverse-document-frequency weighted, threshold 8), and recall is replayed against the Turns that preceded it:
+
+| | |
+| --- | --- |
+| Calls with a plausible asked-about Turn | 140 |
+| …where it was carried, inside the threshold | 20 |
+| …where it was refused by the threshold | 2 |
+| …where it was never a candidate at all | 118 |
+| Its rank among the candidates, where it was one (22) | 1, 1, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 7, 9, 9, 9, 9, 10, 10, 10, 12 |
+
+A head of 5 names that Turn in 10 of the 22 reachable cases; a head of 12 names all 22. **The bound is 12, `CM_EXPLAIN_CANDIDATES`**, which is also the width of recall's own over-fetch (`recallTurns + tailTurns`) and so the widest excluded set any part produces under the defaults — curated over-fetches 4, structure 6. Losing the remainder costs nothing at the defaults and costs the tail of the distribution for whoever raises a count Budget, which is why the count beyond the head is still recorded.
+
+Two findings ride along. The refused set is empty on 131 of the 140 Calls: on a corpus this homogeneous the relevance threshold refuses almost nothing, and what a part does not carry it lost to a count Budget — so a ledger recording only relevance refusals would explain 6% of these Calls. And the asked-about Turn was outside the candidate set entirely in 118 of 140: what bounds explainability is the over-fetch, not the ledger. Widening the over-fetch is a change to what is retrieved, which this slice is not.
 
 Retaining all of them loses twice: that detail rides in the `parts` JSONB read whole on every `/pack`, and diagnostic value falls monotonically with distance. Retaining only counts is the present failure.
 
@@ -54,13 +68,19 @@ An address is a Turn and optionally a Call within it; bare means the latest Call
 
 The extension records it, reports it once, and stops. `addressOf` numbers Turns by counting `role === "user"` entries in the branch (`src/extension.ts:862-888`), so a compaction rewriting that branch renumbers the addresses this ticket depends on — but whether it does is `[INFERENCE]`, and task 7 reads that Journal. If the branch keeps its pre-compaction prompts, the record is a caveat; if not, re-deriving positions is its own change, because renumbering Accounting against an unread assumption would corrupt the only ordered record there is.
 
+**Read, and addressing is safe.** The observed Journal (`2026-09-16T04-20-35-175Z_01a0a871`, 5,062 entries) carries the compaction as a `type: "compaction"` node whose `parentId` is the last pre-compaction entry, and the entry after it takes the compaction node as its parent. Walking the parent chain back from the newest entry reaches 5,061 of the 5,062 entries and **all sixteen user prompts, ten of them from before the compaction**. The branch is that chain, so `addressOf`'s prompt count does not reset and Turn addressing does not shift. Two corrections to the figures quoted above: the flip was reported at 62,304 tokens, and 822,279 is the pre-compaction maximum recorded in the audit's table — this Journal's own maximum under the current estimator is 849,736. Re-deriving positions is therefore not needed, and no follow-up change is raised.
+
+The Call this slice's own test drives home the remaining subtlety: the compaction is recorded against the Call the harness measured at the new epoch, and a Call assembled afterwards but never measured carries no epoch and is not reported as the compaction. Unknown stays unknown.
+
+Recording the epoch per Call rather than a boolean is a departure from "one Call-level field, no migration": migration 15 adds a nullable `compaction_epoch`, never backfilled, so older rows read back as unknown rather than as epoch zero. A boolean would have had to be computed at write time, against a "last epoch seen" this process may never have seen — the first Call after a restart would either miss the flip or invent one. The epoch is a fact the harness reports; "compacted here" is a comparison, and comparisons belong in the pure inspector where the whole ordered Conversation is in hand.
+
 ### The inspector renders estimate, reported and their ratio side by side
 
 `token-budgets` retains both figures per Call. The inspector prints both and their ratio, per Call and averaged across a Conversation. Rendering only the reported figure — the accurate one — hides the drift of the number the Pack ceiling is applied to. The audit's 1.35–1.49× is the pre-`token-budgets` bias; afterwards the ratio should sit near 1, and this is where that is checked.
 
 ## Risks / Trade-offs
 
-- **A bound of 5 may miss the candidate a user asks about** → task 1 sets it from measured rank, it is configurable, and the count beyond it makes the truncation visible.
+- **A bound of 12 still misses what the candidate set never held** → the measurement found the asked-about Turn outside the candidate set in 118 of 140 Calls, which no ledger size fixes; the bound covers every rank the set did hold, it is configurable, and the count beyond it makes any truncation visible. Widening the over-fetch is a change to retrieval, not to this record.
 - **More JSONB per Call on a store that already grows without bound** → a few hundred bytes against whole message bodies already retained; retention is `store-hygiene`'s.
 - **Distance on `ConceptHit` invites ranking on it elsewhere** → it is reported, never re-weighted, the line ADR-0003's tie-break argument draws.
 

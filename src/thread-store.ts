@@ -55,11 +55,23 @@ export interface RecalledTurn {
 	turn: Turn;
 }
 
+/** A Turn a relevance threshold refused: where it sits and how far it was. */
+export interface TurnMiss {
+	turnIndex: number;
+	distance: number;
+}
+
 /** What retrieval found, what it refused, and what it could not see. */
 export interface Recollections {
 	turns: RecalledTurn[];
 	/** Turns near enough to rank but too distant to be worth carrying. */
 	rejected: number;
+	/**
+	 * Which of those Turns they were, nearest first, bounded to the head
+	 * the caller asked for. `rejected` counts them; this names them, which
+	 * is what lets an absence be explained rather than only counted.
+	 */
+	misses: TurnMiss[];
 	/**
 	 * Turns of this Conversation holding no valid vector, so no search could
 	 * reach them. A recall that came back short because the Conversation is

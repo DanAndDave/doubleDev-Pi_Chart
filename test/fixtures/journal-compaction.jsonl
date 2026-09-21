@@ -1,0 +1,8 @@
+{"type":"session","version":3,"id":"01a0a871-f2e7-7415-9ead-d457e3850f13","timestamp":"2026-09-16T04:20:35.175Z","cwd":"/work"}
+{"type":"message","id":"a1","parentId":null,"timestamp":"2026-09-16T04:20:48.078Z","message":{"role":"user","content":"start the store work"}}
+{"type":"message","id":"a2","parentId":"a1","timestamp":"2026-09-16T04:21:02.114Z","message":{"role":"assistant","content":[{"type":"text","text":"Started."}],"contextSnapshot":{"promptTokens":62115,"nonMessageTokens":25588,"compactionEpoch":0}}}
+{"type":"message","id":"a3","parentId":"a2","timestamp":"2026-09-16T20:30:11.402Z","message":{"role":"user","content":"keep going"}}
+{"type":"message","id":"a4","parentId":"a3","timestamp":"2026-09-16T20:33:48.771Z","message":{"role":"assistant","content":[{"type":"text","text":"Continuing."}],"contextSnapshot":{"promptTokens":849736,"nonMessageTokens":25588,"compactionEpoch":0}}}
+{"type":"compaction","id":"c1","parentId":"a4","timestamp":"2026-09-16T20:34:55.989Z","summary":"## Goal\nBuild a context manager for coding agents."}
+{"type":"message","id":"a5","parentId":"c1","timestamp":"2026-09-16T20:35:40.006Z","message":{"role":"user","content":"what did we decide about retention"}}
+{"type":"message","id":"a6","parentId":"a5","timestamp":"2026-09-16T20:36:02.883Z","message":{"role":"assistant","content":[{"type":"text","text":"Retention is opt-in."}],"contextSnapshot":{"promptTokens":62304,"nonMessageTokens":25588,"compactionEpoch":1}}}

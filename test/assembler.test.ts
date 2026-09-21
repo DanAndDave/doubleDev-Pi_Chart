@@ -107,10 +107,9 @@ describe("assemble", () => {
 		const fromParts = pack.parts.flatMap((part) => part.messages);
 
 		expect(fromParts).toEqual(pack.messages);
-		expect(pack.parts.map((part) => part.source)).toEqual([
-			"verbatim-tail",
-			"current-turn",
-		]);
+		expect(
+			pack.parts.filter((part) => part.messages.length > 0).map((part) => part.source),
+		).toEqual(["verbatim-tail", "current-turn"]);
 	});
 });
 
@@ -122,6 +121,7 @@ describe("curated knowledge in a pack", () => {
 		text,
 		trust: "unverified" as const,
 		stale,
+		distance: 0.2,
 	});
 
 	test("a concept reaches the model as its own part", () => {
@@ -191,7 +191,11 @@ describe("curated knowledge in a pack", () => {
 		const off = assemble(input, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 		const without = assemble({ turns: input.turns }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }));
 
-		expect(off.parts.some((part) => part.source === "curated")).toBe(false);
+		const curated = off.parts.find((part) => part.source === "curated");
+		expect(curated?.carried).toBe(0);
+		// Recorded as a decision rather than as an absence of supply: the
+		// Concept was there and the Budget refused it.
+		expect(curated?.absent).toBe("disabled");
 		expect(off.messages).toEqual(without.messages);
 	});
 });
@@ -296,6 +300,7 @@ describe("codebase structure in a pack", () => {
 					text: "We cache.",
 					trust: "unverified" as const,
 					stale: false,
+					distance: 0.2,
 				},
 			],
 			structure: [around("a()", "x()"), around("b()", "y()")],
@@ -318,7 +323,9 @@ describe("codebase structure in a pack", () => {
 		const off = assemble(input, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 		const without = assemble({ turns: input.turns }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 }));
 
-		expect(off.parts.some((part) => part.source === "structure")).toBe(false);
+		const structure = off.parts.find((part) => part.source === "structure");
+		expect(structure?.carried).toBe(0);
+		expect(structure?.absent).toBe("disabled");
 		expect(off.messages).toEqual(without.messages);
 	});
 
@@ -436,7 +443,10 @@ describe("token budgets", () => {
 			budgets({ tailTurns: 1, recallTurns: 1, recallTokens: UNBOUNDED }),
 		);
 
-		expect(starved.parts.some((part) => part.source === "recalled")).toBe(false);
+		const recalled = starved.parts.find((part) => part.source === "recalled");
+		expect(recalled?.carried).toBe(0);
+		// Nothing fitted, which is not the same as nothing being relevant.
+		expect(recalled?.absent).toBe("size");
 		expect(starved.parts.find((part) => part.source === "verbatim-tail")).toEqual(
 			generous.parts.find((part) => part.source === "verbatim-tail"),
 		);
@@ -669,6 +679,7 @@ describe("the pack ceiling", () => {
 				text: "k".repeat(1200),
 				trust: "unverified" as const,
 				stale: false,
+				distance: 0.2,
 			},
 		],
 		structure: [
@@ -862,6 +873,7 @@ describe("the pack ceiling", () => {
 					text: "small",
 					trust: "unverified" as const,
 					stale: false,
+					distance: 0.2,
 				},
 			],
 		};

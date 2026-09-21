@@ -62,6 +62,14 @@ export interface Config {
 	graphTokens: number;
 	packTokens: number;
 	/**
+	 * How many excluded candidates each part of a Call records by identity,
+	 * so an absence can be explained rather than counted. Measured: over
+	 * 403 real Turns the Turn a user would ask about sat as deep as rank 12
+	 * among the candidates, and a head of 5 would have named it in fewer
+	 * than half the cases where it was reachable at all.
+	 */
+	explainCandidates: number;
+	/**
 	 * The share of the ceiling at which a Pack is reported as approaching it.
 	 * 0.75 fires on 3.1% of real Turns measured here — a signal rather than
 	 * a habit.
@@ -120,6 +128,12 @@ export const DEFAULT_GRAPH_TOKENS = 3_000;
  * 69,000 before the ceiling touches it — enough for 97.4% of real Turns.
  */
 export const DEFAULT_PACK_TOKENS = 110_000;
+/**
+ * The retained head of each part's excluded candidates. Twelve is recall's
+ * own over-fetch — `recallTurns + tailTurns` — and so the widest candidate
+ * set any part produces under the defaults.
+ */
+export const DEFAULT_EXPLAIN_CANDIDATES = 12;
 export const DEFAULT_PACK_WARN_SHARE = 0.75;
 /** Per-Store deadlines on the `context` path, in milliseconds. */
 export const DEFAULT_TAIL_DEADLINE_MS = 1_500;
@@ -150,6 +164,10 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		docTokens: count(env.CM_DOC_TOKENS, DEFAULT_DOC_TOKENS),
 		graphTokens: count(env.CM_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
 		packTokens: count(env.CM_PACK_TOKENS, DEFAULT_PACK_TOKENS),
+		explainCandidates: count(
+			env.CM_EXPLAIN_CANDIDATES,
+			DEFAULT_EXPLAIN_CANDIDATES,
+		),
 		packWarnShare: share(env.CM_PACK_WARN_SHARE, DEFAULT_PACK_WARN_SHARE),
 		tailDeadlineMs: count(env.CM_TAIL_DEADLINE_MS, DEFAULT_TAIL_DEADLINE_MS),
 		recallDeadlineMs: count(

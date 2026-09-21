@@ -77,11 +77,9 @@ describe("inspecting one call", () => {
 
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
-		expect(view.parts.map((part) => part.source)).toEqual([
-			"recalled",
-			"verbatim-tail",
-			"current-turn",
-		]);
+		expect(
+			view.parts.filter((part) => part.carried > 0).map((part) => part.source),
+		).toEqual(["recalled", "verbatim-tail", "current-turn"]);
 	});
 
 	test("names the turns a recalled part carried", async () => {
@@ -406,7 +404,9 @@ describe("parts whose turns have no recorded position", () => {
 
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
-		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
+		expect(
+			view.parts.find((part) => part.source === "recalled")?.carried,
+		).toBe(0);
 		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0, graph: 0 });
 	});
 });
@@ -426,7 +426,7 @@ describe("relevance against budget", () => {
 		expect(part?.irrelevant).toBe(4);
 	});
 
-	test("a call where everything was rejected records the count with no recalled part", async () => {
+	test("a call where everything was rejected reports the part as refused", async () => {
 		const store = new MemoryAccounting();
 		const pack = assemble({ turns: CONVERSATION, recalled: [], rejected: 6 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
@@ -435,7 +435,12 @@ describe("relevance against budget", () => {
 			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
 		);
 
-		expect(view.parts.map((part) => part.source)).not.toContain("recalled");
+		const recalled = view.parts.find((part) => part.source === "recalled");
+		expect(recalled?.carried).toBe(0);
+		// Refused, not missing: six candidates were measured and none was
+		// near enough, which is not an empty Conversation.
+		expect(recalled?.absent).toBe("irrelevant");
+		expect(recalled?.irrelevant).toBe(6);
 		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0, graph: 0 });
 	});
 
@@ -488,6 +493,7 @@ describe("the curated part in accounting", () => {
 						text: "We cache.",
 						trust: "unverified",
 						stale: false,
+						distance: 0,
 					},
 				],
 			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }));
@@ -582,10 +588,12 @@ describe("the doc budget in accounting", () => {
 				concepts: [],
 			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 3, graphSymbols: 0 }));
 
-		// The Budget is the evidence that the Doc Store was consulted at
-		// all; without it a Call that found nothing is indistinguishable
-		// from one where the Store was switched off.
-		expect(pack.parts.some((part) => part.source === "curated")).toBe(false);
+		// The part is accounted for whether or not it carried anything: a
+		// Call that found nothing must not read like one where the Store
+		// was switched off, and the cause is what tells them apart.
+		const curated = pack.parts.find((part) => part.source === "curated");
+		expect(curated?.carried).toBe(0);
+		expect(curated?.absent).toBe("none");
 		expect(pack.budgets.docs).toBe(3);
 	});
 });

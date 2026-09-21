@@ -53,11 +53,9 @@ describe("recall in a pack", () => {
 	test("recall is its own part, accounted separately from the tail", () => {
 		const pack = assemble({ turns: CONVERSATION, recalled: recalled("something older") }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
 
-		expect(pack.parts.map((part) => part.source)).toEqual([
-			"recalled",
-			"verbatim-tail",
-			"current-turn",
-		]);
+		expect(
+			pack.parts.filter((part) => part.carried).map((part) => part.source),
+		).toEqual(["recalled", "verbatim-tail", "current-turn"]);
 	});
 
 	test("recall is trimmed to its budget, strongest matches kept", () => {
@@ -93,7 +91,13 @@ describe("recall in a pack", () => {
 		const withRecall = assemble({ turns: CONVERSATION, recalled: recalled("something older") }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 		const without = assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 
-		expect(withRecall).toEqual(without);
+		// The messages and every other part: the recalled part itself
+		// differs, because a Budget of zero refused a candidate that was
+		// there and the other pack had none to refuse.
+		expect(withRecall.messages).toEqual(without.messages);
+		expect(withRecall.parts.filter((part) => part.source !== "recalled")).toEqual(
+			without.parts.filter((part) => part.source !== "recalled"),
+		);
 	});
 
 	test("a turn the tail already carries is not recalled as well", () => {
@@ -102,7 +106,11 @@ describe("recall in a pack", () => {
 				recalled: [{ turnIndex: 10, turn: turn("recent one", undefined, 10) }],
 			}, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
 
-		expect(pack.parts.map((part) => part.source)).not.toContain("recalled");
+		const recalled = pack.parts.find((part) => part.source === "recalled");
+		expect(recalled?.carried).toBe(0);
+		// Eligible candidates, not candidates: the tail already carries it,
+		// so recall had nothing left to consider.
+		expect(recalled?.absent).toBe("none");
 	});
 
 	test("a different turn that happens to share a prompt is still recalled", () => {

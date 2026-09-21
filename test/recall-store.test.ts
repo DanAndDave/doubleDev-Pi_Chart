@@ -6,8 +6,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { assemble } from "../src/assembler.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import type { JournalTurn } from "../src/journal.ts";
+import {
+	inspectCall,
+	inspectConversation,
+	resolveCall,
+} from "../src/inspection.ts";
+import { describeRecorded } from "../src/report.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import { budgets } from "./fixtures.ts";
+
+function missing(): never {
+	throw new Error("nothing recorded");
+}
 
 const databaseUrl = process.env.CM_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
@@ -193,6 +203,113 @@ describeStore("per-part detail round-trips", () => {
 		expect(part?.turnIndices).toBeUndefined();
 		expect(part?.approximate).toBe(true);
 	});
+
+	test("the ledger of what a call excluded survives a round trip", async () => {
+		const pack = assemble(
+			{
+				turns: [
+					{ index: 1, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
+					{ prompt: "current", messages: [{ role: "user", content: "current" }] },
+				],
+				recalled: [{ turnIndex: 7, turn: { index: 7, prompt: "older", messages: [] } }],
+				rejected: 1,
+				recallMisses: [{ turnIndex: 4, distance: 0.61 }],
+			},
+			budgets({ tailTurns: 2, recallTurns: 1, recallMaxDistance: 0.52 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+
+		const [turn] = await store.readAccounting("conv-1");
+		const recalledPart = turn?.calls[0]?.parts.find(
+			(part) => part.source === "recalled",
+		);
+		expect(recalledPart?.excludedCandidates).toEqual([
+			{ turnIndex: 4, reason: "irrelevant", distance: 0.61, threshold: 0.52 },
+		]);
+		expect(recalledPart?.threshold).toBe(0.52);
+	});
+
+	test("a call recorded before the ledger reads back unexplainable", async () => {
+		await store["sql"]`
+			INSERT INTO call_accounting
+				(conversation_id, turn_index, call_index, parts, approximate_tokens)
+			VALUES ('conv-1', 0, 0,
+				'[{"source":"recalled","approximateTokens":12,"irrelevant":3}]'::jsonb, 12)`;
+
+		const [turn] = await store.readAccounting("conv-1");
+		const call = turn?.calls[0];
+
+		expect(call?.parts[0]?.excludedCandidates).toBeUndefined();
+		expect(inspectCall(call ?? missing()).explained).toBe(false);
+	});
+
+	test("the compaction the harness reported survives a round trip", async () => {
+		await store.recordMeasurements("conv-1", [
+			{
+				turnIndex: 0,
+				callIndex: 0,
+				snapshot: { promptTokens: 900, nonMessageTokens: 200, compactionEpoch: 0 },
+			},
+			{
+				turnIndex: 1,
+				callIndex: 0,
+				snapshot: { promptTokens: 900, nonMessageTokens: 200, compactionEpoch: 1 },
+			},
+		]);
+
+		const calls = inspectConversation(await store.readAccounting("conv-1"));
+
+		expect(calls.map((call) => call.compacted)).toEqual([false, true]);
+	});
+
+	test("a re-measured call keeps the epoch a later snapshot omits", async () => {
+		const at = { turnIndex: 1, callIndex: 0 };
+		await store.recordMeasurements("conv-1", [
+			{ ...at, snapshot: { promptTokens: 900, nonMessageTokens: 200, compactionEpoch: 1 } },
+		]);
+
+		// A harness that stops reporting the epoch has not un-compacted the
+		// Conversation.
+		await store.recordMeasurements("conv-1", [
+			{ ...at, snapshot: { promptTokens: 950, nonMessageTokens: 200 } },
+		]);
+
+		const [turn] = await store.readAccounting("conv-1");
+		expect(turn?.calls[0]?.compactionEpoch).toBe(1);
+		expect(turn?.calls[0]?.packTokens).toBe(750);
+	});
+
+	test("a measurement written before the epoch column reads back unknown", async () => {
+		await store["sql"]`
+			INSERT INTO call_accounting
+				(conversation_id, turn_index, call_index, pack_tokens, floor_tokens)
+			VALUES ('conv-1', 0, 0, 700, 200)`;
+
+		const calls = inspectConversation(await store.readAccounting("conv-1"));
+
+		expect(calls[0]?.compactionEpoch).toBeUndefined();
+		expect(calls[0]?.compacted).toBe(false);
+	});
+
+	test("any recorded call of a stored conversation is addressable", async () => {
+		const pack = (prompt: string) =>
+			assemble(
+				{ turns: [{ prompt, messages: [{ role: "user", content: prompt }] }] },
+				budgets({ tailTurns: 2 }),
+			);
+		await store.recordPack("conv-1", { turnIndex: 4, callIndex: 0 }, pack("a"), "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 4, callIndex: 1 }, pack("b"), "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 7, callIndex: 0 }, pack("c"), "thread-store");
+
+		const calls = inspectConversation(await store.readAccounting("conv-1"));
+
+		// A Turn alone resolves to its last Call, and an address the
+		// Conversation never recorded resolves to nothing at all.
+		expect(resolveCall(calls, { turnIndex: 4 })?.callIndex).toBe(1);
+		expect(resolveCall(calls, { turnIndex: 4, callIndex: 0 })?.callIndex).toBe(0);
+		expect(resolveCall(calls, { turnIndex: 5 })).toBeUndefined();
+		expect(describeRecorded(calls)).toBe("turns 4 to 7, 3 calls");
+	});
 });
 
 describeStore("the relevance threshold", () => {
@@ -256,6 +373,45 @@ describeStore("the relevance threshold", () => {
 		const { turns } = await store.similarTurns("conv-1", "caching", 100, 0.01);
 
 		expect(turns).toEqual([]);
+	});
+
+	test("what it refused comes back named, nearest first", async () => {
+		const { turns, rejected, misses } = await store.similarTurns(
+			"conv-1",
+			"caching",
+			3,
+			0.01,
+		);
+
+		expect(turns).toEqual([]);
+		expect(rejected).toBe(CONVERSATION.length);
+		// Named, so an absence can be explained rather than counted.
+		expect(misses.map((miss) => miss.turnIndex).sort()).toEqual([0, 1, 2]);
+		expect(misses.map((miss) => miss.distance)).toEqual(
+			[...misses.map((miss) => miss.distance)].sort((a, b) => a - b),
+		);
+		for (const miss of misses) expect(miss.distance).toBeGreaterThan(0.01);
+	});
+
+	test("the refused are drawn from the contenders, not from the conversation", async () => {
+		// Only the nearest `limit` compete, so only they can be refused:
+		// naming every distant Turn would describe the Conversation's
+		// length rather than this retrieval.
+		const { misses } = await store.similarTurns("conv-1", "caching", 2, 0.01);
+
+		expect(misses).toHaveLength(2);
+	});
+
+	test("a turn inside the threshold is not among the refused", async () => {
+		const { turns, misses } = await store.similarTurns(
+			"conv-1",
+			"cache the parsed config",
+			3,
+			1,
+		);
+
+		const carried = new Set(turns.map((each) => each.turnIndex));
+		for (const miss of misses) expect(carried.has(miss.turnIndex)).toBe(false);
 	});
 });
 

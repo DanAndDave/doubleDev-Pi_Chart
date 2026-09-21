@@ -1,7 +1,16 @@
+import { readFile } from "node:fs/promises";
+
 import type { AssemblerConfig } from "../src/assembler.ts";
+import type { BranchEntry } from "../src/harness.ts";
 import { readJournal } from "../src/journal.ts";
 import type { HarnessMessage, Turn } from "../src/messages.ts";
-import { loadConfig, type Config } from "../src/config.ts";
+import {
+	DEFAULT_DOC_MAX_DISTANCE,
+	DEFAULT_EXPLAIN_CANDIDATES,
+	DEFAULT_RECALL_MAX_DISTANCE,
+	loadConfig,
+	type Config,
+} from "../src/config.ts";
 
 /**
  * Message arrays captured from real sessions, so tests run against shapes the
@@ -32,6 +41,11 @@ export function budgets(counts: Partial<AssemblerConfig>): AssemblerConfig {
 		docTokens: UNBOUNDED,
 		graphTokens: UNBOUNDED,
 		packTokens: UNBOUNDED,
+		// The real defaults: a test about Budgets should not have to state
+		// the thresholds a part records itself as having selected against.
+		recallMaxDistance: DEFAULT_RECALL_MAX_DISTANCE,
+		docMaxDistance: DEFAULT_DOC_MAX_DISTANCE,
+		explainCandidates: DEFAULT_EXPLAIN_CANDIDATES,
 		...counts,
 	};
 }
@@ -64,6 +78,34 @@ export const JOURNAL_FIXTURE = new URL(
 	"./fixtures/journal-tool-session.jsonl",
 	import.meta.url,
 ).pathname;
+
+/**
+ * A real-shaped Journal carrying the compaction observed on this machine:
+ * epoch 0 either side of a `compaction` entry, then epoch 1, with the
+ * reported window sizes it actually had.
+ */
+export const COMPACTION_FIXTURE = new URL(
+	"./fixtures/journal-compaction.jsonl",
+	import.meta.url,
+).pathname;
+
+/**
+ * A Journal as the harness's branch, which is what the extension reads.
+ *
+ * The branch is the parent chain, and a compaction is a node in it rather
+ * than a break: the observed Journal reaches all sixteen of its prompts
+ * from the last entry, ten of them from before the compaction.
+ */
+export async function branchOf(path: string): Promise<BranchEntry[]> {
+	const text = await readFile(path, "utf8");
+	const branch: BranchEntry[] = [];
+	for (const line of text.split("\n")) {
+		if (line.trim() === "") continue;
+		const entry = JSON.parse(line) as BranchEntry;
+		if (entry.message) branch.push({ type: entry.type, message: entry.message });
+	}
+	return branch;
+}
 
 /**
  * The fixture's tool-using Turn, as a Turn.

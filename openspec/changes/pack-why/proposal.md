@@ -31,7 +31,7 @@ This ticket is what makes the rest of the queue measurable. Every figure in `doc
 
 ## Impact
 
-- **Schema:** the detail rides in the existing `parts` JSONB and one Call-level field; `decode` already tolerates rows lacking it (`src/postgres-store.ts:658-663`), so no migration and no backfill. Calls already recorded stay unexplainable, which they are.
+- **Schema:** the detail rides in the existing `parts` JSONB, which `decode` already tolerates rows lacking (`src/postgres-store.ts:658-663`). The Call-level field is the harness's compaction epoch, and it turned out to want a column: migration 15 adds a nullable `compaction_epoch`, never backfilled, so a Call recorded before it reads back as unknown rather than as epoch zero. No backfill either way, and Calls already recorded stay unexplainable, which they are.
 - **Configuration:** how many rejected candidates to keep per Call. Small — this is diagnosis, not an index.
 - **Assembly:** retrieval must hand the Assembler its near misses instead of a count, so `Recollections` and `ConceptHit` carry distance. `assemble` stays pure.
 - **Performance:** a few hundred bytes more JSONB per Call; `pack why` reads the Accounting the inspector already reads.

@@ -7,6 +7,31 @@ export interface ConceptHit {
 	text: string;
 	trust: TrustTier;
 	stale: boolean;
+	/**
+	 * How far the matching section sat from the query, as cosine distance.
+	 * Reported, never re-weighted: ordering is the Store's, and a distance
+	 * mixed into it a second time would be the tie-break ADR-0003 refuses.
+	 */
+	distance: number;
+}
+
+/** A Concept the relevance threshold refused, and how far it was. */
+export interface ConceptMiss {
+	conceptId: string;
+	distance: number;
+}
+
+/** What a search found, and what it refused. */
+export interface ConceptMatches {
+	hits: ConceptHit[];
+	/** How many Concepts fell outside the relevance threshold. */
+	rejected: number;
+	/**
+	 * Which of those they were, nearest first. Named rather than counted,
+	 * so a threshold set too tight can be answered for rather than guessed
+	 * at from an empty part.
+	 */
+	misses: ConceptMiss[];
 }
 
 /**
@@ -33,5 +58,5 @@ export interface ConceptSearch {
 		query: string,
 		limit: number,
 		maxDistance: number,
-	): Promise<ConceptHit[]>;
+	): Promise<ConceptMatches>;
 }

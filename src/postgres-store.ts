@@ -14,7 +14,13 @@ import {
 import type { Pack, PackSource } from "./assembler.ts";
 import { PINNED_DIMENSIONS, type Embedder } from "./embedder.ts";
 import type { Concept, TrustTier } from "./concept.ts";
-import type { ConceptHit, ConceptSearch, IndexResult } from "./doc-index.ts";
+import type {
+	ConceptHit,
+	ConceptMatches,
+	ConceptMiss,
+	ConceptSearch,
+	IndexResult,
+} from "./doc-index.ts";
 import type { JournalTurn } from "./journal.ts";
 import { splitConcept, type Section } from "./sections.ts";
 import type { HarnessMessage, Turn } from "./messages.ts";
@@ -24,6 +30,7 @@ import type {
 	FoundTurn,
 	Recollections,
 	RecalledTurn,
+	TurnMiss,
 	TurnRecall,
 	TurnSink,
 	TurnSource,
@@ -219,6 +226,17 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE turns ALTER COLUMN ingested_at SET DEFAULT now()`,
 		],
 	},
+	{
+		version: 15,
+		statements: [
+			// Which compaction of the Conversation the harness was on when it
+			// measured this Call. Nullable and never backfilled: a Call
+			// recorded before the epoch was read says nothing about it, and
+			// defaulting it to zero would report every older Conversation as
+			// having been compacted at its first measured Call.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS compaction_epoch INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -254,6 +272,7 @@ interface AccountingRow {
 	unsearched: number | null;
 	ceiling: number | null;
 	before_ceiling: number | null;
+	compaction_epoch: number | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -550,7 +569,12 @@ export class PostgresStore implements
 		limit: number,
 		maxDistance: number,
 	): Promise<Recollections> {
-		const empty: Recollections = { turns: [], rejected: 0, unsearched: 0 };
+		const empty: Recollections = {
+			turns: [],
+			rejected: 0,
+			misses: [],
+			unsearched: 0,
+		};
 		if (!this.embedder || limit <= 0) return empty;
 		const { model } = await this.embedder.identity();
 		const [vector] = await this.embedder.embedQuery([prompt]);
@@ -566,6 +590,10 @@ export class PostgresStore implements
 		// Only candidates that would have competed are refused: the nearest
 		// `limit` of them. Reporting every distant Turn in a long
 		// Conversation would say more about its length than its relevance.
+		//
+		// The refused ones come back named as well as counted, from the same
+		// contender set: naming them costs no second scan, and a count is
+		// exactly what cannot explain an absence.
 		const [row] = (await this.sql`
 			WITH scored AS (
 				SELECT turn_index, embedding <=> ${embedding}::vector AS distance
@@ -587,10 +615,17 @@ export class PostgresStore implements
 				coalesce((
 					SELECT jsonb_agg(turn_index ORDER BY distance ASC, turn_index ASC)
 					FROM contenders WHERE distance <= ${maxDistance}
-				), '[]'::jsonb) AS kept`) as {
+				), '[]'::jsonb) AS kept,
+				coalesce((
+					SELECT jsonb_agg(
+						jsonb_build_object('turnIndex', turn_index, 'distance', distance)
+						ORDER BY distance ASC, turn_index ASC)
+					FROM contenders WHERE distance > ${maxDistance}
+				), '[]'::jsonb) AS misses`) as {
 			rejected: number;
 			unsearched: number;
 			kept: JsonColumn;
+			misses: JsonColumn;
 		}[];
 
 		const turns: RecalledTurn[] = [];
@@ -602,6 +637,7 @@ export class PostgresStore implements
 		return {
 			turns,
 			rejected: row?.rejected ?? 0,
+			misses: decode<TurnMiss[]>(row?.misses, []),
 			unsearched: row?.unsearched ?? 0,
 		};
 	}
@@ -710,17 +746,25 @@ export class PostgresStore implements
 		for (const measurement of measurements) {
 			const floor = measurement.snapshot.nonMessageTokens;
 			const packTokens = measurement.snapshot.promptTokens - floor;
+			const epoch = measurement.snapshot.compactionEpoch ?? null;
 			await this.sql`
 				INSERT INTO call_accounting
-					(conversation_id, turn_index, call_index, pack_tokens, floor_tokens)
+					(conversation_id, turn_index, call_index, pack_tokens, floor_tokens,
+					 compaction_epoch)
 				VALUES (
 					${conversationId}, ${measurement.turnIndex}, ${measurement.callIndex},
-					${packTokens}, ${floor}
+					${packTokens}, ${floor}, ${epoch}
 				)
 				ON CONFLICT (conversation_id, turn_index, call_index)
 				DO UPDATE SET
 					pack_tokens = EXCLUDED.pack_tokens,
-					floor_tokens = EXCLUDED.floor_tokens`;
+					floor_tokens = EXCLUDED.floor_tokens,
+					-- Kept where the new snapshot has none: a harness that
+					-- stops reporting the epoch has not un-compacted the
+					-- Conversation, and overwriting it with null would erase
+					-- the one record that a compaction happened.
+					compaction_epoch = coalesce(
+						EXCLUDED.compaction_epoch, call_accounting.compaction_epoch)`;
 		}
 	}
 
@@ -728,7 +772,7 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected, unsearched, ceiling, before_ceiling
+			       rejected, unsearched, ceiling, before_ceiling, compaction_epoch
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -758,6 +802,7 @@ export class PostgresStore implements
 			unsearched: row.unsearched ?? undefined,
 			ceiling: row.ceiling ?? undefined,
 			beforeCeiling: row.before_ceiling ?? undefined,
+			compactionEpoch: row.compaction_epoch ?? undefined,
 		}));
 
 		return groupByTurn(conversationId, calls);
@@ -984,29 +1029,37 @@ export class PostgresStore implements
 	}
 
 	/**
-	 * Concepts relevant to a query, best section first, deduplicated.
+	 * Concepts relevant to a query, best section first, deduplicated, with
+	 * what the relevance threshold refused.
 	 *
 	 * Deprecated Concepts are withheld rather than down-weighted: a
 	 * superseded decision presented as current is the failure this Store
 	 * must not have. Among comparable matches — within `BAND` of the best
 	 * one — current and human-reviewed Concepts come first: a tie-break,
 	 * not a number mixed into a distance.
+	 *
+	 * The refusals come out of the same candidate set, in the same
+	 * statement: a curated part that carried nothing because the threshold
+	 * was set tight used to read exactly like one with no bundle at all,
+	 * and a second query would pay the nearest-neighbour cost twice where
+	 * the model is waiting.
 	 */
 	async searchConcepts(
 		query: string,
 		limit: number,
 		maxDistance: number,
-	): Promise<ConceptHit[]> {
-		if (!this.embedder || limit <= 0) return [];
+	): Promise<ConceptMatches> {
+		const empty: ConceptMatches = { hits: [], rejected: 0, misses: [] };
+		if (!this.embedder || limit <= 0) return empty;
 		const [vector] = await this.embedder.embed([query]);
-		if (!vector) return [];
+		if (!vector) return empty;
 
 		const embedding = JSON.stringify(vector);
 		// The nearest-neighbour stage is shaped so the hnsw index can serve
 		// it: the distance in ORDER BY, at the same level as LIMIT.
 		// Lifecycle and deduplication then narrow that candidate set.
 		const candidates = limit * CANDIDATE_FACTOR;
-		const rows = (await this.sql`
+		const [row] = (await this.sql`
 			WITH nearest AS (
 				SELECT identity, concept_id, text, status, trust, stale,
 					embedding <=> ${embedding}::vector AS distance
@@ -1028,37 +1081,65 @@ export class PostgresStore implements
 				WHERE distance <= ${maxDistance} AND status <> 'deprecated'
 				ORDER BY identity, distance ASC
 			),
+			-- Refused for distance alone. A deprecated Concept is withheld
+			-- by lifecycle, not by relevance, and reporting it as a near
+			-- miss would invite someone to loosen a threshold that was
+			-- never what kept it out.
+			missed AS (
+				SELECT DISTINCT ON (identity) identity, concept_id, distance
+				FROM nearest
+				WHERE distance > ${maxDistance} AND status <> 'deprecated'
+					AND identity NOT IN (SELECT identity FROM best)
+				ORDER BY identity, distance ASC
+			),
 			ranked AS (
 				SELECT *,
 					distance > (SELECT min(distance) FROM best) + ${BAND} AS outside
 				FROM best
+			),
+			chosen AS (
+				SELECT concept_id, text, trust, stale, distance,
+					row_number() OVER (
+						-- Comparable matches first, ordered by trust and
+						-- freshness. Everything beyond the band is ordered by
+						-- relevance alone: a tie-break must never promote a
+						-- distant Concept.
+						ORDER BY
+							outside ASC,
+							CASE WHEN outside THEN distance END ASC,
+							stale ASC,
+							(trust = 'human-reviewed') DESC,
+							distance ASC,
+							concept_id ASC
+					) AS ord
+				FROM ranked
 			)
-			SELECT concept_id, text, trust, stale, distance
-			FROM ranked
-			ORDER BY
-				-- Comparable matches first, ordered by trust and freshness.
-				-- Everything beyond the band is ordered by relevance alone:
-				-- a tie-break must never promote a distant Concept.
-				outside ASC,
-				CASE WHEN outside THEN distance END ASC,
-				stale ASC,
-				(trust = 'human-reviewed') DESC,
-				distance ASC,
-				concept_id ASC
-			LIMIT ${limit}`) as {
-			concept_id: string;
-			text: string;
-			trust: TrustTier;
-			stale: boolean;
-			distance: number;
+			SELECT
+				coalesce((
+					SELECT jsonb_agg(
+						jsonb_build_object(
+							'conceptId', concept_id, 'text', text, 'trust', trust,
+							'stale', stale, 'distance', distance)
+						ORDER BY ord)
+					FROM chosen WHERE ord <= ${limit}
+				), '[]'::jsonb) AS hits,
+				(SELECT count(*)::int FROM missed) AS rejected,
+				coalesce((
+					SELECT jsonb_agg(
+						jsonb_build_object('conceptId', concept_id, 'distance', distance)
+						ORDER BY distance ASC, concept_id ASC)
+					FROM missed
+				), '[]'::jsonb) AS misses`) as {
+			hits: JsonColumn;
+			rejected: number;
+			misses: JsonColumn;
 		}[];
 
-		return rows.map((row) => ({
-			conceptId: row.concept_id,
-			text: row.text,
-			trust: row.trust,
-			stale: row.stale,
-		}));
+		return {
+			hits: decode<ConceptHit[]>(row?.hits, []),
+			rejected: row?.rejected ?? 0,
+			misses: decode<ConceptMiss[]>(row?.misses, []),
+		};
 	}
 
 	/**

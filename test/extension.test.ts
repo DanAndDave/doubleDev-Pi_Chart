@@ -33,7 +33,12 @@ import type {
 	LifecycleHandler,
 } from "../src/harness.ts";
 import type { ContextSnapshot } from "../src/messages.ts";
-import { JOURNAL_FIXTURE, settings } from "./fixtures.ts";
+import {
+	branchOf,
+	COMPACTION_FIXTURE,
+	JOURNAL_FIXTURE,
+	settings,
+} from "./fixtures.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
@@ -541,7 +546,7 @@ describe("recall wiring", () => {
 							},
 						},
 					],
-					rejected: 0, unsearched: 0,
+					rejected: 0, misses: [], unsearched: 0,
 				}),
 			},
 		});
@@ -567,6 +572,43 @@ describe("recall wiring", () => {
 
 		expect(result?.messages).toHaveLength(1);
 		expect(cm.reported.join()).toContain("index offline");
+		// Nothing to explain from, and nothing invented to explain with.
+		const recalled = cm.recorded[0]?.pack?.parts.find(
+			(part) => part.source === "recalled",
+		);
+		expect(recalled?.excludedCandidates).toEqual([]);
+		expect(recalled?.absent).toBe("failed");
+	});
+
+	test("what the curated part refused reaches the accounting", async () => {
+		const cm = harness({
+			config: { docConcepts: 2, docMaxDistance: 0.4 },
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				searchConcepts: async () => ({
+					hits: [],
+					rejected: 2,
+					misses: [
+						{ conceptId: "decisions/caching", distance: 0.55 },
+						{ conceptId: "decisions/retention", distance: 0.62 },
+					],
+				}),
+			},
+		});
+
+		await cm.context({ messages: conversation }, ctx());
+		await cm.settle();
+
+		const curated = cm.recorded[0]?.pack?.parts.find(
+			(part) => part.source === "curated",
+		);
+		expect(curated?.irrelevant).toBe(2);
+		expect(curated?.threshold).toBe(0.4);
+		expect(curated?.absent).toBe("irrelevant");
+		expect(curated?.excludedCandidates?.map((each) => each.conceptId)).toEqual([
+			"decisions/caching",
+			"decisions/retention",
+		]);
 	});
 
 	test("no recall is requested when its budget is zero", async () => {
@@ -575,7 +617,7 @@ describe("recall wiring", () => {
 			recall: {
 				similarTurns: async () => {
 					asked = true;
-					return { turns: [], rejected: 0, unsearched: 0 };
+					return { turns: [], rejected: 0, misses: [], unsearched: 0 };
 				},
 			},
 		});
@@ -662,7 +704,7 @@ describe("the pack command", () => {
 							},
 						},
 					],
-					rejected: 0, unsearched: 0,
+					rejected: 0, misses: [], unsearched: 0,
 				}),
 			},
 		});
@@ -670,17 +712,19 @@ describe("the pack command", () => {
 		// Recall is off, so the first pack carries none.
 		await cm.context({ messages: prompt }, ctx());
 		await cm.settle();
-		expect(cm.recorded[0]?.pack?.parts.map((part) => part.source)).not.toContain(
-			"recalled",
-		);
+		expect(
+			cm.recorded[0]?.pack?.parts.find((part) => part.source === "recalled")
+				?.carried,
+		).toBe(0);
 
 		await cm.commands.pack?.handler("budget recall 2", {});
 		await cm.context({ messages: prompt }, ctx());
 		await cm.settle();
 
-		expect(cm.recorded[1]?.pack?.parts.map((part) => part.source)).toContain(
-			"recalled",
-		);
+		expect(
+			cm.recorded[1]?.pack?.parts.find((part) => part.source === "recalled")
+				?.carried,
+		).toBe(1);
 	});
 
 	test("an invalid budget is reported and nothing changes", async () => {
@@ -699,6 +743,187 @@ describe("the pack command", () => {
 		await cm.commands.pack?.handler("", {});
 
 		expect(cm.shown.join()).toContain("Nothing recorded");
+	});
+
+	/**
+	 * Three Calls over two Turns, recorded the way a session records them:
+	 * a Turn answered in one Call, then a Turn that took two.
+	 */
+	async function recordedConversation(overrides: Overrides = {}) {
+		const cm = harness({ accounting: new MemoryAccounting(), ...overrides });
+		await cm.context({ messages: [{ role: "user", content: "first" }] }, ctx());
+		const branch = answered(100, "first");
+		await cm.context(
+			{ messages: [{ role: "user", content: "second" }] },
+			ctx(branch),
+		);
+		await cm.context(
+			{ messages: [{ role: "user", content: "second" }] },
+			ctx([
+				...branch,
+				{ type: "message", message: { role: "user", content: "second" } },
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						contextSnapshot: { promptTokens: 200, nonMessageTokens: 90 },
+					},
+				},
+			]),
+		);
+		await cm.settle();
+		return cm;
+	}
+
+	test("a call several turns back is examined by its address", async () => {
+		const cm = await recordedConversation();
+
+		await cm.commands.pack?.handler("0", {});
+
+		expect(cm.shown.at(-1)).toContain("Turn 0, call 0");
+	});
+
+	test("a turn without a call number resolves to its last call", async () => {
+		const cm = await recordedConversation();
+
+		await cm.commands.pack?.handler("1", {});
+		expect(cm.shown.at(-1)).toContain("Turn 1, call 1");
+
+		await cm.commands.pack?.handler("1.0", {});
+		expect(cm.shown.at(-1)).toContain("Turn 1, call 0");
+	});
+
+	test("an address that was never recorded is refused, naming what is", async () => {
+		const cm = await recordedConversation();
+
+		await cm.commands.pack?.handler("9.4", {});
+
+		const answer = cm.shown.at(-1) ?? "";
+		expect(answer).toContain("No call recorded at 9.4");
+		expect(answer).toContain("turns 0 to 1, 3 calls");
+		// Never a different Call in its place.
+		expect(answer).not.toContain("Turn 1");
+	});
+
+	test("two named calls can be compared, whether or not either is the latest", async () => {
+		const cm = await recordedConversation();
+
+		await cm.commands.pack?.handler("diff 0 1.0", {});
+		const named = cm.shown.at(-1) ?? "";
+		await cm.commands.pack?.handler("diff", {});
+		const latest = cm.shown.at(-1) ?? "";
+
+		// Turn 0's pack carried turn 0; Turn 1's carried turn 1. The named
+		// diff must be those two, not the two most recent Calls — which
+		// are 1.0 and 1.1, and carried the same Turn as each other.
+		expect(named).toContain("+ current-turn turn 1");
+		expect(named).toContain("- current-turn turn 0");
+		expect(latest).toBe("No change between these packs.");
+	});
+
+	test("why names the turn recall refused, with its distance", async () => {
+		const refusing = {
+			config: { recallTurns: 2, recallMaxDistance: 0.52 },
+			recall: {
+				similarTurns: async () => ({
+					turns: [],
+					rejected: 1,
+					misses: [{ turnIndex: 4, distance: 0.61 }],
+					unsearched: 0,
+				}),
+			},
+		};
+
+		// A bare number is the subject, not an address: "why 4" is the
+		// commonest question this command exists to answer.
+		for (const asked of ["why turn 4", "why 4"]) {
+			const cm = await recordedConversation(refusing);
+			await cm.commands.pack?.handler(asked, {});
+
+			const answer = cm.shown.at(-1) ?? "";
+			expect(answer).toContain("turn 4");
+			expect(answer).toContain("distance 0.61");
+			expect(answer).toContain("beyond the 0.52 threshold");
+		}
+	});
+
+	test("why can be asked of a call that is not the latest", async () => {
+		const cm = await recordedConversation();
+
+		await cm.commands.pack?.handler("why 0 turn 4", {});
+
+		expect(cm.shown.at(-1)).toContain("turn 0, call 0");
+	});
+
+	test("why without a subject says what to ask", async () => {
+		const cm = await recordedConversation();
+
+		await cm.commands.pack?.handler("why", {});
+
+		expect(cm.shown.at(-1)).toContain("Say what to explain");
+	});
+});
+
+describe("a harness compaction during a session", () => {
+	/** The fixture's branch, driven through one Call. */
+	async function compactedSession() {
+		const accounting = new MemoryAccounting();
+		const cm = harness({ accounting });
+		await cm.context(
+			{ messages: [{ role: "user", content: "what did we decide about retention" }] },
+			ctx(await branchOf(COMPACTION_FIXTURE)),
+		);
+		await cm.settle();
+		return { cm, accounting };
+	}
+
+	test("is recorded against the call it was first reported at", async () => {
+		const { cm, accounting } = await compactedSession();
+
+		// The epochs the fixture reports: 0, 0, then 1 at the third Call.
+		const recordedTurns = await accounting.readAccounting("conv-1");
+		expect(
+			recordedTurns.flatMap((turn) =>
+				turn.calls.map((call) => call.compactionEpoch),
+			),
+		).toEqual([0, 0, 1, undefined]);
+
+		await cm.commands.pack?.handler("summary", {});
+		expect(cm.shown.at(-1)).toContain("compacted this conversation at turn 2");
+	});
+
+	test("the calls before it are not recorded as compacted", async () => {
+		const { cm } = await compactedSession();
+
+		await cm.commands.pack?.handler("1", {});
+		expect(cm.shown.at(-1)).not.toContain("compacted");
+		await cm.commands.pack?.handler("2.0", {});
+		expect(cm.shown.at(-1)).toContain("compacted");
+	});
+
+	test("a call assembled after it is not itself reported as the compaction", async () => {
+		// The Call this session just assembled is at turn 2, call 1: it
+		// followed the compaction but is not where the epoch changed, and
+		// the harness has not measured it at all yet.
+		const { cm } = await compactedSession();
+
+		await cm.commands.pack?.handler("2.1", {});
+
+		expect(cm.shown.at(-1)).toContain("Turn 2, call 1");
+		expect(cm.shown.at(-1)).not.toContain("compacted");
+	});
+
+	test("detecting one does not change the pack or fail the turn", async () => {
+		const branch = await branchOf(COMPACTION_FIXTURE);
+		const cm = harness({ accounting: new MemoryAccounting() });
+		const messages = [{ role: "user", content: "what did we decide about retention" }];
+
+		const compacted = await cm.context({ messages }, ctx(branch));
+		const plain = await cm.context({ messages }, ctx());
+		await cm.settle();
+
+		expect(compacted?.messages).toEqual(plain?.messages);
+		expect(cm.reported).toEqual([]);
 	});
 });
 
@@ -787,6 +1012,7 @@ describe("the doc store in a session", () => {
 		text: "Caching\n\nWe cache parsed configuration.",
 		trust: "human-reviewed" as const,
 		stale: false,
+		distance: 0.2,
 	};
 
 	test("concepts reach the pack", async () => {
@@ -804,7 +1030,7 @@ describe("the doc store in a session", () => {
 			},
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => [hit],
+				searchConcepts: async () => ({ hits: [hit], rejected: 0, misses: [] }),
 			},
 		});
 
@@ -858,7 +1084,7 @@ describe("the doc store in a session", () => {
 					indexed++;
 					return { embedded: 1, contested: [] };
 				},
-				searchConcepts: async () => [],
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 			},
 			bundle: async () => [],
 		});
@@ -881,7 +1107,7 @@ describe("the doc store in a session", () => {
 		const cm = harness({
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => [],
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 			},
 			bundle: async () => {
 				throw new Error("no bundle there");
@@ -904,7 +1130,7 @@ describe("a bundle that is not there", () => {
 					indexed = concepts.length;
 					return { embedded: 0, contested: [] };
 				},
-				searchConcepts: async () => [],
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 			},
 			// What the real reader returns for a path that is not there.
 			bundle: async () => undefined,
@@ -926,7 +1152,7 @@ describe("a bundle that is not there", () => {
 					embedded: 0,
 					contested: ["decisions/caching-copy"],
 				}),
-				searchConcepts: async () => [],
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 			},
 			bundle: async () => [],
 		});
@@ -946,7 +1172,7 @@ describe("a bundle that is not there", () => {
 					indexed = true;
 					return { embedded: 0, contested: [] };
 				},
-				searchConcepts: async () => [],
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 			},
 			bundle: async () => [],
 			ready: migrated.promise,
@@ -1503,14 +1729,19 @@ describe("walking the documentation bundle", () => {
 			},
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => [
-					{
-						conceptId: "metrics/gross-margin",
-						text: "Gross margin is revenue less cost.",
-						trust: "unverified" as const,
-						stale: false,
-					},
-				],
+				searchConcepts: async () => ({
+					hits: [
+						{
+							conceptId: "metrics/gross-margin",
+							text: "Gross margin is revenue less cost.",
+							trust: "unverified" as const,
+							stale: false,
+							distance: 0.2,
+						},
+					],
+					rejected: 0,
+					misses: [],
+				}),
 			},
 		});
 		const messages = [{ role: "user" as const, content: "what is documented?" }];
@@ -1560,10 +1791,13 @@ describe("a store that misses its deadline", () => {
 		expect(clock.waited).toContain(2_500);
 		expect(clock.waited).not.toContain(DEFAULT_RETRIEVAL_DEADLINE_MS);
 		expect(cm.reported.join("\n")).toContain("did not answer within 2500ms");
-		// What the pack did not carry, the accounting does not claim.
-		expect(cm.recorded[0]?.pack?.parts.map((part) => part.source)).not.toContain(
-			"recalled",
+		// What the pack did not carry, the accounting does not claim — and
+		// it attributes the absence to the Store rather than to relevance.
+		const recalled = cm.recorded[0]?.pack?.parts.find(
+			(part) => part.source === "recalled",
 		);
+		expect(recalled?.carried).toBe(0);
+		expect(recalled?.absent).toBe("failed");
 	});
 
 	test("a missed deadline reads differently from a refused connection", async () => {
@@ -1643,7 +1877,7 @@ describe("a store that misses its deadline", () => {
 	test("a deadline nothing exceeds changes nothing", async () => {
 		const answering = {
 			indexConcepts: async () => ({ embedded: 0, contested: [] }),
-			searchConcepts: async () => [],
+			searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 		};
 		const bounded = harness({ config: { docConcepts: 2 }, docs: answering });
 		const unbounded = harness({

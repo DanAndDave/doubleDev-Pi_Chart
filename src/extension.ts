@@ -22,15 +22,24 @@ import {
 	symbolsInPlay,
 	type Neighbourhood,
 } from "./symbols.ts";
-import type { ConceptHit, ConceptSearch } from "./doc-index.ts";
+import type {
+	ConceptMatches,
+	ConceptSearch,
+} from "./doc-index.ts";
 import {
 	comparePacks,
+	explain,
 	inspectConversation,
+	parseAddress,
+	resolveCall,
 	summarise,
+	type CallView,
 } from "./inspection.ts";
 import {
+	describeRecorded,
 	renderCall,
 	renderDiff,
+	renderExplanation,
 	renderLevel,
 	renderSearch,
 	renderSummary,
@@ -339,11 +348,19 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const pack = deps.assemble(
 				{
 					turns: current ? [...tail, current] : tail,
-					recalled: recalled.turns,
-					rejected: recalled.rejected,
-					unsearched: recalled.unsearched,
-					concepts,
-					structure,
+					recalled: recalled.value.turns,
+					rejected: recalled.value.rejected,
+					recallMisses: recalled.value.misses,
+					unsearched: recalled.value.unsearched,
+					concepts: concepts.value.hits,
+					conceptsRejected: concepts.value.rejected,
+					conceptMisses: concepts.value.misses,
+					structure: structure.value,
+					unavailable: {
+						recalled: recalled.unavailable,
+						curated: concepts.unavailable,
+						structure: structure.unavailable,
+					},
 				},
 				{
 					tailTurns: deps.config.tailTurns,
@@ -355,6 +372,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					docTokens: deps.config.docTokens,
 					graphTokens: deps.config.graphTokens,
 					packTokens: deps.config.packTokens,
+					recallMaxDistance: deps.config.recallMaxDistance,
+					docMaxDistance: deps.config.docMaxDistance,
+					explainCandidates: deps.config.explainCandidates,
 				},
 			);
 
@@ -725,8 +745,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 		pi.registerCommand("pack", {
 			description:
-				"Inspect the context pack: `pack` for the last call, `pack diff`, " +
-				"`pack summary`, `pack budget <tail|recall|docs|graph|" +
+				"Inspect the context pack: `pack` for the last call, " +
+				"`pack <turn>[.<call>]` for any recorded call, " +
+				"`pack why [<address>] <subject>` for why something was not " +
+				"carried, `pack diff [<a> <b>]`, `pack summary`, " +
+				"`pack budget <tail|recall|docs|graph|" +
 				"tail-tokens|recall-tokens|docs-tokens|graph-tokens|pack> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
@@ -807,7 +830,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		return lines.join("\n");
 	}
 
-	/** The inspector's whole surface, kept out of the harness adapter. */
+	/**
+	 * The inspector's whole surface, kept out of the harness adapter.
+	 *
+	 * Any recorded Call is reachable by address — `pack 12`, `pack 12.3` —
+	 * because a bad pack is usually noticed several Turns after it went
+	 * out, and an inspector that only reads the last two Calls cannot be
+	 * asked about it.
+	 */
 	async function inspect(args: string): Promise<string> {
 		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
 
@@ -827,14 +857,71 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		const latest = calls[calls.length - 1];
 		if (!latest) return "Nothing recorded for this conversation yet.";
 
+		/** A named Call, or the words refusing it. */
+		const at = (text: string): CallView | string => {
+			const address = parseAddress(text);
+			if (!address) return `${text} is not a call address; use \`12\` or \`12.3\`.`;
+			const call = resolveCall(calls, address);
+			// Never the nearest Call instead: an answer about a different
+			// Call than the one asked about is the failure addressing
+			// exists to remove.
+			return (
+				call ??
+				`No call recorded at ${text}. This conversation has ` +
+					`${describeRecorded(calls)}.`
+			);
+		};
+
+		if (verb === "why") {
+			// A subject is required and an address is not, so the first word
+			// is only an address when something follows it to be the
+			// subject. Otherwise `pack why 4` — a Turn, the commonest
+			// question there is — would be read as an address and answered
+			// with a usage line.
+			const addressed = rest.length > 1 && parseAddress(rest[0] ?? "") !== undefined;
+			const call = addressed ? at(rest[0] ?? "") : latest;
+			if (typeof call === "string") return call;
+			const subject = (addressed ? rest.slice(1) : rest).join(" ");
+			if (subject === "") {
+				return "Say what to explain: `pack why <subject>` or `pack why 12 <subject>`.";
+			}
+			return renderExplanation(explain(call, subject));
+		}
+
 		if (verb === "diff") {
+			const [first, second] = rest;
+			if (first !== undefined && second !== undefined) {
+				const before = at(first);
+				if (typeof before === "string") return before;
+				const after = at(second);
+				if (typeof after === "string") return after;
+				return renderDiff(comparePacks(before, after));
+			}
 			const previous = calls[calls.length - 2];
 			if (!previous) return "Only one call recorded; nothing to compare with.";
 			return renderDiff(comparePacks(previous, latest));
 		}
 
+		if (verb !== "") {
+			const call = at(verb);
+			return typeof call === "string" ? call : renderCall(call);
+		}
+
 		return renderCall(latest);
 	}
+
+	/**
+	 * What a retrieval supplied, and why it supplied nothing where it did.
+	 *
+	 * A part absent because no Store was configured, because retrieval
+	 * failed, and because nothing was relevant are three different
+	 * problems with three different remedies, and only the caller of the
+	 * Store can tell the first two apart.
+	 */
+	type Supplied<T> = {
+		value: T;
+		unavailable?: "unconfigured" | "failed";
+	};
 
 	/**
 	 * Turns recalled by meaning. A retrieval failure costs the recollections,
@@ -844,9 +931,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function recallFor(
 		conversationId: string,
 		current: Turn | undefined,
-	): Promise<Recollections> {
-		const none: Recollections = { turns: [], rejected: 0, unsearched: 0 };
-		if (!deps.recall || !current || deps.config.recallTurns <= 0) return none;
+	): Promise<Supplied<Recollections>> {
+		const none: Recollections = {
+			turns: [],
+			rejected: 0,
+			misses: [],
+			unsearched: 0,
+		};
+		// No Store and no prompt are different absences: one is a machine
+		// with nothing wired, the other a Call with nothing to search for.
+		if (!deps.recall) return { value: none, unavailable: "unconfigured" };
+		if (!current || deps.config.recallTurns <= 0) return { value: none };
 		try {
 			// Over-fetch: the Assembler drops what the verbatim tail already
 			// carries, and only it knows what that is.
@@ -860,10 +955,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					deps.config.recallMaxDistance,
 				),
 			);
-			return found.answered ? found.value : none;
+			// Out of time is out of reach for this Call: the part is absent
+			// for a reason the operator can act on, not for irrelevance.
+			return found.answered
+				? { value: found.value }
+				: { value: none, unavailable: "failed" };
 		} catch (error) {
 			reportSafely(`Recall unavailable, pack assembled without it: ${describe(error)}`);
-			return none;
+			return { value: none, unavailable: "failed" };
 		}
 	}
 
@@ -904,11 +1003,15 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * Curated knowledge for this prompt. A retrieval failure costs the
-	 * Concepts, never the Turn.
+	 * Curated knowledge for this prompt, with what the threshold refused.
+	 * A retrieval failure costs the Concepts, never the Turn.
 	 */
-	async function conceptsFor(current: Turn | undefined): Promise<ConceptHit[]> {
-		if (!deps.docs || !current || deps.config.docConcepts <= 0) return [];
+	async function conceptsFor(
+		current: Turn | undefined,
+	): Promise<Supplied<ConceptMatches>> {
+		const none: ConceptMatches = { hits: [], rejected: 0, misses: [] };
+		if (!deps.docs) return { value: none, unavailable: "unconfigured" };
+		if (!current || deps.config.docConcepts <= 0) return { value: none };
 		try {
 			// Over-fetch, as recall does: the Assembler applies the Budget,
 			// so what the Budget excluded is visible rather than invisible.
@@ -921,10 +1024,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					deps.config.docMaxDistance,
 				),
 			);
-			return found.answered ? found.value : [];
+			return found.answered
+				? { value: found.value }
+				: { value: none, unavailable: "failed" };
 		} catch (error) {
 			reportSafely(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
-			return [];
+			return { value: none, unavailable: "failed" };
 		}
 	}
 
@@ -934,28 +1039,33 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 */
 	async function structureFor(
 		current: Turn | undefined,
-	): Promise<Neighbourhood[]> {
-		if (!deps.graph || !current || deps.config.graphSymbols <= 0) return [];
+	): Promise<Supplied<Neighbourhood[]>> {
+		if (!deps.graph) return { value: [], unavailable: "unconfigured" };
+		if (!current || deps.config.graphSymbols <= 0) return { value: [] };
 		try {
 			const found = await inTime(
 				"Graph Store",
 				deps.config.graphDeadlineMs,
 				deps.graph.graph(deps.codebase ?? process.cwd()),
 			);
-			if (!found.answered) return [];
+			if (!found.answered) return { value: [], unavailable: "failed" };
 			const graph = found.value;
-			if (!graph) return [];
+			// No graph is a Codebase never extracted, which is nothing
+			// configured rather than something that failed.
+			if (!graph) return { value: [], unavailable: "unconfigured" };
 			// Over-fetch, as the other Stores do, so what the Budget excluded
 			// is visible in the accounting rather than invisible.
-			return neighbourhoods(graph, symbolsInPlay(graph, current.prompt)).slice(
-				0,
-				deps.config.graphSymbols * 2,
-			);
+			return {
+				value: neighbourhoods(
+					graph,
+					symbolsInPlay(graph, current.prompt),
+				).slice(0, deps.config.graphSymbols * 2),
+			};
 		} catch (error) {
 			reportSafely(
 				`Graph Store unavailable, pack assembled without it: ${describe(error)}`,
 			);
-			return [];
+			return { value: [], unavailable: "failed" };
 		}
 	}
 

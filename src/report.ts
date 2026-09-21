@@ -1,12 +1,24 @@
 import { messageText } from "./messages.ts";
 import type { Level } from "./doc-store.ts";
 import type { FoundTurn } from "./thread-store.ts";
+import type { AbsenceCause, ExcludedCandidate } from "./assembler.ts";
 import type {
 	CallView,
 	ConversationSummary,
+	Explanation,
 	PackDiff,
 	PartView,
 } from "./inspection.ts";
+
+/** Why a part contributed nothing, in words a reader can act on. */
+const ABSENCE: Record<AbsenceCause, string> = {
+	disabled: "excluded: its budget is zero",
+	unconfigured: "absent: no store configured for it",
+	failed: "absent: retrieval failed",
+	none: "absent: no candidates",
+	irrelevant: "absent: nothing met the threshold",
+	size: "absent: nothing fitted the budget",
+};
 
 /**
  * Why a part carried less than it could have, in the order a reader wants
@@ -18,10 +30,29 @@ import type {
  * list, not tracing eight branches.
  */
 const REASONS: ((part: PartView) => string | undefined)[] = [
+	// Reported against the threshold in force wherever one was applied, so
+	// a part that refused nothing and a part measured against a threshold
+	// set too tight are not the same line. A part that never ran — no
+	// Budget, no Store, a failed retrieval — measured nothing against its
+	// threshold, and "0 refused" there would read as a corpus with
+	// nothing near when the cause says otherwise.
 	(part) => {
+		const measured =
+			part.absent === undefined ||
+			part.absent === "irrelevant" ||
+			part.absent === "none" ||
+			part.absent === "size";
 		const irrelevant = part.excluded?.irrelevant ?? part.irrelevant;
+		if (part.threshold !== undefined && measured) {
+			return `${irrelevant} refused against the ${part.threshold} threshold`;
+		}
 		return irrelevant > 0 ? `${irrelevant} not relevant enough` : undefined;
 	},
+	// Said where a shortfall might otherwise be read as irrelevance: a
+	// part selected by recency or by name cannot refuse anything for being
+	// too distant, and silence there invites the wrong remedy. An absent
+	// part already carries its cause, so it does not need this too.
+	(part) => (part.unranked && part.dropped > 0 ? "no relevance threshold" : undefined),
 	(part) =>
 		(part.excluded?.count ?? 0) > 0
 			? `${part.excluded?.count} over the count`
@@ -65,12 +96,23 @@ const REASONS: ((part: PartView) => string | undefined)[] = [
  * them off the Budget hid exactly the case worth reading.
  */
 function carriedOf(part: PartView): string {
-	const reasons = REASONS.map((reason) => reason(part)).filter(
-		(reason) => reason !== undefined,
-	);
 	// The count Budget reads as "2 of 4" and leads; every reason follows it.
 	const spend = part.budget === undefined ? [] : [`${part.carried} of ${part.budget}`];
-	const inside = [...spend, ...reasons];
+	return wrap([...spend, ...reasons(part)]);
+}
+
+/** Why an absent part is absent, beyond the cause itself. */
+function reasonsOf(part: PartView): string {
+	return wrap(reasons(part));
+}
+
+function reasons(part: PartView): string[] {
+	return REASONS.map((reason) => reason(part)).filter(
+		(reason) => reason !== undefined,
+	);
+}
+
+function wrap(inside: string[]): string {
 	return inside.length > 0 ? ` (${inside.join(", ")})` : "";
 }
 
@@ -92,8 +134,26 @@ export function renderCall(view: CallView): string {
 	];
 
 	for (const part of view.parts) {
+		// An absent part still gets a line, with the cause where the record
+		// holds one: "curated carried nothing" and "no doc store is
+		// configured" are different problems with different remedies, and
+		// omitting the part entirely reads as neither.
+		if (part.absent !== undefined) {
+			lines.push(
+				`  ${part.source.padEnd(14)} ${ABSENCE[part.absent]}${reasonsOf(part)}`,
+			);
+			continue;
+		}
 		lines.push(`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
 			`${carriedOf(part)}${identities(part)}`);
+	}
+
+	// Where the harness rewrote the Conversation behind this Call: every
+	// Call before it was assembled against a window that no longer exists.
+	if (view.compacted) {
+		lines.push(
+			"  compaction    the harness compacted this conversation at this call",
+		);
 	}
 
 	if (view.ceiling !== undefined) {
@@ -129,6 +189,15 @@ export function renderCall(view: CallView): string {
 
 	if (view.floorTokens === undefined || view.packTokens === undefined) {
 		lines.push("  window        not reported yet");
+		if (view.approximateTokens !== undefined) {
+			// Never the reported size in disguise: a Budget is applied to
+			// this figure, and whether it runs high or low is unknown until
+			// the harness has measured the window it went into.
+			lines.push(
+				`  estimate      ~${view.approximateTokens} tokens, unmeasured ` +
+					`against the window`,
+			);
+		}
 		return lines.join("\n");
 	}
 
@@ -137,6 +206,15 @@ export function renderCall(view: CallView): string {
 		`  window        pack ${view.packTokens} + floor ${view.floorTokens} ` +
 			`(floor is ${share}% of the window)`,
 	);
+	if (view.approximateTokens !== undefined) {
+		lines.push(
+			`  estimate      ~${view.approximateTokens} estimated against ` +
+				`${view.packTokens} reported` +
+				(view.estimateRatio === undefined
+					? ""
+					: ` (${view.estimateRatio}× the reported size)`),
+		);
+	}
 	return lines.join("\n");
 }
 
@@ -151,10 +229,39 @@ export function renderDiff(diff: PackDiff): string {
 	return lines.join("\n");
 }
 
-/** A diffed item: a Turn by position, or a Concept by id. */
+/**
+ * What a pack carried or refused, named: a Turn by position, a Concept by
+ * id, a symbol by name. One renderer, because a diff, an explanation and a
+ * near miss all name the same three kinds of thing and a reader comparing
+ * them should not be comparing three spellings.
+ */
+function nameOf(identity: {
+	turnIndex?: number;
+	conceptId?: string;
+	symbol?: string;
+}): string {
+	return (
+		identity.conceptId ??
+		identity.symbol ??
+		`turn ${identity.turnIndex ?? "?"}`
+	);
+}
+
+/** A diffed item, with the part that carried it. */
 function describeItem(item: PackDiff["entered"][number]): string {
-	const what = item.conceptId ?? item.symbol ?? `turn ${item.turnIndex}`;
-	return `${item.source} ${what}`;
+	return `${item.source} ${nameOf(item)}`;
+}
+
+/** What a Conversation recorded, for refusing an address with. */
+export function describeRecorded(calls: CallView[]): string {
+	if (calls.length === 0) return "nothing";
+	const turns = [...new Set(calls.map((call) => call.turnIndex))].sort(
+		(a, b) => a - b,
+	);
+	const first = turns[0];
+	const last = turns[turns.length - 1];
+	const span = first === last ? `turn ${first}` : `turns ${first} to ${last}`;
+	return `${span}, ${calls.length} call${calls.length === 1 ? "" : "s"}`;
 }
 
 export function renderSummary(summary: ConversationSummary): string {
@@ -171,6 +278,22 @@ export function renderSummary(summary: ConversationSummary): string {
 		);
 	}
 
+	// The figure every Budget is applied to, against the one the harness
+	// measured. A ratio near one says the estimator is honest here; the
+	// pack ceiling is only as good as this number.
+	if (summary.averageEstimateRatio !== undefined) {
+		lines.push(
+			`  estimate ran ${summary.averageEstimateRatio}× the reported size`,
+		);
+	}
+
+	for (const at of summary.compactions) {
+		lines.push(
+			`  the harness compacted this conversation at turn ${at.turnIndex}, ` +
+				`call ${at.callIndex}`,
+		);
+	}
+
 	for (const use of summary.budgetUse) {
 		const budget = use.budget === undefined ? "" : ` of ${use.budget}`;
 		const irrelevant =
@@ -184,6 +307,61 @@ export function renderSummary(summary: ConversationSummary): string {
 	}
 
 	return lines.join("\n");
+}
+
+/**
+ * Why a Call did not carry what someone asked about.
+ *
+ * Ranked, named, and explicit about what it cannot answer: a Call whose
+ * record predates the ledger says so rather than reporting that nothing
+ * was excluded, which would be the same lie in a new place.
+ */
+export function renderExplanation(answer: Explanation): string {
+	const where = `turn ${answer.turnIndex}, call ${answer.callIndex}`;
+	const lines = [`Why "${answer.subject}" was not carried by ${where}:`];
+
+	if (answer.unexplainable) {
+		lines.push(
+			"  this call was recorded before candidate identities were kept, " +
+				"so it holds no detail about what it excluded",
+		);
+		return lines.join("\n");
+	}
+
+	for (const item of answer.carried) {
+		lines.push(`  carried by ${item.source}: ${nameOf(item)}`);
+	}
+
+	for (const { source, candidate } of answer.excluded) {
+		lines.push(`  ${source.padEnd(14)} ${describeCandidate(candidate)}`);
+	}
+
+	if (answer.carried.length === 0 && answer.excluded.length === 0) {
+		// Never considered and considered-then-refused are different
+		// answers: one is about the threshold, the other about the corpus.
+		lines.push("  nothing matching it was considered for this call");
+	}
+	return lines.join("\n");
+}
+
+/** One excluded candidate: what it was, how far, and what kept it out. */
+function describeCandidate(candidate: ExcludedCandidate): string {
+	const what = nameOf(candidate);
+	// Two decimals: a distance is a ranking signal, and sixteen digits of
+	// float precision in a line someone reads is noise.
+	const distance =
+		candidate.distance === undefined
+			? ""
+			: `  distance ${candidate.distance.toFixed(2)}`;
+	const size = candidate.tokens === undefined ? "" : `  ~${candidate.tokens} tokens`;
+	const why =
+		candidate.reason === "irrelevant"
+			? `  beyond the ${candidate.threshold ?? "?"} threshold`
+			: candidate.reason === "ceiling"
+				? "  dropped for the pack ceiling"
+				: `  excluded by the ${candidate.budget ?? "?"} ` +
+					`${candidate.reason === "count" ? "count" : "token"} budget`;
+	return `${what}${distance}${size}${why}`;
 }
 
 /** A Level as the agent reads it: where to walk next, and what to open. */

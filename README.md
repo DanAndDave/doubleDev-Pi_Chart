@@ -81,6 +81,7 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `CM_DOC_DEADLINE_MS` | `5000` | How long a Call waits for curated knowledge. |
 | `CM_GRAPH_DEADLINE_MS` | `5000` | How long a Call waits for structure. |
 | `CM_RETAIN_DAYS` | unset | Retire Turns that entered the Store longer ago than this, with their messages. Unset means nothing is ever removed: how long the Store keeps a Turn is your policy. Turns stored before arrival times were recorded have no age and are never retired, and Accounting survives whatever goes. |
+| `CM_EXPLAIN_CANDIDATES` | `12` | How many excluded candidates each part of a Call records by identity, so `/pack why` can name them. Measured: pooling this machine's 403 real Turns into one Conversation, the Turn a user would ask about sat as deep as rank 12 among the candidates, and a head of 5 would have named it in fewer than half the cases it was reachable at all. What is beyond the head is still counted. |
 
 ## Recall
 
@@ -198,19 +199,26 @@ It is a tool rather than a second recall tier on purpose: assembly stays determi
 
 ## Inspect a pack
 
-`/pack` in the harness shows what the last Call's Context Window was made of:
+`/pack` in the harness shows what the last Call's Context Window was made of, including the parts that carried nothing and why:
 
 ```
 Turn 6, call 0
-  recalled       ~112 tokens (3 of 3) turns 1, 3, 0
+  recalled       ~112 tokens (3 of 3, 2 refused against the 0.52 threshold) turns 1, 3, 0
+  curated        absent: nothing met the threshold (4 refused against the 0.5 threshold)
+  structure      absent: no store configured for it (no relevance threshold)
   verbatim-tail  ~67 tokens (2 of 2) turns 4, 5
   current-turn   ~18 tokens
   window        pack 3984 + floor 25588 (floor is 87% of the window)
+  estimate      ~197 estimated against 3984 reported (0.05× the reported size)
 ```
 
 - `/pack` — the last Call
-- `/pack diff` — what entered and left since the Call before it
-- `/pack summary` — the whole Conversation, with average Budget spend
+- `/pack <turn>` or `/pack <turn>.<call>` — any Call the Conversation recorded. A Turn alone is its last Call; an address that was never recorded is refused, naming what is recorded, rather than answered with a different Call
+- `/pack why <subject>`, or `/pack why <address> <subject>` — why content matching that subject was not carried: the candidates that were excluded, nearest first, each with its distance or size and the threshold or Budget that excluded it. A number is a Turn; anything else matches a Concept id or a symbol. A leading address is only an address when a subject follows it, so `/pack why 4` asks about Turn 4 and `/pack why 12 4` asks about Turn 4 as Turn 12 saw it
+- `/pack diff` — what entered and left since the Call before it; `/pack diff <a> <b>` compares two named Calls
+- `/pack summary` — the whole Conversation, with average Budget spend, how the estimate compared with the reported window sizes, and where the harness compacted
 - `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, `recall`, `docs`, `graph`. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens`, `docs-tokens`, `graph-tokens`, and `pack` for the whole pack's ceiling
 
-Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides.
+Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides, and the `estimate` line puts our figure beside the harness's so the bias the Budgets are applied to is visible.
+
+What a Call excluded is kept by identity, never by content: a Turn by its position, a Concept by its id, a symbol by its name, with the distance or size that decided. The Journal and the bundle stay the record of what was actually said.

@@ -1,4 +1,10 @@
-import type { Pack, PackSource, PartExclusion } from "./assembler.ts";
+import type {
+	AbsenceCause,
+	ExcludedCandidate,
+	Pack,
+	PackSource,
+	PartExclusion,
+} from "./assembler.ts";
 import type { ContextSnapshot } from "./messages.ts";
 
 /** Where a Call sits in its Conversation. A Turn may contain several Calls. */
@@ -44,6 +50,12 @@ export interface CallAccounting extends CallAddress {
 	 * say whether a pack fitted or was made to fit.
 	 */
 	beforeCeiling?: number;
+	/**
+	 * The compaction the harness reported for the window that carried this
+	 * Call. Absent where it reported none and on records written before it
+	 * was read — an epoch nobody recorded is unknown, not zero.
+	 */
+	compactionEpoch?: number;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -73,6 +85,18 @@ export interface RecordedPart {
 	 * older records, and absent when nothing was excluded.
 	 */
 	excluded?: PartExclusion;
+	/**
+	 * Which candidates it did not carry, by identity. Absent on records
+	 * written before identities were retained, which is what makes such a
+	 * Call unexplainable rather than one that excluded nothing.
+	 */
+	excludedCandidates?: ExcludedCandidate[];
+	/** The relevance threshold it selected against, where it had one. */
+	threshold?: number;
+	/** True where the part has no relevance threshold at all. */
+	unranked?: true;
+	/** Why it contributed nothing, where it contributed nothing. */
+	absent?: AbsenceCause;
 	/** What it would have carried had the pack ceiling not bound. */
 	withoutCeiling?: number;
 	/** Whether any of its content was carried shortened. */
@@ -116,7 +140,18 @@ export interface AccountingStore {
 	readAccounting(conversationId: string): Promise<TurnAccounting[]>;
 }
 
-/** What is kept about a part: enough to explain a pack, not to replay it. */
+/**
+ * What is kept about a part: enough to explain a pack, not to replay it.
+ *
+ * Every field is named and copied rather than spread. What arrives is a
+ * `PackPart`, which carries the part's messages: a spread would put the
+ * Conversation's content into Accounting, which ADR-0002 reserves for the
+ * Journal and the bundle. The list is the wall.
+ *
+ * The ledger is written even when empty, because an empty ledger and an
+ * absent one mean different things: nothing was excluded, against a Call
+ * recorded before exclusions were named at all.
+ */
 export function recordPart(part: {
 	source: PackSource;
 	approximateTokens: number;
@@ -129,6 +164,10 @@ export function recordPart(part: {
 	candidates?: number;
 	irrelevant?: number;
 	excluded?: PartExclusion;
+	excludedCandidates?: ExcludedCandidate[];
+	threshold?: number;
+	unranked?: true;
+	absent?: AbsenceCause;
 	withoutCeiling?: number;
 	shortened?: boolean;
 }): RecordedPart {
@@ -145,6 +184,10 @@ export function recordPart(part: {
 		candidates: part.candidates,
 		irrelevant: part.irrelevant,
 		excluded: part.excluded,
+		excludedCandidates: part.excludedCandidates ?? [],
+		threshold: part.threshold,
+		unranked: part.unranked,
+		absent: part.absent,
 		withoutCeiling: part.withoutCeiling,
 		shortened: part.shortened,
 	};
@@ -238,6 +281,7 @@ export class MemoryAccounting implements AccountingStore {
 			call.floorTokens = measurement.snapshot.nonMessageTokens;
 			call.packTokens =
 				measurement.snapshot.promptTokens - measurement.snapshot.nonMessageTokens;
+			call.compactionEpoch = measurement.snapshot.compactionEpoch;
 		}
 	}
 

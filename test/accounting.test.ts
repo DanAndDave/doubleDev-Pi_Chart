@@ -88,10 +88,13 @@ describe("accounting", () => {
 		);
 
 		const [turn] = await store.readAccounting("conv-1");
-		expect(turn?.calls[0]?.parts.map((part) => part.source)).toEqual([
-			"verbatim-tail",
-			"current-turn",
-		]);
+		// The parts that contributed, not every part accounted for: a Call
+		// records the absent ones too, with the cause.
+		expect(
+			turn?.calls[0]?.parts
+				.filter((part) => part.absent === undefined)
+				.map((part) => part.source),
+		).toEqual(["verbatim-tail", "current-turn"]);
 	});
 
 	test("marks locally counted attribution as approximate", async () => {

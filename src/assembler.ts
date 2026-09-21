@@ -8,9 +8,9 @@ import {
 } from "./messages.ts";
 import { elide, ELIDED_WHOLE, ELISION } from "./elision.ts";
 import { shares } from "./shares.ts";
-import type { ConceptHit } from "./doc-index.ts";
+import type { ConceptHit, ConceptMiss } from "./doc-index.ts";
 import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
-import type { RecalledTurn } from "./thread-store.ts";
+import type { RecalledTurn, TurnMiss } from "./thread-store.ts";
 
 export interface AssemblerConfig {
 	/** How many completed Turns are carried verbatim ahead of the current one. */
@@ -41,6 +41,23 @@ export interface AssemblerConfig {
 	 * fixed order, so an oversized pack is still a deterministic pack.
 	 */
 	packTokens: number;
+	/**
+	 * The relevance thresholds the retrieving parts selected against, as
+	 * cosine distance. Recorded beside what each part carried: a part that
+	 * carried little against a threshold set too tight is a different fact
+	 * from one whose corpus held nothing, and only the threshold in force
+	 * tells them apart afterwards.
+	 */
+	recallMaxDistance: number;
+	docMaxDistance: number;
+	/**
+	 * How many excluded candidates each part records by identity, nearest
+	 * first, the rest surviving as counts. Measured: over 403 real Turns
+	 * the Turn a user would ask about sat at rank 12 of the candidates at
+	 * worst, and a head of 5 would have named it in fewer than half the
+	 * cases it was reachable at all.
+	 */
+	explainCandidates: number;
 }
 
 /** Where a slice of a Context Pack came from. */
@@ -101,6 +118,23 @@ export interface PackPart {
 	 */
 	excluded?: PartExclusion;
 	/**
+	 * Which candidates it did not carry, by identity, nearest first and
+	 * bounded to the retained head. `excluded` counts them; this names
+	 * them, which is what makes an absence explainable rather than
+	 * arithmetic.
+	 */
+	excludedCandidates?: ExcludedCandidate[];
+	/** The relevance threshold this part selected against, where it had one. */
+	threshold?: number;
+	/**
+	 * True where the part has no relevance threshold at all. Recorded
+	 * rather than left absent, so a part that cannot refuse for irrelevance
+	 * is distinguishable from one that refused nothing.
+	 */
+	unranked?: true;
+	/** Why this part contributed nothing, where it contributed nothing. */
+	absent?: AbsenceCause;
+	/**
 	 * How much this part would have carried had the pack ceiling not bound.
 	 * Present only when the ceiling reduced it, so the cost of the ceiling
 	 * is legible beside the cost of the part's own Budget.
@@ -156,6 +190,54 @@ export interface PartExclusion {
 	ceiling?: number;
 }
 
+/** Why a candidate was offered to a part and not carried. */
+export type ExclusionReason = "irrelevant" | "count" | "size" | "ceiling";
+
+/**
+ * One candidate a part did not carry, by identity.
+ *
+ * Identity, distance, size and reason — never the text, the embedding, or
+ * anything else that would make Accounting a second copy of the Journal or
+ * the bundle. A Turn refused at 0.61 is readable in full by its position.
+ */
+export interface ExcludedCandidate {
+	/** A Turn by its position in the Conversation. */
+	turnIndex?: number;
+	/** A Concept by its id. */
+	conceptId?: string;
+	/** A symbol by its qualified name. */
+	symbol?: string;
+	reason: ExclusionReason;
+	/** How far it sat from the prompt, where relevance ranked it. */
+	distance?: number;
+	/** What carrying it would have cost, where a size Budget decided. */
+	tokens?: number;
+	/** The relevance threshold it failed, where relevance decided. */
+	threshold?: number;
+	/** The count or token Budget that excluded it, where one did. */
+	budget?: number;
+}
+
+/**
+ * Why a part contributed nothing. A part that carried nothing because its
+ * Store was never configured calls for a different response from one whose
+ * threshold refused everything, and an absence with no cause reads as
+ * neither.
+ */
+export type AbsenceCause =
+	/** Its count Budget is zero: excluded deliberately, not for want of supply. */
+	| "disabled"
+	/** No Store was configured to supply it. */
+	| "unconfigured"
+	/** Retrieval was attempted and failed, or did not answer in time. */
+	| "failed"
+	/** There were no candidates to consider. */
+	| "none"
+	/** There were candidates and none met the relevance threshold. */
+	| "irrelevant"
+	/** There were candidates and none fitted the size Budget. */
+	| "size";
+
 export interface AssembleInput {
 	/** Turns to carry verbatim: the recent ones, current Turn last. */
 	turns: Turn[];
@@ -163,12 +245,24 @@ export interface AssembleInput {
 	recalled?: RecalledTurn[];
 	/** How many candidates retrieval refused as not relevant enough. */
 	rejected?: number;
+	/** Turns recall refused, nearest first: position and distance only. */
+	recallMisses?: TurnMiss[];
 	/** How many Turns of the Conversation retrieval could not see at all. */
 	unsearched?: number;
 	/** Concepts found in the Doc Store, most relevant first. */
 	concepts?: ConceptHit[];
+	/** How many Concepts the Doc Store refused as not relevant enough. */
+	conceptsRejected?: number;
+	/** Concepts the Doc Store refused, nearest first. */
+	conceptMisses?: ConceptMiss[];
 	/** Neighbourhoods of the symbols this prompt refers to. */
 	structure?: Neighbourhood[];
+	/**
+	 * Parts no Store could supply, and why. A part absent because nothing
+	 * was configured to fill it is a different fact from one absent because
+	 * nothing relevant was found, and only the caller knows which.
+	 */
+	unavailable?: Partial<Record<PackSource, "unconfigured" | "failed">>;
 }
 
 /**
@@ -181,10 +275,15 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		turns,
 		recalled = [],
 		rejected = 0,
+		recallMisses = [],
 		unsearched = 0,
 		concepts = [],
+		conceptsRejected = 0,
+		conceptMisses = [],
 		structure = [],
+		unavailable = {},
 	} = input;
+	const bound = config.explainCandidates;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
@@ -210,41 +309,75 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		(each, allowance) => [asRecollection(each, allowance)],
 		"shorten",
 	);
-	if (recollections.kept.length > 0) {
-		parts.push({
-			source: "recalled",
-			messages: recollections.messages,
-			approximateTokens: recollections.tokens,
-			carried: recollections.kept.length,
-			turnIndices: recollections.kept.map((each) => each.turnIndex),
+	parts.push({
+		source: "recalled",
+		messages: recollections.messages,
+		approximateTokens: recollections.tokens,
+		carried: recollections.kept.length,
+		turnIndices: recollections.kept.map((each) => each.turnIndex),
+		budget: config.recallTurns,
+		tokenBudget: config.recallTokens,
+		candidates: eligible.length,
+		irrelevant: rejected,
+		threshold: config.recallMaxDistance,
+		excluded: exclusion(rejected, recollections),
+		excludedCandidates: ledger(
+			[
+				...byBudget(recollections, (each) => ({ turnIndex: each.turnIndex })),
+				...refused(recallMisses, config.recallMaxDistance, (miss) => ({
+					turnIndex: miss.turnIndex,
+				})),
+			],
+			bound,
+		),
+		absent: absence({
 			budget: config.recallTurns,
-			tokenBudget: config.recallTokens,
+			carried: recollections.kept.length,
 			candidates: eligible.length,
-			irrelevant: rejected,
-			excluded: exclusion(rejected, recollections),
-			shortened: recollections.shortened || undefined,
-		});
-	}
+			rejected,
+			unavailable: unavailable.recalled,
+		}),
+		shortened: recollections.shortened || undefined,
+	});
 
 	// Curated knowledge sits ahead of the exchange, like recall: it is
 	// background the agent is being given, not something it just said.
 	const curated = fit(concepts, config.docConcepts, config.docTokens, (hit) => [
 		asCuratedKnowledge(hit),
 	]);
-	if (curated.kept.length > 0) {
-		parts.push({
-			source: "curated",
-			messages: curated.messages,
-			approximateTokens: curated.tokens,
-			carried: curated.kept.length,
-			conceptIds: curated.kept.map((hit) => hit.conceptId),
+	parts.push({
+		source: "curated",
+		messages: curated.messages,
+		approximateTokens: curated.tokens,
+		carried: curated.kept.length,
+		conceptIds: curated.kept.map((hit) => hit.conceptId),
+		budget: config.docConcepts,
+		tokenBudget: config.docTokens,
+		candidates: concepts.length,
+		irrelevant: conceptsRejected,
+		threshold: config.docMaxDistance,
+		excluded: exclusion(conceptsRejected, curated),
+		excludedCandidates: ledger(
+			[
+				...byBudget(curated, (hit) => ({
+					conceptId: hit.conceptId,
+					distance: hit.distance,
+				})),
+				...refused(conceptMisses, config.docMaxDistance, (miss) => ({
+					conceptId: miss.conceptId,
+				})),
+			],
+			bound,
+		),
+		absent: absence({
 			budget: config.docConcepts,
-			tokenBudget: config.docTokens,
+			carried: curated.kept.length,
 			candidates: concepts.length,
-			excluded: exclusion(0, curated),
-			shortened: curated.shortened || undefined,
-		});
-	}
+			rejected: conceptsRejected,
+			unavailable: unavailable.curated,
+		}),
+		shortened: curated.shortened || undefined,
+	});
 
 	// Structure is what the Codebase is, so it comes before what was said
 	// about it — and ahead of the tail for the same reason recall is.
@@ -254,20 +387,32 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		config.graphTokens,
 		(each) => [asStructure(each)],
 	);
-	if (structural.kept.length > 0) {
-		parts.push({
-			source: "structure",
-			messages: structural.messages,
-			approximateTokens: structural.tokens,
-			carried: structural.kept.length,
-			symbols: structural.kept.map((each) => qualify(each.symbol)),
+	parts.push({
+		source: "structure",
+		messages: structural.messages,
+		approximateTokens: structural.tokens,
+		carried: structural.kept.length,
+		symbols: structural.kept.map((each) => qualify(each.symbol)),
+		budget: config.graphSymbols,
+		tokenBudget: config.graphTokens,
+		candidates: structure.length,
+		// Symbols are matched by name, not ranked by distance, so this part
+		// cannot refuse anything for irrelevance and says so.
+		unranked: true,
+		excluded: exclusion(0, structural),
+		excludedCandidates: ledger(
+			byBudget(structural, (each) => ({ symbol: qualify(each.symbol) })),
+			bound,
+		),
+		absent: absence({
 			budget: config.graphSymbols,
-			tokenBudget: config.graphTokens,
+			carried: structural.kept.length,
 			candidates: structure.length,
-			excluded: exclusion(0, structural),
-			shortened: structural.shortened || undefined,
-		});
-	}
+			rejected: 0,
+			unavailable: unavailable.structure,
+		}),
+		shortened: structural.shortened || undefined,
+	});
 
 	// The tail fills from its most recent Turn backwards, and the most recent
 	// Turn is kept even when it alone exceeds the Budget — shortened, not
@@ -276,37 +421,64 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// drop-only rule would empty the tail exactly when working state matters
 	// most.
 	const tail = fitTail(byCount, config.tailTokens);
-	if (tail.messages.length > 0) {
-		parts.push({
-			source: "verbatim-tail",
-			messages: tail.messages,
-			approximateTokens: tail.tokens,
-			carried: tail.kept.length,
-			turnIndices: tail.kept
-				.map((turn) => turn.index)
-				.filter((index) => index !== undefined),
+	parts.push({
+		source: "verbatim-tail",
+		messages: tail.messages,
+		approximateTokens: tail.tokens,
+		carried: tail.kept.length,
+		turnIndices: tail.kept
+			.map((turn) => turn.index)
+			.filter((index) => index !== undefined),
+		budget: config.tailTurns,
+		tokenBudget: config.tailTokens,
+		candidates: completed.length,
+		// Recency, not relevance: the tail takes the newest Turns whatever
+		// they are about.
+		unranked: true,
+		excluded: exclusion(0, {
+			...tail,
+			excludedByCount: Math.max(completed.length - byCount.length, 0),
+		}),
+		excludedCandidates: ledger(
+			[
+				...byBudget(tail, (turn) => ({ turnIndex: turn.index })),
+				// The Turns the count never reached, newest first: they are
+				// older than everything the window held, so they follow it.
+				...completed
+					.slice(0, Math.max(completed.length - byCount.length, 0))
+					.reverse()
+					.map((turn) => ({
+						turnIndex: turn.index,
+						reason: "count" as const,
+						budget: config.tailTurns,
+					})),
+			],
+			bound,
+		),
+		absent: absence({
 			budget: config.tailTurns,
-			tokenBudget: config.tailTokens,
+			carried: tail.kept.length,
 			candidates: completed.length,
-			excluded: exclusion(0, {
-				...tail,
-				excludedByCount: Math.max(completed.length - byCount.length, 0),
-			}),
-			shortened: tail.shortened || undefined,
-		});
-	}
+			rejected: 0,
+			unavailable: unavailable["verbatim-tail"],
+		}),
+		shortened: tail.shortened || undefined,
+	});
 
 	// The current Turn is never dropped and never trimmed to a Budget: it is
 	// the prompt being answered. Only the ceiling may shorten it.
-	if (current !== undefined) {
-		parts.push({
-			source: "current-turn",
-			messages: current.messages,
-			approximateTokens: approximateTokens(current.messages),
-			carried: 1,
-			turnIndices: current.index === undefined ? [] : [current.index],
-		});
-	}
+	parts.push({
+		source: "current-turn",
+		messages: current?.messages ?? [],
+		approximateTokens: current ? approximateTokens(current.messages) : 0,
+		carried: current ? 1 : 0,
+		turnIndices: current?.index === undefined ? [] : [current.index],
+		// The prompt being answered: no Budget selects it and nothing
+		// competes with it, so it has neither candidates nor a threshold.
+		unranked: true,
+		excludedCandidates: [],
+		absent: current === undefined ? "none" : undefined,
+	});
 
 	const beforeCeiling = totalOf(parts);
 	// Reduction re-runs selection under a smaller Budget rather than editing
@@ -315,7 +487,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// binds. The order is reconstructibility: structure is one grep away, a
 	// Concept is retrievable next Call, a recollection is re-retrievable
 	// within the Conversation, and the tail is irreplaceable working state.
-	reduceToCeiling(parts, config.packTokens, {
+	reduceToCeiling(parts, config.packTokens, bound, {
 		structure: (room) => {
 			const refitted = fit(structure, config.graphSymbols, room, (each) => [
 				asStructure(each),
@@ -385,6 +557,16 @@ function totalOf(parts: PackPart[]): number {
 	return total;
 }
 
+/** One candidate a Budget excluded, and what it would have cost. */
+interface Excluded<T> {
+	candidate: T;
+	reason: "count" | "size";
+	/** Absent where the candidate was never rendered, so never costed. */
+	tokens?: number;
+	/** The Budget that excluded it: a count of items or a size in tokens. */
+	budget: number;
+}
+
 /** What a part selected, and what each Budget cost it. */
 interface Fitted<T> {
 	kept: T[];
@@ -393,6 +575,8 @@ interface Fitted<T> {
 	excludedByCount: number;
 	excludedBySize: number;
 	shortened: boolean;
+	/** Which candidates the Budgets excluded, strongest first. */
+	excluded: Excluded<T>[];
 }
 
 /**
@@ -462,6 +646,14 @@ function fit<T>(
 				excludedByCount: Math.max(candidates.length - allowed.length, 0),
 				excludedBySize: Math.max(excludedBySize - 1, 0),
 				shortened: true,
+				excluded: excludedOf(
+					candidates,
+					allowed,
+					kept.length + 1,
+					render,
+					countBudget,
+					budget,
+				),
 			};
 		}
 	}
@@ -473,7 +665,51 @@ function fit<T>(
 		excludedByCount: Math.max(candidates.length - allowed.length, 0),
 		excludedBySize,
 		shortened: false,
+		excluded: excludedOf(
+			candidates,
+			allowed,
+			kept.length,
+			render,
+			countBudget,
+			budget,
+		),
 	};
+}
+
+/**
+ * The candidates a part's Budgets kept out, strongest first: those inside
+ * the count that did not fit the size, then those the count never reached.
+ *
+ * The ones inside the count are costed, because what a candidate would have
+ * cost is the whole of why a size Budget refused it; the ones beyond the
+ * count were never rendered and are not rendered here to find out — the
+ * count refused them whatever they cost.
+ */
+function excludedOf<T>(
+	candidates: T[],
+	allowed: T[],
+	keptCount: number,
+	render: (candidate: T, allowance?: number) => HarnessMessage[],
+	countBudget: number,
+	tokenBudget: number,
+): Excluded<T>[] {
+	const excluded: Excluded<T>[] = [];
+	for (let index = keptCount; index < allowed.length; index++) {
+		const candidate = allowed[index];
+		if (candidate === undefined) continue;
+		excluded.push({
+			candidate,
+			reason: "size",
+			tokens: approximateTokens(render(candidate)),
+			budget: tokenBudget,
+		});
+	}
+	for (let index = allowed.length; index < candidates.length; index++) {
+		const candidate = candidates[index];
+		if (candidate === undefined) continue;
+		excluded.push({ candidate, reason: "count", budget: countBudget });
+	}
+	return excluded;
 }
 
 /**
@@ -496,6 +732,20 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 		tokens += cost;
 	}
 
+	// The oldest Turns of the window, in the order the tail gave them up:
+	// newest of the excluded first, because the newest is what a reader
+	// misses first.
+	const excluded = (count: number): Excluded<Turn>[] =>
+		byCount
+			.slice(0, Math.max(count, 0))
+			.reverse()
+			.map((turn) => ({
+				candidate: turn,
+				reason: "size" as const,
+				tokens: approximateTokens(turn.messages),
+				budget: budget,
+			}));
+
 	if (kept.length === 0) {
 		const newest = byCount[byCount.length - 1];
 		if (newest === undefined || budget === 0) {
@@ -506,6 +756,7 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 				excludedByCount: 0,
 				excludedBySize: byCount.length,
 				shortened: false,
+				excluded: excluded(byCount.length),
 			};
 		}
 		const shortened = shortenTurn(newest.messages, budget);
@@ -516,6 +767,7 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 			excludedByCount: 0,
 			excludedBySize: byCount.length - 1,
 			shortened: shortened.shortened,
+			excluded: excluded(byCount.length - 1),
 		};
 	}
 
@@ -526,6 +778,7 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 		excludedByCount: 0,
 		excludedBySize: byCount.length - kept.length,
 		shortened: false,
+		excluded: excluded(byCount.length - kept.length),
 	};
 }
 
@@ -579,6 +832,69 @@ function exclusion(
 	if (fitted.excludedByCount > 0) result.count = fitted.excludedByCount;
 	if (fitted.excludedBySize > 0) result.size = fitted.excludedBySize;
 	return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
+ * A part's excluded candidates, cut to the retained head.
+ *
+ * The list arrives in relevance order by construction — what a Budget kept
+ * out is nearer than anything the threshold refused, because the threshold
+ * is the outer filter — so heading it keeps the nearest. What is cut
+ * survives in `PartExclusion`'s counts, which is why the counts stay.
+ */
+function ledger(candidates: ExcludedCandidate[], bound: number): ExcludedCandidate[] {
+	return bound <= 0 ? [] : candidates.slice(0, bound);
+}
+
+/** The candidates a part's own Budgets excluded, named. */
+function byBudget<T>(
+	fitted: Fitted<T>,
+	identify: (candidate: T) => Omit<ExcludedCandidate, "reason">,
+): ExcludedCandidate[] {
+	return fitted.excluded.map((each) => ({
+		...identify(each.candidate),
+		reason: each.reason,
+		tokens: each.tokens,
+		budget: each.budget,
+	}));
+}
+
+/** The candidates a relevance threshold refused, nearest first. */
+function refused<T extends { distance: number }>(
+	misses: T[],
+	threshold: number,
+	identify: (miss: T) => Omit<ExcludedCandidate, "reason">,
+): ExcludedCandidate[] {
+	return [...misses]
+		.sort((a, b) => a.distance - b.distance)
+		.map((miss) => ({
+			...identify(miss),
+			reason: "irrelevant" as const,
+			distance: miss.distance,
+			threshold,
+		}));
+}
+
+/**
+ * Why a part contributed nothing, where it contributed nothing.
+ *
+ * Order matters: a Budget of zero is a decision and outranks everything
+ * that follows, an unreachable Store outranks its empty results, and
+ * candidates that existed rule out "there were none".
+ */
+function absence(part: {
+	budget: number;
+	carried: number;
+	candidates: number;
+	rejected: number;
+	unavailable?: "unconfigured" | "failed";
+}): AbsenceCause | undefined {
+	if (part.carried > 0) return undefined;
+	if (part.budget <= 0) return "disabled";
+	if (part.unavailable !== undefined) return part.unavailable;
+	if (part.candidates > 0) return "size";
+	if (part.rejected > 0) return "irrelevant";
+	return "none";
 }
 
 /**
@@ -1104,6 +1420,7 @@ type Refit = (room: number) => {
 function reduceToCeiling(
 	parts: PackPart[],
 	ceiling: number,
+	bound: number,
 	refit: Partial<Record<PackSource, Refit>>,
 ): void {
 	const ceilingTokens = Math.max(ceiling, 0);
@@ -1113,9 +1430,17 @@ function reduceToCeiling(
 		if (totalOf(parts) <= ceilingTokens) return;
 		const part = parts.find((each) => each.source === source);
 		if (part === undefined) continue;
+		// A part that carried nothing has nothing to give up, and reducing
+		// it would record a ceiling that took what was never there.
+		if ((part.carried ?? 0) === 0) continue;
 
 		const carriedBefore = part.carried ?? 0;
 		const sizeBefore = part.approximateTokens;
+		const before = {
+			turnIndices: part.turnIndices ?? [],
+			conceptIds: part.conceptIds ?? [],
+			symbols: part.symbols ?? [],
+		};
 		const room = Math.max(ceilingTokens - (totalOf(parts) - sizeBefore), 0);
 		const reselect = refit[source];
 		const result = reselect?.(room);
@@ -1139,6 +1464,19 @@ function reduceToCeiling(
 			...(part.excluded ?? {}),
 			ceiling: carriedBefore - (part.carried ?? 0),
 		};
+		// What the ceiling took was the nearest of everything excluded, so
+		// it leads the ledger — and the ledger is re-cut, because the head
+		// is a bound on what is retained, not on what is added last.
+		part.excludedCandidates = ledger(
+			[
+				...lost(before, part),
+				...(part.excludedCandidates ?? []),
+			],
+			bound,
+		);
+		// Nothing survived the ceiling: the part is absent, and absent for
+		// the ceiling rather than for want of anything to carry.
+		if ((part.carried ?? 0) === 0) part.absent = "size";
 	}
 
 	if (totalOf(parts) <= ceilingTokens) return;
@@ -1156,4 +1494,30 @@ function reduceToCeiling(
 	current.approximateTokens = result.tokens;
 	current.shortened = result.shortened || undefined;
 	current.excluded = { ...(current.excluded ?? {}), ceiling: 0 };
+}
+
+/**
+ * Which identities a part stopped carrying when the ceiling re-selected it.
+ *
+ * Order follows the part's own: what it listed first it valued most, so the
+ * first identity to go is the weakest it had been carrying.
+ */
+function lost(
+	before: { turnIndices: number[]; conceptIds: string[]; symbols: string[] },
+	part: PackPart,
+): ExcludedCandidate[] {
+	const turns = new Set(part.turnIndices ?? []);
+	const concepts = new Set(part.conceptIds ?? []);
+	const symbols = new Set(part.symbols ?? []);
+	return [
+		...before.turnIndices
+			.filter((index) => !turns.has(index))
+			.map((turnIndex) => ({ turnIndex, reason: "ceiling" as const })),
+		...before.conceptIds
+			.filter((id) => !concepts.has(id))
+			.map((conceptId) => ({ conceptId, reason: "ceiling" as const })),
+		...before.symbols
+			.filter((name) => !symbols.has(name))
+			.map((symbol) => ({ symbol, reason: "ceiling" as const })),
+	];
 }

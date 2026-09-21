@@ -4,7 +4,12 @@ import type {
 	TailSource,
 	TurnAccounting,
 } from "./accounting.ts";
-import type { PackSource, PartExclusion } from "./assembler.ts";
+import type {
+	AbsenceCause,
+	ExcludedCandidate,
+	PackSource,
+	PartExclusion,
+} from "./assembler.ts";
 
 /** One part of a pack, as an inspector presents it. */
 export interface PartView {
@@ -36,6 +41,24 @@ export interface PartView {
 	 * carried little for want of anything relevant.
 	 */
 	excluded?: PartExclusion;
+	/**
+	 * Which candidates it did not carry, by identity, nearest first.
+	 * Empty where nothing was excluded; empty *and* `explained: false`
+	 * where the Call was recorded before identities were retained.
+	 */
+	excludedCandidates: ExcludedCandidate[];
+	/** Whether this part's record names what it excluded at all. */
+	explained: boolean;
+	/** The relevance threshold it selected against, where it had one. */
+	threshold?: number;
+	/**
+	 * True where the part is recorded as having no relevance threshold. A
+	 * part that cannot refuse for irrelevance is not a part that refused
+	 * nothing, and `irrelevant: 0` alone cannot say which this is.
+	 */
+	unranked: boolean;
+	/** Why it contributed nothing, where it contributed nothing. */
+	absent?: AbsenceCause;
 	/** What it would have carried without the ceiling, where that bound. */
 	withoutCeiling?: number;
 	/** Whether any of its content was shortened to fit. */
@@ -75,6 +98,25 @@ export interface CallView {
 	beforeCeiling?: number;
 	/** True when the ceiling had to reduce this pack. */
 	reduced?: boolean;
+	/**
+	 * Our own estimate of what the pack cost, beside the harness's report
+	 * of the window that carried it. Never presented as the reported size:
+	 * the estimate is what every Budget is applied to, so its drift from
+	 * the measurement is the thing worth seeing.
+	 */
+	approximateTokens?: number;
+	/**
+	 * Estimate over reported, where both exist. Above one is an estimate
+	 * running high, below one an estimate running low — and the Budgets
+	 * bind on the estimate.
+	 */
+	estimateRatio?: number;
+	/** The compaction the harness was on for this Call, where it said. */
+	compactionEpoch?: number;
+	/** True where the harness compacted the Conversation at this Call. */
+	compacted: boolean;
+	/** Whether any part of this Call names what it excluded. */
+	explained: boolean;
 }
 
 /** What changed between two Calls' packs. */
@@ -101,6 +143,13 @@ export interface ConversationSummary {
 	averagePackTokens?: number;
 	averageFloorTokens?: number;
 	averageFloorShare?: number;
+	/**
+	 * How the estimate compared with the reported sizes, averaged across
+	 * the Calls that carry both. Absent where none does.
+	 */
+	averageEstimateRatio?: number;
+	/** Where the harness compacted the Conversation, in order. */
+	compactions: { turnIndex: number; callIndex: number }[];
 	/** Per part: how much of its Budget it typically spent. */
 	budgetUse: {
 		source: PackSource;
@@ -131,6 +180,13 @@ export function inspectCall(call: CallAccounting): CallView {
 		packTokens: call.packTokens,
 		floorTokens: call.floorTokens,
 		floorShare,
+		approximateTokens: call.approximateTokens,
+		estimateRatio:
+			call.approximateTokens !== undefined &&
+			call.packTokens !== undefined &&
+			call.packTokens > 0
+				? round(call.approximateTokens / call.packTokens)
+				: undefined,
 		unassembled: call.unassembled === true,
 		tailSource: call.tailSource,
 		budgets: call.budgets,
@@ -138,6 +194,16 @@ export function inspectCall(call: CallAccounting): CallView {
 		unsearched: call.unsearched ?? 0,
 		ceiling: call.ceiling,
 		beforeCeiling: call.beforeCeiling,
+		compactionEpoch: call.compactionEpoch,
+		// Set by `inspectConversation`, which is the only place that can
+		// see the Call before this one: a compaction is a change of epoch,
+		// and one Call alone has nothing to have changed from.
+		compacted: false,
+		// Any part, not every part: parts are written together, so a Call
+		// with one ledger has them all — while a Call with no parts at all,
+		// which is what an unassembled one is, must read as unexplainable
+		// rather than as vacuously explained.
+		explained: call.parts.some((part) => part.excludedCandidates !== undefined),
 		// Reduced, not merely ceilinged: both figures exist on every recent
 		// Call, and they differ only when the ceiling had to bind.
 		reduced:
@@ -174,14 +240,35 @@ function viewPart(part: RecordedPart): PartView {
 		dropped,
 		irrelevant: part.irrelevant ?? 0,
 		excluded: part.excluded,
+		excludedCandidates: part.excludedCandidates ?? [],
+		explained: part.excludedCandidates !== undefined,
+		threshold: part.threshold,
+		unranked: part.unranked === true,
+		absent: part.absent,
 		withoutCeiling: part.withoutCeiling,
 		shortened: part.shortened === true ? true : undefined,
 	};
 }
 
-/** Every Call of a Conversation, in order. */
+/**
+ * Every Call of a Conversation, in order, with the compactions marked.
+ *
+ * A compaction is a change of reported epoch, so it belongs to the Call it
+ * was first reported at and to no other: the Calls before it were
+ * assembled against a window the harness has since rewritten, and the
+ * Calls after it were not.
+ */
 export function inspectConversation(turns: TurnAccounting[]): CallView[] {
-	return turns.flatMap((turn) => turn.calls.map(inspectCall));
+	const calls = turns.flatMap((turn) => turn.calls.map(inspectCall));
+	let epoch: number | undefined;
+	for (const call of calls) {
+		if (call.compactionEpoch === undefined) continue;
+		// The first epoch seen is a starting point, not a compaction:
+		// nothing was compacted between a Conversation and its own start.
+		if (epoch !== undefined && call.compactionEpoch > epoch) call.compacted = true;
+		epoch = call.compactionEpoch;
+	}
+	return calls;
 }
 
 /**
@@ -231,13 +318,26 @@ export function summarise(
 ): ConversationSummary {
 	const calls = inspectConversation(turns);
 	const measured = calls.filter((call) => call.floorShare !== undefined);
+	const reconciled = calls.filter((call) => call.estimateRatio !== undefined);
 
 	const summary: ConversationSummary = {
 		conversationId,
 		calls: calls.length,
 		measuredCalls: measured.length,
+		compactions: calls
+			.filter((call) => call.compacted)
+			.map((call) => ({ turnIndex: call.turnIndex, callIndex: call.callIndex })),
 		budgetUse: budgetUse(calls),
 	};
+
+	// Reported on the Calls that carry both figures, which is not the same
+	// set as the measured ones: a Call the harness measured but assembly
+	// never recorded has nothing to reconcile against.
+	if (reconciled.length > 0) {
+		summary.averageEstimateRatio = mean(
+			reconciled.map((call) => call.estimateRatio ?? 0),
+		);
+	}
 
 	if (measured.length === 0) return summary;
 
@@ -271,5 +371,114 @@ function mean(values: number[]): number {
 	if (values.length === 0) return 0;
 	let sum = 0;
 	for (const value of values) sum += value;
-	return Math.round((sum / values.length) * 100) / 100;
+	return round(sum / values.length);
+}
+
+function round(value: number): number {
+	return Math.round(value * 100) / 100;
+}
+
+/** Where a Call sits, as a reader names it: a Turn, and maybe a Call. */
+export interface CallRef {
+	turnIndex: number;
+	/** Absent means the last recorded Call of that Turn. */
+	callIndex?: number;
+}
+
+/**
+ * A Call address as written: `12`, or `12.3` for the fourth Call of Turn
+ * twelve. Absent where the text is not an address at all, which is how a
+ * caller tells an address from a subject.
+ */
+export function parseAddress(text: string): CallRef | undefined {
+	const match = /^(\d+)(?:\.(\d+))?$/.exec(text.trim());
+	if (!match) return undefined;
+	const turnIndex = Number(match[1]);
+	const callIndex = match[2] === undefined ? undefined : Number(match[2]);
+	return { turnIndex, callIndex };
+}
+
+/**
+ * The Call at an address, or nothing.
+ *
+ * Nothing rather than the nearest: an address that was never recorded,
+ * answered with a different Call, is exactly the confusion addressing
+ * exists to remove. A Turn without a Call resolves to its last recorded
+ * Call — the one whose Pack carried the whole tool loop.
+ */
+export function resolveCall(
+	calls: CallView[],
+	address: CallRef,
+): CallView | undefined {
+	const ofTurn = calls.filter((call) => call.turnIndex === address.turnIndex);
+	if (ofTurn.length === 0) return undefined;
+	if (address.callIndex === undefined) return ofTurn[ofTurn.length - 1];
+	return ofTurn.find((call) => call.callIndex === address.callIndex);
+}
+
+/** One candidate an answer names, with the part that considered it. */
+export interface Considered {
+	source: PackSource;
+	candidate: ExcludedCandidate;
+}
+
+/** Why content matching a subject was or was not carried by one Call. */
+export interface Explanation {
+	subject: string;
+	turnIndex: number;
+	callIndex: number;
+	/** True where no part of the Call names what it excluded. */
+	unexplainable: boolean;
+	/** Matching content the Call did carry, by identity. */
+	carried: PackItem[];
+	/** Matching candidates it excluded, nearest first. */
+	excluded: Considered[];
+}
+
+/**
+ * Why a Call did not carry what a user asks about.
+ *
+ * Matched against identities, because identities are all the record holds:
+ * a Turn by its position, a Concept by its id, a symbol by its name. The
+ * text of what was refused stays in the Journal and the bundle, which is
+ * the point — Accounting explains, it does not replay.
+ */
+export function explain(call: CallView, subject: string): Explanation {
+	const wanted = subject.trim().toLowerCase();
+	const asTurn = /^(?:turn\s+)?(\d+)$/.exec(wanted);
+	const turnIndex = asTurn ? Number(asTurn[1]) : undefined;
+
+	// A number means a Turn and nothing else. Matching it as text too
+	// would answer "why not turn 0" with every Concept whose id happens
+	// to contain a zero, which is an answer about something else.
+	const matches = (item: { turnIndex?: number; conceptId?: string; symbol?: string }) =>
+		turnIndex !== undefined
+			? item.turnIndex === turnIndex
+			: (item.conceptId !== undefined &&
+					item.conceptId.toLowerCase().includes(wanted)) ||
+				(item.symbol !== undefined && item.symbol.toLowerCase().includes(wanted));
+
+	const excluded: Considered[] = [];
+	for (const part of call.parts) {
+		for (const candidate of part.excludedCandidates) {
+			if (matches(candidate)) excluded.push({ source: part.source, candidate });
+		}
+	}
+	// Nearest first across the parts that considered it, so the answer
+	// reads as a ranking rather than as an order of assembly. A candidate
+	// with no distance at all leads: recall's Budget exclusions carry
+	// none — only the Store that ranked them knew it — and a candidate
+	// nobody can place is the one most worth looking at by hand.
+	excluded.sort(
+		(a, b) => (a.candidate.distance ?? -1) - (b.candidate.distance ?? -1),
+	);
+
+	return {
+		subject: subject.trim(),
+		turnIndex: call.turnIndex,
+		callIndex: call.callIndex,
+		unexplainable: !call.explained,
+		carried: [...itemsOf(call).values()].filter(matches),
+		excluded,
+	};
 }
