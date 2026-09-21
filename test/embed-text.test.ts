@@ -1,39 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { EMBED_CHARACTERS, embedText, SHORTEST_SHARE } from "../src/embed-text.ts";
-import { readJournal } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
-import { JOURNAL_FIXTURE } from "./turn-source-contract.ts";
-
-/** The fixture's tool-using Turn: write, read, then the conclusion. */
-async function toolTurn(): Promise<HarnessMessage[]> {
-	const turns = await readJournal(JOURNAL_FIXTURE);
-	const turn = turns.find((each) =>
-		each.messages.some((message) => message.role === "toolResult"),
-	);
-	if (!turn) throw new Error("fixture no longer holds a tool-using turn");
-	return turn.messages;
-}
-
-function result(text: string, id: string): HarnessMessage {
-	return {
-		role: "toolResult",
-		toolCallId: id,
-		toolName: "read",
-		content: [{ type: "text", text }],
-	};
-}
-
-function call(name: string, args: Record<string, unknown>, id: string): HarnessMessage {
-	return {
-		role: "assistant",
-		content: [{ type: "toolCall", id, name, arguments: args }],
-	};
-}
+import { toolCall as call, toolResult as result, toolSessionTurn } from "./fixtures.ts";
 
 describe("what a turn is embedded as", () => {
 	test("every message of a tool-using turn contributes", async () => {
-		const text = embedText(await toolTurn());
+		const text = embedText((await toolSessionTurn()).messages);
 
 		expect(text).toContain("Create a file leaf.txt");
 		expect(text).toContain('write({"path":"leaf.txt"');

@@ -3,7 +3,7 @@ import { shares } from "./shares.ts";
 import {
 	isToolCall,
 	messageText,
-	renderCall,
+	renderToolCall,
 	type HarnessMessage,
 } from "./messages.ts";
 
@@ -26,16 +26,17 @@ import {
 /**
  * The characters a Turn may be embedded from. 1,200 because it is the
  * largest round allowance whose composed text stayed inside the model's cut
- * on every one of this machine's 383 recorded Turns: 499 tokens at the
- * worst, 13 short of 512. At 1,400 fourteen Turns overran it, which
- * reinstates the failure this composition exists to remove.
+ * on every one of this machine's 387 recorded Turns: 501 tokens at the
+ * worst, 11 short of 512, measured through this composition with the real
+ * elision marker. At 1,400 fourteen Turns overran the cut, which reinstates
+ * the failure this composition exists to remove.
  */
 export const EMBED_CHARACTERS = 1200;
 
 /**
- * The fewest characters worth giving one contribution, and so what decides
- * how many get a share at all: below it a head, a tail and a marker leave
- * nothing readable. 180 against a 1,200-character allowance seats six.
+ * The fewest characters worth giving one contribution whose text has to be
+ * elided, and so what decides how many are seated: below it a head, a tail
+ * and a marker leave nothing readable.
  *
  * Measured, not chosen: at 100 a Turn's conclusion reached its vector in
  * 16 of the 48 oversized Turns here, because the last message's share was
@@ -184,7 +185,7 @@ function contributions(messages: HarnessMessage[]): Contribution[] {
 			// this is text rather than protocol: it is embedded like any
 			// other action, so an interrupted Turn stays findable by it.
 			if (!isToolCall(block)) continue;
-			parts.push({ text: renderCall(block), rank: ACTION, at });
+			parts.push({ text: renderToolCall(block), rank: ACTION, at });
 		}
 	}
 	return parts;

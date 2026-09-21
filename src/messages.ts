@@ -85,6 +85,6 @@ export function isToolCall(block: ContentBlock): block is ToolCallBlock {
  * rendered one way in the vector and another in the Pack would be findable
  * by words it is never shown with.
  */
-export function renderCall(call: ToolCallBlock): string {
+export function renderToolCall(call: ToolCallBlock): string {
 	return `${call.name}(${JSON.stringify(call.arguments ?? {})})`;
 }

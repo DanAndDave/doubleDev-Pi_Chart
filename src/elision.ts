@@ -22,10 +22,12 @@ export const ELISION = (tokens: number, withoutDetails: boolean) =>
 /**
  * The marker for a payload with no room for a head and a tail at all: the
  * gap is the whole of it. Still marked, because content that was there and
- * is not must never read as content that never existed.
+ * is not must never read as content that never existed. Says nothing about
+ * what the payload was — a recollection shortens the agent's own prose this
+ * way as well as a tool's output.
  */
 export const ELIDED_WHOLE = (tokens: number) =>
-	`… [context-manager elided ~${tokens} tokens of output]`;
+	`… [context-manager elided ~${tokens} tokens here]`;
 
 /** Head, marker, tail — the shape every shortened payload takes. */
 export function elide(

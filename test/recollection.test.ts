@@ -5,26 +5,19 @@
 import { describe, expect, test } from "bun:test";
 
 import { assemble, type Pack } from "../src/assembler.ts";
-import { readJournal } from "../src/journal.ts";
 import { messageText, type HarnessMessage, type Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
-import { budgets } from "./fixtures.ts";
-import { JOURNAL_FIXTURE } from "./turn-source-contract.ts";
+import {
+	budgets,
+	toolCall as call,
+	toolResult as answer,
+	toolSessionTurn as toolTurn,
+} from "./fixtures.ts";
 
 const CURRENT: Turn = {
 	prompt: "what did we do with leaf.txt",
 	messages: [{ role: "user", content: "what did we do with leaf.txt" }],
 };
-
-/** The fixture's Turn that wrote a file and read it back. */
-async function toolTurn(): Promise<Turn> {
-	const turns = await readJournal(JOURNAL_FIXTURE);
-	const turn = turns.find((each) =>
-		each.messages.some((message) => message.role === "toolResult"),
-	);
-	if (!turn) throw new Error("fixture no longer holds a tool-using turn");
-	return { index: turn.turnIndex, prompt: turn.prompt, messages: turn.messages };
-}
 
 function recollectionOf(pack: Pack): string {
 	const part = pack.parts.find((each) => each.source === "recalled");
@@ -43,23 +36,6 @@ function callIds(messages: HarnessMessage[]): string[] {
 				)
 			: [],
 	);
-}
-
-function call(
-	name: string,
-	args: Record<string, unknown>,
-	id: string,
-): HarnessMessage {
-	return { role: "assistant", content: [{ type: "toolCall", id, name, arguments: args }] };
-}
-
-function answer(text: string, id: string, toolName: string): HarnessMessage {
-	return {
-		role: "toolResult",
-		toolCallId: id,
-		toolName,
-		content: [{ type: "text", text }],
-	};
 }
 
 describe("a recollection carries the actions its turn took", () => {
@@ -141,6 +117,40 @@ describe("a recollection carries the actions its turn took", () => {
 		expect(text).toContain('read({"path":"first.ts"})');
 		expect(text).toContain('read({"path":"second.ts"})');
 		expect(text).toContain("both files define the same symbol");
+		expect(text).toMatch(/elided/);
+	});
+
+	test("a turn whose bulk is its own prose still keeps every action whole", () => {
+		// Shortening every output is not enough here, so the prose gives way
+		// too. The calls are what say what the Turn did, and the middle of
+		// an argument is exactly what a head-and-tail shortening would take,
+		// so the needle is in the middle of one.
+		const needle = "NEEDLE-IN-THE-ARGUMENTS";
+		const path = `${"a".repeat(400)}${needle}${"b".repeat(400)}`;
+		const turn: Turn = {
+			index: 5,
+			prompt: "explain the deadlock",
+			messages: [
+				{ role: "user", content: "explain the deadlock" },
+				call("read", { path }, "c1"),
+				answer("connection pool", "c1", "read"),
+				{ role: "assistant", content: "reasoning ".repeat(4_000) },
+				call("grep", { pattern: "BEGIN" }, "c2"),
+				answer("one match", "c2", "grep"),
+				{ role: "assistant", content: "more reasoning ".repeat(4_000) },
+			],
+		};
+
+		const pack = assemble(
+			{ turns: [CURRENT], recalled: [{ turnIndex: 5, turn }] },
+			budgets({ recallTurns: 1, recallTokens: 500 }),
+		);
+		const part = pack.parts.find((each) => each.source === "recalled");
+		const text = recollectionOf(pack);
+
+		expect(part?.approximateTokens).toBeLessThanOrEqual(500);
+		expect(text).toContain(needle);
+		expect(text).toContain('grep({"pattern":"BEGIN"})');
 		expect(text).toMatch(/elided/);
 	});
 

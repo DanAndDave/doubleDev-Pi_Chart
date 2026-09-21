@@ -1,5 +1,6 @@
 import type { AssemblerConfig } from "../src/assembler.ts";
-import type { HarnessMessage } from "../src/messages.ts";
+import { readJournal } from "../src/journal.ts";
+import type { HarnessMessage, Turn } from "../src/messages.ts";
 import { loadConfig, type Config } from "../src/config.ts";
 
 /**
@@ -56,4 +57,52 @@ export function settings(fields: Partial<Config>): Config {
 		(config as unknown as Record<string, unknown>)[key] = value;
 	}
 	return config;
+}
+
+/** A real Journal with a tool-using Turn in it: write, read, conclusion. */
+export const JOURNAL_FIXTURE = new URL(
+	"./fixtures/journal-tool-session.jsonl",
+	import.meta.url,
+).pathname;
+
+/**
+ * The fixture's tool-using Turn, as a Turn.
+ *
+ * Shared because three suites need the same real Turn — the embed text, the
+ * recollection and the tail all have something to say about it — and a Turn
+ * loaded two slightly different ways is a difference nobody meant.
+ */
+export async function toolSessionTurn(): Promise<Turn> {
+	const turns = await readJournal(JOURNAL_FIXTURE);
+	const turn = turns.find((each) =>
+		each.messages.some((message) => message.role === "toolResult"),
+	);
+	if (!turn) throw new Error("fixture no longer holds a tool-using turn");
+	return { index: turn.turnIndex, prompt: turn.prompt, messages: turn.messages };
+}
+
+/** An assistant message that makes one tool call. */
+export function toolCall(
+	name: string,
+	args: Record<string, unknown>,
+	id: string,
+): HarnessMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "toolCall", id, name, arguments: args }],
+	};
+}
+
+/** The result that answers a tool call. */
+export function toolResult(
+	text: string,
+	id: string,
+	toolName = "read",
+): HarnessMessage {
+	return {
+		role: "toolResult",
+		toolCallId: id,
+		toolName,
+		content: [{ type: "text", text }],
+	};
 }

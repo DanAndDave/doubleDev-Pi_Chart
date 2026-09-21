@@ -3,12 +3,9 @@ import { expect, test } from "bun:test";
 import { assemble } from "../src/assembler.ts";
 import { readJournal, type JournalTurn } from "../src/journal.ts";
 import type { TurnSink, TurnSource } from "../src/thread-store.ts";
-import { budgets } from "./fixtures.ts";
+import { budgets, JOURNAL_FIXTURE } from "./fixtures.ts";
 
-export const JOURNAL_FIXTURE = new URL(
-	"./fixtures/journal-tool-session.jsonl",
-	import.meta.url,
-).pathname;
+export { JOURNAL_FIXTURE } from "./fixtures.ts";
 
 export function journalTurn(index: number, prompt: string): JournalTurn {
 	return {

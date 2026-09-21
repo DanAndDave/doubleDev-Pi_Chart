@@ -140,6 +140,12 @@ describeStore("a stored vector's validity", () => {
 
 		expect(await store.embedPending("conv-1")).toBe(1);
 		expect(await store.embedPending("conv-1")).toBe(0);
+		// The other Conversation's Turns are untouched: recall finds none of
+		// them, and they are still waiting for the unscoped pass.
+		expect(
+			(await store.similarTurns("conv-2", "theirs", 5, PERMISSIVE)).turns,
+		).toEqual([]);
+		expect(await store.embedPending()).toBe(2);
 	});
 
 	test("a turn awaiting re-embedding is still part of the conversation", async () => {
