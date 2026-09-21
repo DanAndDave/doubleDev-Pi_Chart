@@ -30,6 +30,7 @@
 - [ ] 4.4 Verify the baseline is unchanged, embed text included — `embedFingerprint` is derived from the composed text, so a marker that shifts by one character re-embeds the whole corpus
 - [ ] 4.5 Fold the marker arithmetic into `elide` while reconciling the two contracts: all four callers size their head and tail by measuring `ELISION(0, …).length` — the marker asking itself how long it is — and three of them then derive the same `Math.ceil((text.length - half * 2) / 4)`. Give `elide` the allowance instead of the halved width, and verify the one caller that cannot derive its own count, the payload shortener adding `droppedDetails` to the elided text, can still say what it dropped
 - [ ] 4.6 Reconsider `withoutDetails` once both families are in one module: it is a boolean that only ever varies the marker's wording, and the payload shortener is the only caller that passes `true`. Verify whatever replaces it still names dropped `details` separately, for the reason `ELISION` documents — on a real tool result the harness's `details` can rival the content it summarises
+- [ ] 4.7 Fix what `ELISION` claims while the wording is already being reconsidered: it says "from the middle of this result", but both the verbatim tail and a shortened recollection route a call's *arguments* through it, so a `write` whose file was elided reads as a result that was. Bundle it with 4.6 rather than shipping two markers — `embedFingerprint` re-embeds every Turn with an elided part each time this string moves
 
 ## 5. Verification
 

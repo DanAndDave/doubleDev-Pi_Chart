@@ -154,6 +154,32 @@ describe("a recollection carries the actions its turn took", () => {
 		expect(text).toMatch(/elided/);
 	});
 
+	test("an action too large for the budget is shortened, not dropped", () => {
+		// A call's arguments are unbounded — a `write` carries the file it
+		// wrote. Keeping actions whole cannot mean keeping arguments whole,
+		// or the Turn that did the biggest thing is the one recall loses.
+		const turn: Turn = {
+			index: 6,
+			prompt: "write the migration",
+			messages: [
+				{ role: "user", content: "write the migration" },
+				call("write", { path: "010.sql", content: "ALTER TABLE ".repeat(4_000) }, "c1"),
+				answer("wrote 48000 bytes", "c1", "write"),
+				{ role: "assistant", content: "the migration adds the text hash" },
+			],
+		};
+
+		const pack = assemble(
+			{ turns: [CURRENT], recalled: [{ turnIndex: 6, turn }] },
+			budgets({ recallTurns: 1, recallTokens: 300 }),
+		);
+		const part = pack.parts.find((each) => each.source === "recalled");
+
+		expect(part?.carried).toBe(1);
+		expect(part?.approximateTokens).toBeLessThanOrEqual(300);
+		expect(recollectionOf(pack)).toContain("write(");
+	});
+
 	test("a recollection stays one attributed message carrying its position", async () => {
 		const pack = assemble(
 			{ turns: [CURRENT], recalled: [{ turnIndex: 7, turn: await toolTurn() }] },

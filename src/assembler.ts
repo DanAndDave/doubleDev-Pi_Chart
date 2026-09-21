@@ -1,7 +1,7 @@
 import {
 	isToolCall,
 	messageText,
-	renderToolCall,
+	toolCallText,
 	type ContentBlock,
 	type HarnessMessage,
 	type Turn,
@@ -645,11 +645,12 @@ function asCuratedKnowledge(hit: ConceptHit): HarnessMessage {
  * returns text blocks only, so the call vanished and its output survived.
  *
  * `allowance` is the estimated tokens the recollection may cost. Over it,
- * the outputs give way first and the prose second; the actions never do,
- * because the action is the short, irreplaceable half. A recollection that
- * cannot reach its allowance without giving up its actions comes back over
- * it, and its Budget drops it rather than carry a record of a Turn that
- * appears to have done nothing.
+ * three things give way in turn: the outputs first, the prose second, and
+ * last the arguments the calls were made with. What never gives way is the
+ * attribution and the name of each call — the short, irreplaceable half. A
+ * recollection reduced to who spoke and what they called still says what
+ * the Turn did; one reduced to its output alone is an answer with no
+ * question attached.
  */
 function asRecollection(
 	recalled: RecalledTurn,
@@ -657,30 +658,29 @@ function asRecollection(
 ): HarnessMessage {
 	const header = `[recalled from turn ${recalled.turnIndex} of this conversation]`;
 	const lines = recollectionLines(recalled.turn.messages);
-	const whole = recollection(header, lines.map((line) => line.text));
+	const whole = recollection(header, lines.map((line) => lineText(line)));
 	if (approximateTokens([whole]) <= allowance) return whole;
 
-	// Outputs give way first: what an action returned is the bulk, and the
-	// prose around it is what says why the Turn did anything.
-	const outputsOnly = fitRecollection(
-		header,
-		lines,
-		allowance,
-		(line) => line.kind === "output",
-	);
-	if (approximateTokens([outputsOnly]) <= allowance) return outputsOnly;
-
-	// Outputs alone could not get it under — a Turn whose bulk is the agent's
-	// own prose — so the prose gives way too. Shortened and marked beats
-	// dropped: the Conversation has exactly one Turn that said the thing, and
-	// `context-assembly` requires it carried rather than lost.
-	return fitRecollection(
-		header,
-		lines,
-		allowance,
-		(line) => line.kind !== "action",
-	);
+	let best = whole;
+	for (const shortenable of GIVING_ORDER) {
+		best = fitRecollection(header, lines, allowance, shortenable);
+		if (approximateTokens([best]) <= allowance) return best;
+	}
+	return best;
 }
+
+/**
+ * What may be shortened, in the order it is asked of: the outputs, then the
+ * prose as well, then the call arguments too.
+ *
+ * Each pass is tried whole before the next is reached, so a Turn only gives
+ * up its arguments when shortening everything it said could not fit.
+ */
+const GIVING_ORDER: ReadonlyArray<(line: RecollectionLine) => boolean> = [
+	(line) => line.kind === "output",
+	(line) => line.kind !== "action",
+	() => true,
+];
 
 /**
  * Renders a recollection whose shortenable lines are shrunk until the whole
@@ -697,22 +697,28 @@ function fitRecollection(
 	allowance: number,
 	shortenable: (line: RecollectionLine) => boolean,
 ): HarnessMessage {
-	const fixed = lines
-		.filter((line) => !shortenable(line))
-		.reduce((total, line) => total + line.text.length + 1, header.length);
+	const fixed = lines.reduce(
+		(total, line) =>
+			total +
+			line.prefix.length +
+			line.suffix.length +
+			1 +
+			(shortenable(line) ? 0 : line.payload.length),
+		header.length,
+	);
 	const giving = lines.filter(shortenable);
 	let room = Math.max(allowance * 4 - fixed, 0);
 
-	let best = recollection(header, lines.map((line) => line.text));
+	let best = recollection(header, lines.map((line) => lineText(line)));
 	while (room >= 0) {
 		const allocation = shares(
-			giving.map((line) => line.text.length),
+			giving.map((line) => line.payload.length),
 			room,
 		);
 		let at = 0;
 		const shortened = lines.map((line) => {
-			if (!shortenable(line)) return line.text;
-			return shortenLine(line.text, allocation[at++] ?? 0);
+			if (!shortenable(line)) return lineText(line);
+			return lineText(line, shortenLine(line.payload, allocation[at++] ?? 0));
 		});
 		best = { ...recollection(header, shortened), cmShortened: true };
 		if (approximateTokens([best]) <= allowance || room === 0) break;
@@ -722,22 +728,34 @@ function fitRecollection(
 	return best;
 }
 
-/** One line of a recollection, and the order its kind gives way in. */
+/** One line of a recollection, split into what may give way and what may not. */
 interface RecollectionLine {
-	text: string;
 	/**
-	 * What the line is: what an action returned, what the agent said, or
-	 * the action itself. The last never gives way — a recollection whose
-	 * calls were shortened is output with no question attached, which is
-	 * the shape this rendering exists to stop producing.
+	 * Who said it and, for a call, what was called. Never shortened: a line
+	 * that lost this is a fragment nobody can attribute.
+	 */
+	prefix: string;
+	/** What the line carries — said, returned, or passed to a call. */
+	payload: string;
+	/** What closes it: a call's bracket, and whether anything answered it. */
+	suffix: string;
+	/**
+	 * What the line is, which decides when its payload gives way: what an
+	 * action returned goes first, what the agent said second, and what a
+	 * call passed only when neither was enough.
 	 */
 	kind: "output" | "prose" | "action";
+}
+
+/** A line as text, with its payload shortened or whole. */
+function lineText(line: RecollectionLine, payload = line.payload): string {
+	return `${line.prefix}${payload}${line.suffix}`;
 }
 
 function recollection(header: string, lines: string[]): HarnessMessage {
 	return {
 		role: "user",
-		content: `${header}\n${lines.filter((line) => line !== "").join("\n")}`,
+		content: `${header}\n${lines.join("\n")}`,
 		cmRecalled: true,
 	};
 }
@@ -751,7 +769,9 @@ function recollectionLines(messages: HarnessMessage[]): RecollectionLine[] {
 		const text = messageText(message).trim();
 		if (text !== "") {
 			lines.push({
-				text: `${message.role}: ${text}`,
+				prefix: `${message.role}: `,
+				payload: text,
+				suffix: "",
 				kind: message.role === "toolResult" ? "output" : "prose",
 			});
 		}
@@ -765,8 +785,11 @@ function recollectionLines(messages: HarnessMessage[]): RecollectionLine[] {
 			// not protocol, so it is labelled rather than withheld the way
 			// the verbatim tail must withhold it.
 			const unanswered = answered.has(call.id) ? "" : " — no result recorded";
+			const { head, passed, tail } = toolCallText(call);
 			lines.push({
-				text: `${message.role}: ${renderToolCall(call)}${unanswered}`,
+				prefix: `${message.role}: ${head}`,
+				payload: passed,
+				suffix: `${tail}${unanswered}`,
 				kind: "action",
 			});
 		}
@@ -784,7 +807,7 @@ function answeredCalls(messages: HarnessMessage[]): Set<string> {
 	return answered;
 }
 
-/** One output line, head and tail, within the characters it may spend. */
+/** One line's payload, head and tail, within the characters it may spend. */
 function shortenLine(text: string, allowed: number): string {
 	if (text.length <= allowed) return text;
 	const half = Math.floor((allowed - ELISION(0, false).length) / 2);

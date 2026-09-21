@@ -77,6 +77,26 @@ export function isToolCall(block: ContentBlock): block is ToolCallBlock {
 }
 
 /**
+ * A tool call as text, in the pieces a shortener needs: what names it, what
+ * it passed, and what closes it.
+ *
+ * Split because only the arguments may give way. A call's name is what says
+ * the Turn did something; the file it wrote can be a Budget's worth of text
+ * on its own.
+ */
+export function toolCallText(call: ToolCallBlock): {
+	head: string;
+	passed: string;
+	tail: string;
+} {
+	return {
+		head: `${call.name}(`,
+		passed: JSON.stringify(call.arguments ?? {}),
+		tail: ")",
+	};
+}
+
+/**
  * How a tool call reads as text: the name it was made with and the arguments
  * it carried.
  *
@@ -86,5 +106,6 @@ export function isToolCall(block: ContentBlock): block is ToolCallBlock {
  * by words it is never shown with.
  */
 export function renderToolCall(call: ToolCallBlock): string {
-	return `${call.name}(${JSON.stringify(call.arguments ?? {})})`;
+	const { head, passed, tail } = toolCallText(call);
+	return `${head}${passed}${tail}`;
 }
