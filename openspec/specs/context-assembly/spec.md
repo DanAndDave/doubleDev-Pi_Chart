@@ -205,7 +205,7 @@ Each part of a Context Pack SHALL have a Budget, and SHALL be trimmed to fit it.
 
 ### Requirement: Packs carry curated knowledge under its own budget
 
-A Context Pack SHALL be able to carry Concepts from the Doc Store, as a part distinct from the verbatim tail and from recalled Turns, bounded by its own Budget. A carried Concept SHALL be attributed to the Doc Store and identified, so the agent can tell curated knowledge from something it was just told.
+A Context Pack SHALL be able to carry Concepts from the Doc Store, as a part distinct from the verbatim tail and from recalled Turns, bounded by its own Budget. A carried Concept SHALL be attributed to the Doc Store and identified, so the agent can tell curated knowledge from something it was just told. Where what is carried is one part of a Concept rather than the whole of it, the pack SHALL identify the part carried and the Concept it belongs to, and SHALL say that the Concept holds more — a fragment presented under the Concept's name reads as the Concept's complete answer, which is the one thing curated knowledge must not do. What a Concept records that it is not SHALL be carried with it.
 
 #### Scenario: A concept reaches the model
 
@@ -216,6 +216,21 @@ A Context Pack SHALL be able to carry Concepts from the Doc Store, as a part dis
 
 - **WHEN** a Concept enters a pack
 - **THEN** it SHALL carry its identifier and be distinguishable from the current exchange and from recalled Turns
+
+#### Scenario: A fragment is not presented as the whole concept
+
+- **WHEN** a pack carries one part of a Concept that has several
+- **THEN** it SHALL identify the part carried, name the Concept it belongs to, and say the Concept holds more
+
+#### Scenario: A concept carried whole is not marked as partial
+
+- **WHEN** a pack carries all there is of a Concept
+- **THEN** it SHALL NOT claim that more exists
+
+#### Scenario: What a concept excludes travels into the pack
+
+- **WHEN** a pack carries a Concept that records what it is not
+- **THEN** those exclusions SHALL be carried with it
 
 #### Scenario: The doc budget is independent of the others
 
