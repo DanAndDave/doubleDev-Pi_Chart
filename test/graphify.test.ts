@@ -34,7 +34,10 @@ describeReal("against the real graphify", () => {
 
 			// `assemble` is called from the extension; that is a fact a
 			// parser can establish, and the whole point of this Store.
-			const found = symbolsInPlay(graph, "who calls assemble");
+			const found = symbolsInPlay(graph, {
+				prompt: "who calls assemble",
+				messages: [],
+			});
 			const [around] = neighbourhoods(graph, found);
 			const partners = (around?.edges ?? []).map(
 				(edge) => `${edge.from.label} ${edge.relation} ${edge.to.label}`,
@@ -156,6 +159,48 @@ describeReal("against the real graphify", () => {
 			// graphify reports its own cache decision, which is the only
 			// honest evidence that the corpus was not re-parsed.
 			expect(last).toContain("0 re-extracted");
+		},
+		TIMEOUT,
+	);
+
+	test(
+		"refreshing after one edit costs that edit, not the corpus",
+		async () => {
+			const root = await codebase();
+			let last = "";
+			const store = new GraphStore({
+				run: async (command, args) => {
+					const spawned = Bun.spawn([command, ...args], {
+						stdout: "pipe",
+						stderr: "pipe",
+					});
+					const [stdout, stderr, code] = await Promise.all([
+						new Response(spawned.stdout).text(),
+						new Response(spawned.stderr).text(),
+						spawned.exited,
+					]);
+					last = `${stdout}${stderr}`;
+					return { ok: code === 0, output: last };
+				},
+			});
+
+			await store.refresh(root);
+			const file = join(root, "src", "sections.ts");
+			await writeFile(
+				file,
+				`${await Bun.file(file).text()}\nexport function probeCost() {\n\treturn 1;\n}\n`,
+			);
+			await store.refresh(root);
+
+			// The refresh that follows every Turn is affordable only
+			// because it costs the edit: this is that claim, against the
+			// tool's own report.
+			const summary = /(\d+) files cached\/unchanged, (\d+) re-extracted/.exec(last);
+			if (!summary) throw new Error(`no incremental summary in: ${last}`);
+			const cached = Number(summary[1]);
+			const again = Number(summary[2]);
+			expect(again).toBeLessThanOrEqual(3);
+			expect(cached).toBeGreaterThan(again * 10);
 		},
 		TIMEOUT,
 	);

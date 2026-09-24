@@ -2,13 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 import { GraphFormatError, readGraph } from "../src/graph.ts";
-import { describeEdge, neighbourhoods, symbolsInPlay } from "../src/symbols.ts";
+import type { HarnessMessage } from "../src/messages.ts";
+import {
+	describeEdge,
+	neighbourhoods,
+	prepare,
+	symbolsInPlay,
+} from "../src/symbols.ts";
 
 const FIXTURE = readFileSync(
 	new URL("./fixtures/graph.json", import.meta.url).pathname,
 	"utf8",
 );
 const graph = readGraph(FIXTURE);
+
+/**
+ * A prompt as a Turn, which is what selection now reads. Extraction time is
+ * irrelevant to selection, so these fixtures leave it at zero.
+ */
+function inPlay(text: string, of = graph) {
+	return symbolsInPlay(prepare(of, 0), { prompt: text, messages: [] });
+}
 
 describe("reading an extraction", () => {
 	test("carries what a parser established", () => {
@@ -155,7 +169,7 @@ describe("an extraction that is not what the adapter requires", () => {
 
 describe("finding the symbols in play", () => {
 	test("finds a symbol a prompt names", () => {
-		const found = symbolsInPlay(graph, "who calls assemble in this codebase?");
+		const found = inPlay("who calls assemble in this codebase?");
 
 		expect(found.map((symbol) => symbol.label)).toEqual(["assemble()"]);
 	});
@@ -164,21 +178,21 @@ describe("finding the symbols in play", () => {
 		// The graph records `.recordPack()`; the prompt writes it three
 		// other ways.
 		for (const written of ["recordPack", "record_pack", "RecordPack"]) {
-			const found = symbolsInPlay(graph, `what happens in ${written}?`);
+			const found = inPlay(`what happens in ${written}?`);
 
 			expect(found.map((symbol) => symbol.label)).toEqual([".recordPack()"]);
 		}
 	});
 
 	test("an identifier that matches is not also split into parts", () => {
-		const found = symbolsInPlay(graph, "what happens when recordPack runs?");
+		const found = inPlay("what happens when recordPack runs?");
 
 		// Not `approximateTokens()` via "record", nor anything via "pack".
 		expect(found).toHaveLength(1);
 	});
 
 	test("an identifier that matches nothing falls back to its parts", () => {
-		const found = symbolsInPlay(graph, "is assembleLater a thing?");
+		const found = inPlay("is assembleLater a thing?");
 
 		expect(found.map((symbol) => symbol.label)).toEqual(["assemble()"]);
 	});
@@ -187,7 +201,7 @@ describe("finding the symbols in play", () => {
 		// Observed live: "do not read, grep, or list any files" matched
 		// `.read()` and `.list()`, and they spent the Budget ahead of the
 		// symbol the question was about.
-		const graph = readGraph(
+		const local = readGraph(
 			JSON.stringify({
 				nodes: [
 					{
@@ -209,9 +223,9 @@ describe("finding the symbols in play", () => {
 
 		// The ordinary word comes first in the prompt, so insertion order
 		// alone would put `.read()` ahead of what was actually asked about.
-		const found = symbolsInPlay(
-			graph,
+		const found = inPlay(
 			"do not read any files: which functions call parseConcept?",
+			local,
 		);
 
 		expect(found.map((symbol) => symbol.label)).toEqual(["parseConcept()"]);
@@ -221,7 +235,7 @@ describe("finding the symbols in play", () => {
 		// Found in review: filtering on how the prompt writes a name lost
 		// `assemble` whenever the prompt also said something like
 		// `recordPack`, though the prompt names both.
-		const found = symbolsInPlay(graph, "does recordPack call assemble?");
+		const found = inPlay("does recordPack call assemble?");
 
 		expect(found.map((symbol) => symbol.label).sort()).toEqual([
 			".recordPack()",
@@ -251,7 +265,7 @@ describe("finding the symbols in play", () => {
 		}
 		const crowded = readGraph(JSON.stringify({ nodes, links: [] }));
 
-		const found = symbolsInPlay(crowded, "Describe what symbolsInPlay does");
+		const found = inPlay("Describe what symbolsInPlay does", crowded);
 
 		expect(found[0]?.label).toBe("symbolsInPlay()");
 	});
@@ -275,7 +289,7 @@ describe("finding the symbols in play", () => {
 		}
 		const many = readGraph(JSON.stringify({ nodes, links: [] }));
 
-		const found = symbolsInPlay(many, "does recordPack call assemble?");
+		const found = inPlay("does recordPack call assemble?", many);
 
 		// Three same-named methods must not spend a Budget of three before
 		// the other symbol the prompt names.
@@ -288,7 +302,7 @@ describe("finding the symbols in play", () => {
 	test("a type named by its capitalised name is not an ordinary word", () => {
 		// `Pack` has no case boundary, so only its capital distinguishes it
 		// from a word like `read`.
-		const graph = readGraph(
+		const local = readGraph(
 			JSON.stringify({
 				nodes: [
 					{
@@ -308,13 +322,13 @@ describe("finding the symbols in play", () => {
 			}),
 		);
 
-		const found = symbolsInPlay(graph, "do not read any files: what is a Pack?");
+		const found = inPlay("do not read any files: what is a Pack?", local);
 
 		expect(found.map((symbol) => symbol.label)).toEqual(["Pack"]);
 	});
 
 	test("an ordinary word written as a call still counts as code", () => {
-		const graph = readGraph(
+		const local = readGraph(
 			JSON.stringify({
 				nodes: [
 					{
@@ -328,20 +342,237 @@ describe("finding the symbols in play", () => {
 			}),
 		);
 
-		expect(symbolsInPlay(graph, "what does read() do?")).toHaveLength(1);
-		expect(symbolsInPlay(graph, "what does store.read do?")).toHaveLength(1);
+		expect(inPlay("what does read() do?", local)).toHaveLength(1);
+		expect(inPlay("what does store.read do?", local)).toHaveLength(1);
 	});
 
 	test("a prompt about nothing in the codebase finds nothing", () => {
-		expect(symbolsInPlay(graph, "what is the capital of Peru")).toEqual([]);
+		expect(inPlay("what is the capital of Peru")).toEqual([]);
+	});
+});
+
+describe("the symbols a turn is working with", () => {
+	/** A Turn whose prompt names nothing, but whose messages do. */
+	function turn(prompt: string, ...messages: HarnessMessage[]) {
+		return symbolsInPlay(prepare(graph, 0), { prompt, messages });
+	}
+
+	const read = (path: string): HarnessMessage => ({
+		role: "assistant",
+		content: [
+			{ type: "toolCall", id: "t1", name: "read", arguments: { path } },
+		],
+	});
+
+	test("a tool-loop call whose prompt names nothing still finds symbols", () => {
+		// The question a tool loop asks is "continue", and the Turn has
+		// been reading files for ten steps.
+		const found = turn("keep going", read("src/assembler.ts"));
+
+		expect(found.map((symbol) => symbol.label)).toContain("assemble()");
+	});
+
+	test("a symbol the prompt names outranks a file's other symbols", () => {
+		const found = turn(
+			"what calls contextManager?",
+			read("src/assembler.ts"),
+		);
+
+		expect(found[0]?.label).toBe("contextManager()");
+		expect(found.map((symbol) => symbol.label)).toContain("assemble()");
+	});
+
+	test("only the head of a message is read", () => {
+		// One message's contribution is bounded, so a tool result that
+		// dwarfs the Turn cannot decide what the Turn is about. Measured:
+		// scanning this machine's widest Turn unbounded cost 89 ms on the
+		// Call's own path, against recall's whole 81 ms budget.
+		const buried: HarnessMessage = {
+			role: "toolResult",
+			content: `${"filler ".repeat(2_000)}unusedHelper()`,
+		};
+		const stated: HarnessMessage = {
+			role: "toolResult",
+			content: `unusedHelper() ${"filler ".repeat(2_000)}`,
+		};
+
+		expect(turn("keep going", buried)).toEqual([]);
+		expect(turn("keep going", stated).map((each) => each.label)).toContain(
+			"unusedHelper()",
+		);
+	});
+
+	test("an outsized tool result cannot displace what the turn is about", () => {
+		const noise: HarnessMessage = {
+			role: "toolResult",
+			content: "unusedHelper ".repeat(20_000),
+		};
+		const found = turn("what calls contextManager?", noise, read("src/assembler.ts"));
+
+		expect(found[0]?.label).toBe("contextManager()");
+		expect(found.map((symbol) => symbol.label)).toContain("assemble()");
+	});
+
+	test("only the turn's recent messages are read", () => {
+		// Forty messages of history, the symbol named in the oldest: a
+		// Turn works on what it just did, and scanning a 1,805-message Turn
+		// whole was measured at 89 ms on the Call's own path.
+		const old: HarnessMessage = { role: "toolResult", content: "unusedHelper()" };
+		const filler = Array.from({ length: 40 }, () => ({
+			role: "toolResult",
+			content: "nothing to see",
+		}));
+
+		expect(turn("keep going", old, ...filler).map((each) => each.label)).toEqual([]);
+		expect(turn("keep going", old).map((each) => each.label)).toContain(
+			"unusedHelper()",
+		);
+	});
+
+	test("the member-name rule still holds over the turn's wider text", () => {
+		const found = turn("keep going", {
+			role: "toolResult",
+			content: "do not read any files; look at recordPack instead",
+		});
+
+		expect(found.map((symbol) => symbol.label)).toEqual([".recordPack()"]);
+	});
+
+	test("a turn naming nothing the graph knows finds nothing", () => {
+		const found = turn("keep going", {
+			role: "toolResult",
+			content: "the capital of Peru is Lima",
+		});
+
+		expect(found).toEqual([]);
+	});
+});
+
+describe("a file in play", () => {
+	const forPath = (path: string) =>
+		symbolsInPlay(prepare(graph, 0), { prompt: `look at ${path}`, messages: [] })
+			.map((symbol) => symbol.label);
+
+	test("a path resolves to the symbols that file defines", () => {
+		expect(forPath("src/assembler.ts")).toEqual(
+			expect.arrayContaining(["assemble()", "approximateTokens()"]),
+		);
+	});
+
+	test("every spelling of the same path resolves to the same symbols", () => {
+		const relative = forPath("src/assembler.ts");
+
+		expect(forPath("./src/assembler.ts")).toEqual(relative);
+		expect(forPath("/home/user/dev/context-manager/src/assembler.ts")).toEqual(
+			relative,
+		);
+	});
+
+	test("a bare word naming a file reaches the file's symbols", () => {
+		// `assembler` is not `assemble`, and `canonical` will never make it
+		// one: the link is the file the graph states.
+		expect(forPath("assembler")).toContain("assemble()");
+	});
+
+	test("a path no symbol belongs to yields nothing", () => {
+		expect(forPath("src/nowhere-at-all.ts")).toEqual([]);
+	});
+});
+
+describe("truncating an over-sized neighbourhood", () => {
+	/** A hub with more members than the cap, plus callers and importers. */
+	function hub(): ReturnType<typeof readGraph> {
+		const nodes = [
+			{ id: "hub", label: "Hub", file_type: "code", source_file: "src/hub.ts" },
+		];
+		const links: Record<string, unknown>[] = [];
+		for (let index = 0; index < 16; index++) {
+			nodes.push({
+				id: `m${index}`,
+				label: `.member${index}()`,
+				file_type: "code",
+				source_file: "src/hub.ts",
+			});
+			links.push({
+				source: "hub",
+				target: `m${index}`,
+				relation: index % 2 === 0 ? "contains" : "method",
+				confidence: "EXTRACTED",
+			});
+		}
+		for (const [index, relation] of ["calls", "imports", "calls"].entries()) {
+			nodes.push({
+				id: `u${index}`,
+				label: `user${index}()`,
+				file_type: "code",
+				source_file: "src/user.ts",
+			});
+			links.push({
+				source: `u${index}`,
+				target: "hub",
+				relation,
+				confidence: "EXTRACTED",
+			});
+		}
+		nodes.push({
+			id: "dep",
+			label: "dependency()",
+			file_type: "code",
+			source_file: "src/dep.ts",
+		});
+		links.push({
+			source: "hub",
+			target: "dep",
+			relation: "calls",
+			confidence: "EXTRACTED",
+		});
+		return readGraph(JSON.stringify({ nodes, links }));
+	}
+
+	const around = (of = hub()) => {
+		const prepared = prepare(of, 0);
+		const [neighbourhood] = neighbourhoods(
+			prepared,
+			symbolsInPlay(prepared, { prompt: "tell me about Hub", messages: [] }),
+		);
+		if (!neighbourhood) throw new Error("no neighbourhood");
+		return neighbourhood;
+	};
+
+	test("what uses a hub survives while its members are left out", () => {
+		const relations = around().edges.map((edge) => edge.relation);
+
+		// Every use is carried; membership fills only what is left.
+		expect(relations.filter((each) => each === "calls")).toHaveLength(3);
+		expect(relations).toContain("imports");
+		expect(relations.filter((each) => each === "contains" || each === "method"))
+			.toHaveLength(8);
+	});
+
+	test("the cap and the direction alternation are unchanged", () => {
+		const neighbourhood = around();
+
+		expect(neighbourhood.edges).toHaveLength(12);
+		expect(neighbourhood.dropped).toBe(20 - 12);
+		const inbound = neighbourhood.edges.filter((edge) => edge.to.id === "hub");
+		const outbound = neighbourhood.edges.filter((edge) => edge.from.id === "hub");
+		expect(inbound.length).toBeGreaterThan(0);
+		expect(outbound.length).toBeGreaterThan(0);
+	});
+
+	test("truncating the same neighbourhood twice keeps the same connections", () => {
+		const graphOf = hub();
+
+		expect(around(graphOf).edges.map(describeEdge)).toEqual(
+			around(graphOf).edges.map(describeEdge),
+		);
 	});
 });
 
 describe("the neighbourhood of a symbol", () => {
 	test("carries both what calls it and what it calls", () => {
-		const [around] = neighbourhoods(
-			graph,
-			symbolsInPlay(graph, "tell me about assemble"),
+		const [around] = neighbourhoods(prepare(graph, 0),
+			inPlay("tell me about assemble"),
 		);
 
 		const described = (around?.edges ?? []).map(describeEdge);
@@ -351,9 +582,8 @@ describe("the neighbourhood of a symbol", () => {
 	});
 
 	test("a connection says where both ends are", () => {
-		const [around] = neighbourhoods(
-			graph,
-			symbolsInPlay(graph, "tell me about assemble"),
+		const [around] = neighbourhoods(prepare(graph, 0),
+			inPlay("tell me about assemble"),
 		);
 		const first = around?.edges[0];
 		if (!first) throw new Error("no edge");
@@ -382,7 +612,7 @@ describe("the neighbourhood of a symbol", () => {
 		}
 		const big = readGraph(JSON.stringify({ nodes, links }));
 
-		const [around] = neighbourhoods(big, symbolsInPlay(big, "tell me about hub"));
+		const [around] = neighbourhoods(prepare(big, 0), inPlay("tell me about hub", big));
 
 		// A hub's degree is unbounded; a pack's budget is not.
 		expect(around?.edges.length).toBeLessThan(20);
@@ -425,7 +655,7 @@ describe("the neighbourhood of a symbol", () => {
 		});
 		const big = readGraph(JSON.stringify({ nodes, links }));
 
-		const [around] = neighbourhoods(big, symbolsInPlay(big, "tell me about hub"));
+		const [around] = neighbourhoods(prepare(big, 0), inPlay("tell me about hub", big));
 
 		expect(
 			(around?.edges ?? []).some((edge) => edge.from.label === "caller()"),
@@ -433,9 +663,9 @@ describe("the neighbourhood of a symbol", () => {
 	});
 
 	test("a symbol with no connections yields nothing", () => {
-		const found = symbolsInPlay(graph, "what about unusedHelper?");
+		const found = inPlay("what about unusedHelper?");
 
 		expect(found).toHaveLength(1);
-		expect(neighbourhoods(graph, found)).toEqual([]);
+		expect(neighbourhoods(prepare(graph, 0), found)).toEqual([]);
 	});
 });

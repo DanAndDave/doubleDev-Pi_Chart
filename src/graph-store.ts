@@ -2,8 +2,9 @@ import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { readGraph, type CodeGraph } from "./graph.ts";
+import { readGraph } from "./graph.ts";
 import { runProcess, type CommandResult, type RunCommand } from "./process.ts";
+import { prepare, type PreparedGraph } from "./symbols.ts";
 
 /**
  * The graphify release this adapter was written against.
@@ -57,14 +58,18 @@ export class GraphStore {
 	private readonly makeDirectory: (path: string) => Promise<void>;
 	private readonly changedAt: (path: string) => Promise<number | undefined>;
 	/**
-	 * What each Codebase's extraction parsed to, valid while the file is
-	 * untouched. A failure is remembered too: re-parsing a broken graph on
-	 * every Call would cost the same work and report the same complaint
-	 * every time.
+	 * What each Codebase's extraction parsed and indexed to, valid while
+	 * the file is untouched. A failure is remembered too: re-parsing a
+	 * broken graph on every Call would cost the same work and report the
+	 * same complaint every time.
+	 *
+	 * The indexes ride with the parse rather than in a memo of their own:
+	 * two caches over one file with no shared trigger is how a stale index
+	 * outlives the graph it describes.
 	 */
 	private readonly parsed = new Map<
 		string,
-		{ changedAt: number; graph?: CodeGraph; failure?: Error }
+		{ changedAt: number; graph?: PreparedGraph; failure?: Error }
 	>();
 	/** Refreshes in flight, so concurrent sessions do not collide. */
 	private readonly refreshing = new Map<string, Promise<void>>();
@@ -174,13 +179,15 @@ export class GraphStore {
 	}
 
 	/**
-	 * The Codebase's graph, or `undefined` when it has never been extracted.
+	 * The Codebase's graph, indexed, or `undefined` when it has never been
+	 * extracted.
 	 *
-	 * Parsed once and kept until the extraction changes: this runs on the
-	 * request path, and a graph for a few thousand source files is tens of
-	 * megabytes — hundreds of milliseconds no prompt should pay twice.
+	 * Parsed and indexed once, kept until the extraction changes: this runs
+	 * on the request path, and a graph for a few thousand source files is
+	 * tens of megabytes — hundreds of milliseconds no prompt should pay
+	 * twice, plus indexes over every symbol and every edge.
 	 */
-	async graph(codebase: string): Promise<CodeGraph | undefined> {
+	async graph(codebase: string): Promise<PreparedGraph | undefined> {
 		const path = join(codebase, OUTPUT);
 		const at = await this.changedAt(path);
 		if (at === undefined) return undefined;
@@ -192,7 +199,7 @@ export class GraphStore {
 		}
 
 		try {
-			const graph = readGraph(await this.read(path));
+			const graph = prepare(readGraph(await this.read(path)), at);
 			this.parsed.set(codebase, { changedAt: at, graph });
 			return graph;
 		} catch (error) {
@@ -200,6 +207,29 @@ export class GraphStore {
 			this.parsed.set(codebase, { changedAt: at, failure });
 			throw failure;
 		}
+	}
+
+	/**
+	 * Which of these files have changed since the extraction was written.
+	 *
+	 * Per file rather than per Codebase: a Turn that edited one file must
+	 * still be able to trust the structure of the ones it did not touch,
+	 * and a Codebase-wide probe is a recursive walk on the request path. A
+	 * file whose age cannot be established counts as changed — an
+	 * invariant that cannot be checked is not a verified invariant
+	 * (ADR-0003).
+	 */
+	async changedSince(
+		codebase: string,
+		extractedAt: number,
+		files: Iterable<string>,
+	): Promise<Set<string>> {
+		const older = new Set<string>();
+		for (const file of new Set(files)) {
+			const at = await this.changedAt(join(codebase, file));
+			if (at === undefined || at > extractedAt) older.add(file);
+		}
+		return older;
 	}
 }
 

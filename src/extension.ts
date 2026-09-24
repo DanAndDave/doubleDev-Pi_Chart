@@ -163,6 +163,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let swapReported = false;
 	/** Conversations already told their packs are approaching the ceiling. */
 	const warnedNearCeiling = new Set<string>();
+	/** Said once a session: a Codebase with no graph is a condition, not an event. */
+	let missingGraphReported = false;
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -256,11 +258,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		if (deps.graph && deps.config.graphExtract) {
-			const graph = deps.graph;
-			const codebase = deps.codebase ?? process.cwd();
 			// Background, like Doc Store indexing: extracting a Codebase is
 			// seconds of work a first prompt must not wait for.
-			inBackground("Graph Store extraction", graph.refresh(codebase));
+			extract();
 		}
 
 		if (deps.docs && deps.bundle) {
@@ -402,8 +402,30 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	pi.on("agent_end", async (_event, ctx) => {
 		const conversationId = conversationOf(ctx);
 		reconcile(conversationId, ctx.sessionManager?.getBranch?.() ?? []);
+		// The Turn that just finished is the Turn that may have edited the
+		// Codebase, so this is where a graph frozen at session start stops
+		// being frozen. Notification-only and in the background, so nothing
+		// the user waits on grows; extraction is content-hash incremental,
+		// so an unchanged tree costs a scan rather than a build.
+		if (deps.config.graphExtract) extract();
 		await store(conversationId);
 	});
+
+	/**
+	 * Brings the Codebase's graph up to date, off the request path.
+	 *
+	 * Returns the work so shutdown can wait for it: measured on a headless
+	 * run, the refresh started at `agent_end` was still running when the
+	 * process exited, leaving the graph older than the edit that Turn had
+	 * just made.
+	 */
+	function extract(): Promise<void> {
+		const graph = deps.graph;
+		if (!graph) return Promise.resolve();
+		const work = graph.refresh(deps.codebase ?? process.cwd());
+		inBackground("Graph Store extraction", work);
+		return work.catch(() => undefined);
+	}
 
 	// `agent_end` is notification-only: the harness does not wait for it, so a
 	// headless run can exit mid-ingest. `session_shutdown` is awaited, which
@@ -415,6 +437,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// Store then refused every new client.
 		try {
 			await store(conversationOf(ctx));
+			// The extraction `agent_end` began, given the chance to finish:
+			// `refresh` returns the one already running for this Codebase,
+			// so this waits rather than extracting twice.
+			if (deps.config.graphExtract) await extract();
 			await retire();
 		} finally {
 			await deps.close?.();
@@ -770,14 +796,20 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 		if (args === "setup") {
 			const done = await install.setup(deps.config);
-			const after = await install.check(deps.config, memoryState());
+			const after = await install.check(
+				deps.config,
+				memoryState(),
+				deps.graph !== undefined,
+			);
 			return `${describeChecks(done)}\n\nNow:\n${describeChecks(after)}`;
 		}
 		if (args !== "") {
 			return `Unknown command: ${args}. Use \`context-manager\` or \`context-manager setup\`.`;
 		}
 
-		return describeChecks(await install.check(deps.config, memoryState()));
+		return describeChecks(
+			await install.check(deps.config, memoryState(), deps.graph !== undefined),
+		);
 	}
 
 	/** What to tell the installation about the harness's memory backend. */
@@ -1034,32 +1066,48 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * The structure around the symbols this prompt names. A Graph Store
-	 * failure costs the structure, never the Turn.
+	 * The structure around the symbols this Turn is working with, with what
+	 * the Codebase has outgrown marked. A Graph Store failure costs the
+	 * structure, never the Turn.
 	 */
 	async function structureFor(
 		current: Turn | undefined,
 	): Promise<Supplied<Neighbourhood[]>> {
 		if (!deps.graph) return { value: [], unavailable: "unconfigured" };
 		if (!current || deps.config.graphSymbols <= 0) return { value: [] };
+		const store = deps.graph;
+		const codebase = deps.codebase ?? process.cwd();
 		try {
 			const found = await inTime(
 				"Graph Store",
 				deps.config.graphDeadlineMs,
-				deps.graph.graph(deps.codebase ?? process.cwd()),
+				store.graph(codebase),
 			);
 			if (!found.answered) return { value: [], unavailable: "failed" };
 			const graph = found.value;
 			// No graph is a Codebase never extracted, which is nothing
 			// configured rather than something that failed.
-			if (!graph) return { value: [], unavailable: "unconfigured" };
+			if (!graph) {
+				reportMissingGraph();
+				return { value: [], unavailable: "unconfigured" };
+			}
 			// Over-fetch, as the other Stores do, so what the Budget excluded
 			// is visible in the accounting rather than invisible.
+			const around = neighbourhoods(graph, symbolsInPlay(graph, current)).slice(
+				0,
+				deps.config.graphSymbols * 2,
+			);
+			// Aged after selection, so the number of `stat` calls is the
+			// over-fetch rather than the graph.
+			const older = await store.changedSince(
+				codebase,
+				graph.extractedAt,
+				around.map((each) => each.symbol.file),
+			);
 			return {
-				value: neighbourhoods(
-					graph,
-					symbolsInPlay(graph, current.prompt),
-				).slice(0, deps.config.graphSymbols * 2),
+				value: around.map((each) =>
+					older.has(each.symbol.file) ? { ...each, stale: true as const } : each,
+				),
 			};
 		} catch (error) {
 			reportSafely(
@@ -1067,6 +1115,21 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 			return { value: [], unavailable: "failed" };
 		}
+	}
+
+	/**
+	 * Said once when a structure Budget is set and there is no graph to
+	 * serve it: an empty part with no explanation reads as a Codebase with
+	 * no structure worth carrying, which is a different thing entirely.
+	 */
+	function reportMissingGraph(): void {
+		if (missingGraphReported) return;
+		missingGraphReported = true;
+		reportSafely(
+			`Structure is configured (${deps.config.graphSymbols} symbols) but this ` +
+				`codebase has no graph; run with CM_GRAPH=on to derive one, or set ` +
+				`CM_GRAPH_SYMBOLS=0 to stop asking for it.`,
+		);
 	}
 
 	/** Writes any reported window size this process has not written yet. */
@@ -1186,24 +1249,29 @@ function sleep(ms: number): Promise<void> {
 export default function contextManager(pi: ExtensionAPI): void {
 	const config = loadConfig(process.env);
 
+	// Everything a Codebase alone can serve is unconditional: structure is
+	// derived from the Codebase, the bundle from disk, the Spec Store from
+	// `stat` and a subprocess. Declining the record of what happened must
+	// not withdraw any of them, which two literals made it do.
+	const shared = {
+		config,
+		assemble: defaultAssemble,
+		graph: new GraphStore(),
+		walk: new DocStore(config.docBundle),
+		specs: new SpecStore(),
+		codebase: process.cwd(),
+		report: reportToStderr,
+		show: showToStdout,
+	} satisfies Partial<Dependencies>;
+
 	if (!config.databaseUrl) {
 		// Without a Thread Store the Assembler still owns the window; the tail
-		// simply comes from the harness's own history, as it did before.
-		const memory = new MemoryTurnSource();
+		// simply comes from the harness's own history, as it did before, and
+		// Accounting is held in memory so `/pack` still answers in-session.
 		register(pi, {
-			config,
-			assemble: defaultAssemble,
-			turns: memory,
+			...shared,
+			turns: new MemoryTurnSource(),
 			accounting: new MemoryAccounting(),
-			// Neither needs Postgres, and a session with no Thread Store is
-			// the one with least other context to draw on.
-			walk: new DocStore(config.docBundle),
-			// Neither Postgres nor a model: `stat` and a subprocess, so it
-			// works in a session with no Thread Store at all.
-			specs: new SpecStore(),
-			codebase: process.cwd(),
-			report: reportToStderr,
-			show: showToStdout,
 		});
 		return;
 	}
@@ -1221,19 +1289,14 @@ export default function contextManager(pi: ExtensionAPI): void {
 	});
 
 	register(pi, {
-		config,
-		assemble: defaultAssemble,
+		...shared,
 		turns: store,
 		ingest: store,
 		recall: store,
 		search: store,
 		docs: store,
-		graph: new GraphStore(),
-		walk: new DocStore(config.docBundle),
-		specs: new SpecStore(),
 		ready,
 		bundle: () => readBundle(config.docBundle),
-		codebase: process.cwd(),
 		embed: (conversationId) => embedAll(store, conversationId),
 		vectorModels: () => store.vectorModels(),
 		retire: (olderThanDays) => store.retire(olderThanDays),
@@ -1249,8 +1312,6 @@ export default function contextManager(pi: ExtensionAPI): void {
 			}
 		},
 		accounting: store,
-		report: reportToStderr,
-		show: showToStdout,
 	});
 }
 

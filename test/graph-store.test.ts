@@ -300,4 +300,108 @@ describe("reading a codebase's graph", () => {
 			/not JSON/,
 		);
 	});
+	test("the indexes are built with the parse, not per call", async () => {
+		const graphStore = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => 42,
+			read: async () => FIXTURE,
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		const first = await graphStore.graph("/work/project");
+		const again = await graphStore.graph("/work/project");
+
+		// The same prepared graph, indexes and all: `symbolsInPlay` and
+		// `neighbourhoods` walked every symbol and every edge per Call
+		// while the parse they read was already cached.
+		expect(again).toBe(first);
+		expect(first?.byName.size).toBeGreaterThan(0);
+		expect(first?.incident.size).toBeGreaterThan(0);
+		expect(first?.extractedAt).toBe(42);
+	});
+
+	test("a changed extraction invalidates the indexes with the parse", async () => {
+		let at = 1;
+		const graphStore = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => at,
+			read: async () => FIXTURE,
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		const first = await graphStore.graph("/work/project");
+		at = 2;
+		const again = await graphStore.graph("/work/project");
+
+		expect(again).not.toBe(first);
+		expect(again?.extractedAt).toBe(2);
+	});
+});
+
+describe("how old the structure is", () => {
+	/** A Store whose files have the ages a test gives them. */
+	function aged(ages: Record<string, number | undefined>): GraphStore {
+		return new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async (path) => {
+				for (const [file, at] of Object.entries(ages)) {
+					if (path.endsWith(file)) return at;
+				}
+				return undefined;
+			},
+			read: async () => FIXTURE,
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+	}
+
+	test("a file edited since the extraction is older than the codebase", async () => {
+		const store = aged({ "src/assembler.ts": 20, "src/extension.ts": 5 });
+
+		const older = await store.changedSince("/work/project", 10, [
+			"src/assembler.ts",
+			"src/extension.ts",
+		]);
+
+		expect([...older]).toEqual(["src/assembler.ts"]);
+	});
+
+	test("a file that cannot be examined counts as older, not as current", async () => {
+		// An invariant that cannot be checked is not a verified invariant.
+		const store = aged({ "src/extension.ts": 5 });
+
+		const older = await store.changedSince("/work/project", 10, [
+			"src/vanished.ts",
+		]);
+
+		expect([...older]).toEqual(["src/vanished.ts"]);
+	});
+
+	test("each file is examined once however many symbols name it", async () => {
+		let examined = 0;
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => {
+				examined++;
+				return 5;
+			},
+			read: async () => FIXTURE,
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		await store.changedSince("/work/project", 10, [
+			"src/assembler.ts",
+			"src/assembler.ts",
+			"src/assembler.ts",
+		]);
+
+		expect(examined).toBe(1);
+	});
 });

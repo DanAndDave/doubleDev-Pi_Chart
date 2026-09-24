@@ -68,8 +68,18 @@ export class Installation {
 		this.root = options.root ?? projectRoot();
 	}
 
-	/** Everything the installation needs, said plainly. Reads only. */
-	async check(config: Config, memoryOff: boolean | undefined): Promise<Check[]> {
+	/**
+	 * Everything the installation needs, said plainly. Reads only.
+	 *
+	 * `structure` says whether a Graph Store was constructed at all:
+	 * reporting extraction from configuration alone printed "extraction
+	 * on" for a Store that did not exist.
+	 */
+	async check(
+		config: Config,
+		memoryOff: boolean | undefined,
+		structure: boolean = true,
+	): Promise<Check[]> {
 		const checks: Check[] = [];
 
 		const bun = await this.bun();
@@ -118,10 +128,14 @@ export class Installation {
 
 		checks.push({
 			name: "codebase graph",
-			ok: true,
-			detail: config.graphExtract
-				? "extraction on; graphify-out/ is written into this codebase"
-				: "extraction off; set CM_GRAPH=on to derive one",
+			// Unavailable is a fault; declined extraction is a choice.
+			ok: structure,
+			detail: !structure
+				? "unavailable; no graph store in this session"
+				: config.graphExtract
+					? "extraction on; graphify-out/ is written into this codebase"
+					: "extraction off; set CM_GRAPH=on to derive one",
+			fix: structure ? undefined : "report this: the graph store should always be available",
 		});
 
 		return checks;

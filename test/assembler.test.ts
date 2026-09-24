@@ -239,6 +239,57 @@ describe("codebase structure in a pack", () => {
 		expect(JSON.stringify(pack.parts)).toContain("18 more connections");
 	});
 
+	test("structure older than the codebase is marked where it is read", () => {
+		const pack = assemble({
+				turns: reconstructTurns(conversation(1)),
+				structure: [{ ...around("assemble()", "tokens()"), stale: true as const }],
+			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 }));
+
+		// Beside the symbol, where the agent reads the coordinates it
+		// would otherwise act on.
+		expect(JSON.stringify(pack.parts)).toContain(
+			"assemble() (src/a.ts:L10) (older than the codebase)",
+		);
+	});
+
+	test("current structure carries no mark, so the mark means something", () => {
+		const pack = assemble({
+				turns: reconstructTurns(conversation(1)),
+				structure: [around("assemble()", "tokens()")],
+			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 }));
+
+		expect(JSON.stringify(pack.parts)).not.toContain("older than the codebase");
+	});
+
+	test("the mark is per symbol, not per pack", () => {
+		const pack = assemble({
+				turns: reconstructTurns(conversation(1)),
+				structure: [
+					{ ...around("edited()", "tokens()"), stale: true as const },
+					around("untouched()", "tokens()"),
+				],
+			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 }));
+
+		const text = JSON.stringify(pack.parts);
+		expect(text).toContain("edited() (src/a.ts:L10) (older than the codebase)");
+		expect(text).toContain("untouched() (src/a.ts:L10)]");
+	});
+
+	test("older structure is carried rather than withheld", () => {
+		// The Turn that edits code is the Turn that most needs a starting
+		// point, so age marks structure and never drops it.
+		const pack = assemble({
+				turns: reconstructTurns(conversation(1)),
+				structure: [
+					{ ...around("assemble()", "tokens()"), stale: true as const },
+				],
+			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 2 }));
+
+		const part = pack.parts.find((each) => each.source === "structure");
+		expect(part?.carried).toBe(1);
+		expect(part?.absent).toBeUndefined();
+	});
+
 	test("two symbols of the same name are named apart", () => {
 		const pack = assemble({
 				turns: reconstructTurns(conversation(1)),

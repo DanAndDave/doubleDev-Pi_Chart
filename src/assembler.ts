@@ -921,6 +921,10 @@ function eligibleRecollections(
  * A symbol's neighbourhood enters the window as fact, not prose: what calls
  * it, what it calls, and where each of those is, so the agent can act
  * without opening a file.
+ *
+ * Structure derived before the file's current state is marked where the
+ * agent reads the coordinates, as a stale Concept is: positions it cannot
+ * rely on must be visibly second-hand rather than presented as current.
  */
 function asStructure(around: Neighbourhood): HarnessMessage {
 	const lines = around.edges.map(describeEdge);
@@ -929,9 +933,16 @@ function asStructure(around: Neighbourhood): HarnessMessage {
 	if (around.dropped > 0) {
 		lines.push(`… and ${around.dropped} more connections`);
 	}
+	// Not the Concept's word, "(stale)": that one is the author's own
+	// declaration in the bundle's frontmatter, while this is measured
+	// against the file the symbol lives in. One wording for both would
+	// offer the agent a provenance neither of them has.
+	const caveat = around.stale ? " (older than the codebase)" : "";
 	return {
 		role: "user",
-		content: `[codebase structure: ${qualify(around.symbol)}]\n${lines.join("\n")}`,
+		content:
+			`[codebase structure: ${qualify(around.symbol)}${caveat}]\n` +
+			lines.join("\n"),
 		cmStructure: true,
 	};
 }

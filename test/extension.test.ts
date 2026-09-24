@@ -21,7 +21,10 @@ import {
 	DEFAULT_TAIL_TURNS,
 	loadConfig,
 } from "../src/config.ts";
-import { register, type Dependencies } from "../src/extension.ts";
+import contextManager, {
+	register,
+	type Dependencies,
+} from "../src/extension.ts";
 import { MemoryTurnSource } from "../src/thread-store.ts";
 import type {
 	BranchEntry,
@@ -1318,6 +1321,227 @@ describe("the graph store in a session", () => {
 		// It writes a directory into the user's repository, so it must be
 		// possible to say no.
 		expect(refreshed).toEqual([]);
+	});
+
+	test("the codebase is extracted again after a turn finishes", async () => {
+		// A graph refreshed only at session start is frozen the moment the
+		// agent edits anything, and every later Call carries positions
+		// from before the edit.
+		const { store, refreshed } = graphStore({ graph: graphJson });
+		const cm = harness({
+			config: config(2, true),
+			graph: store,
+			codebase: "/work/project",
+		});
+
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+		expect(refreshed).toContain("extract /work/project --code-only");
+	});
+
+	test("shutdown waits for the refresh a turn started", async () => {
+		// Measured on a headless run: the extraction `agent_end` began was
+		// still running when the process exited, leaving the graph older
+		// than the edit that Turn had just made.
+		const { store, refreshed } = graphStore({ graph: graphJson });
+		const cm = harness({
+			config: config(2, true),
+			graph: store,
+			codebase: "/work/project",
+		});
+
+		await cm.sessionShutdown({}, ctx());
+
+		expect(refreshed).toContain("extract /work/project --code-only");
+	});
+
+	test("a turn is not delayed by the refresh that follows it", async () => {
+		const { promise: never } = Promise.withResolvers<void>();
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => 1,
+			read: async () => graphJson,
+			makeDirectory: async () => {},
+			run: async (_command, args) =>
+				args[0] === "--version"
+					? { ok: true, output: `graphify ${PINNED_GRAPHIFY}` }
+					: never.then(() => ({ ok: true, output: "" })),
+		});
+		const cm = harness({ config: config(2, true), graph: store });
+
+		// Returns while the extraction is still running: `agent_end` is
+		// notification-only, and nothing the user waits on may grow.
+		await cm.agentEnd({}, ctx());
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+		expect(result?.messages).toBeDefined();
+	});
+
+	test("a failed refresh leaves the previous graph readable", async () => {
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async () => 1,
+			read: async () => graphJson,
+			makeDirectory: async () => {},
+			run: async (_command, args) =>
+				args[0] === "--version"
+					? { ok: true, output: `graphify ${PINNED_GRAPHIFY}` }
+					: { ok: false, output: "tree-sitter exploded" },
+		});
+		const cm = harness({ config: config(2, true), graph: store });
+
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(cm.reported.join("\n")).toContain("tree-sitter exploded");
+		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
+	});
+
+	test("structure reaches a call whose prompt named nothing", async () => {
+		const { store } = graphStore({ graph: graphJson });
+		const cm = harness({ config: config(2), graph: store });
+
+		const result = await cm.context(
+			{
+				messages: [
+					{ role: "user", content: "keep going" },
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "t1",
+								name: "read",
+								arguments: { path: "src/assembler.ts" },
+							},
+						],
+					},
+					{ role: "toolResult", content: "…", toolCallId: "t1" },
+				],
+			},
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
+	});
+
+	test("structure from an edited file is marked in the pack", async () => {
+		// The extraction is older than the file the symbol lives in.
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async (path) => (path.endsWith("graph.json") ? 10 : 20),
+			read: async () => graphJson,
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+		const cm = harness({ config: config(2), graph: store });
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain(
+			"(older than the codebase)",
+		);
+	});
+
+	test("structure from an untouched file is not marked", async () => {
+		const store = new GraphStore({
+			home: "/home/test/.context-manager/graphify",
+			exists: async () => true,
+			changedAt: async (path) => (path.endsWith("graph.json") ? 20 : 10),
+			read: async () => graphJson,
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+		const cm = harness({ config: config(2), graph: store });
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
+		expect(JSON.stringify(result?.messages)).not.toContain(
+			"older than the codebase",
+		);
+	});
+
+	test("a structure budget with no graph behind it says so, once", async () => {
+		const { store } = graphStore();
+		const cm = harness({ config: config(2), graph: store });
+		const prompt = [{ role: "user", content: "who calls assemble?" }];
+
+		await cm.context({ messages: prompt }, ctx());
+		await cm.context({ messages: prompt }, ctx());
+
+		const said = cm.reported.filter((each) =>
+			each.includes("codebase has no graph"),
+		);
+		// A condition, not a per-Call event — and not silence, which reads
+		// as a Codebase with no structure worth carrying.
+		expect(said).toHaveLength(1);
+	});
+});
+
+describe("wiring a session that declined the thread store", () => {
+	/** The extension as the harness loads it, with no database configured. */
+	function loaded(url: string): Record<string, CommandDefinition> {
+		const commands: Record<string, CommandDefinition> = {};
+		const before = process.env.CM_DATABASE_URL;
+		process.env.CM_DATABASE_URL = url;
+		try {
+			contextManager({
+				on: () => {},
+				registerCommand: (name: string, command: CommandDefinition) => {
+					commands[name] = command;
+				},
+				registerTool: () => {},
+			} as unknown as ExtensionAPI);
+		} finally {
+			if (before === undefined) delete process.env.CM_DATABASE_URL;
+			else process.env.CM_DATABASE_URL = before;
+		}
+		return commands;
+	}
+
+	/** What a command wrote, which without a UI is this process's stdout. */
+	async function said(run: Promise<unknown>): Promise<string> {
+		const written: string[] = [];
+		const stdout = process.stdout.write.bind(process.stdout);
+		process.stdout.write = ((text: string) => {
+			written.push(text);
+			return true;
+		}) as typeof process.stdout.write;
+		try {
+			await run;
+		} finally {
+			process.stdout.write = stdout;
+		}
+		return written.join("");
+	}
+
+	test("the graph store is registered whether or not a database is", async () => {
+		// Structure is derived from the Codebase alone: declining the
+		// record of what happened cannot withdraw it.
+		const commands = loaded("");
+		const written = await said(
+			commands["context-manager"]?.handler("", {}) ?? Promise.resolve(),
+		);
+
+		expect(written).toContain("codebase graph");
+		expect(written).not.toContain("unavailable");
 	});
 });
 

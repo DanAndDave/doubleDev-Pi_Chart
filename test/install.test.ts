@@ -109,6 +109,46 @@ describe("checking an installation", () => {
 		expect(memory?.detail).toContain("cannot be confirmed");
 	});
 
+	test("structure is reported from the store that exists, not from configuration", async () => {
+		const withNoStore = await installation({ bun: "/usr/bin/bun" }).check(
+			config({ graphExtract: true }),
+			true,
+			false,
+		);
+
+		// Printing "extraction on" for a Store that was never constructed
+		// is the one report that cannot be true.
+		const graph = withNoStore.find((check) => check.name === "codebase graph");
+		expect(graph?.ok).toBe(false);
+		expect(graph?.detail).toContain("unavailable");
+		expect(graph?.detail).not.toContain("extraction on");
+	});
+
+	test("extraction declined is not extraction broken", async () => {
+		const checks = await installation({ bun: "/usr/bin/bun" }).check(
+			config({ graphExtract: false }),
+			true,
+			true,
+		);
+
+		const graph = checks.find((check) => check.name === "codebase graph");
+		expect(graph?.ok).toBe(true);
+		expect(graph?.detail).toContain("extraction off");
+		expect(graph?.fix).toBeUndefined();
+	});
+
+	test("a configured extraction with a store reads as on", async () => {
+		const checks = await installation({ bun: "/usr/bin/bun" }).check(
+			config({ graphExtract: true }),
+			true,
+			true,
+		);
+
+		expect(
+			checks.find((check) => check.name === "codebase graph")?.detail,
+		).toContain("extraction on");
+	});
+
 	test("a working installation has nothing to fix", async () => {
 		const checks = await installation({
 			bun: "/usr/bin/bun",
