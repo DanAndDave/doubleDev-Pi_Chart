@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, cp, mkdtemp, readFile, rename } from "node:fs/promises";
+import {
+	chmod,
+	cp,
+	mkdtemp,
+	readdir,
+	readFile,
+	rename,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,15 +20,37 @@ const BUNDLE = new URL("./fixtures/bundle", import.meta.url).pathname;
 const VENDORED = new URL("./fixtures/okf-acme-retail", import.meta.url).pathname;
 const AT = new Date("2026-09-16T00:00:00Z");
 
+/** Whether a path is there at all, for asserting nothing was written. */
+async function exists(path: string): Promise<boolean> {
+	try {
+		await stat(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function store(path = BUNDLE): DocStore {
 	return new DocStore(path, { now: () => AT });
 }
 
 /** The identity path writes, so those tests work on a copy. */
 async function writableBundle(): Promise<string> {
-	const directory = await mkdtemp(join(tmpdir(), "cm-bundle-"));
-	await cp(BUNDLE, directory, { recursive: true });
-	return directory;
+	const { bundle } = await writableBundleIn();
+	return bundle;
+}
+
+/**
+ * A copy of the fixture bundle one level inside a directory this test owns,
+ * so a write that escapes the bundle lands somewhere the test can check and
+ * nothing else shares. Asserting against the system temp directory made one
+ * escaped write poison the assertion for every later run.
+ */
+async function writableBundleIn(): Promise<{ outside: string; bundle: string }> {
+	const outside = await mkdtemp(join(tmpdir(), "cm-bundle-"));
+	const bundle = join(outside, "bundle");
+	await cp(BUNDLE, bundle, { recursive: true });
+	return { outside, bundle };
 }
 
 describe("reading a bundle", () => {
@@ -229,6 +260,268 @@ describe("a level's own listing", () => {
 
 		expect(level?.curated).toBe(true);
 		expect(level?.concepts[0]?.description).toBeTruthy();
+	});
+});
+
+describe("a listing reconciled against the level", () => {
+	test("a concept the listing omits is still listed, marked", async () => {
+		const directory = await writableBundle();
+		await writeFile(
+			join(directory, "standards/unlisted.md"),
+			"---\ntype: Standard\ntitle: Unlisted\ndescription: Never named.\n---\n\n# Definition\n\nA concept no listing names.\n",
+		);
+
+		const level = await store(directory).list("standards");
+
+		// The author's two entries first, in their order; the file nothing
+		// names after them, said to be absent from the listing rather than
+		// hidden by it.
+		expect(level?.concepts.map((entry) => entry.id)).toEqual([
+			"standards/testing",
+			"standards/naming",
+			"standards/unlisted",
+		]);
+		expect(level?.concepts[0]?.description).toBe("when a test earns its place");
+		expect(level?.concepts[0]?.unlisted).toBeUndefined();
+		expect(level?.concepts[2]?.unlisted).toBe(true);
+	});
+
+	test("a listing entry with nothing behind it is not invented", async () => {
+		const directory = await writableBundle();
+		await writeFile(
+			join(directory, "standards/index.md"),
+			"# Standards\n\n- [testing](/standards/testing.md): when a test earns its place\n- [gone](/standards/gone.md): deleted last year\n",
+		);
+
+		const level = await store(directory).list("standards");
+
+		expect(level?.concepts.map((entry) => entry.id)).toEqual([
+			"standards/testing",
+			"standards/naming",
+		]);
+	});
+
+	test("a level whose concept cannot be read still lists the rest", async () => {
+		const level = await store().list("decisions");
+
+		const broken = level?.concepts.find((entry) => entry.id === "decisions/broken");
+		expect(level?.concepts).toHaveLength(4);
+		expect(broken?.problem).toBeTruthy();
+		expect(
+			level?.concepts.find((entry) => entry.id === "decisions/minimal")?.problem,
+		).toBeUndefined();
+	});
+});
+
+describe("authoring a concept", () => {
+	const draft = {
+		id: "standards/elision",
+		mode: "create" as const,
+		type: "Standard",
+		title: "Elision",
+		summary: "What replaces the middle of a payload too large to carry whole.",
+		body: "# Definition\n\nThe head and the tail survive with a marker naming what went.",
+	};
+
+	test("writes a readable concept with an identity and no leftovers", async () => {
+		const directory = await writableBundle();
+
+		const { written } = await store(directory).write(draft);
+
+		expect(written?.conformant).toBe(true);
+		expect(written?.identity).toBeTruthy();
+		// Read back through the store, not from the return value: nothing
+		// further may be required to make an authored Concept readable.
+		const reopened = await store(directory).open("standards/elision");
+		expect(reopened?.title).toBe("Elision");
+		expect(reopened?.description).toBe(draft.summary);
+		const left = await readdir(join(directory, "standards"));
+		expect(left.some((name) => name.endsWith(".tmp"))).toBe(false);
+	});
+
+	test("creating over a concept that exists is refused, and changes nothing", async () => {
+		const directory = await writableBundle();
+		const before = await readFile(join(directory, "standards/testing.md"), "utf8");
+
+		const outcome = await store(directory).write({ ...draft, id: "standards/testing" });
+
+		expect(outcome.refused).toContain("already exists");
+		expect(await readFile(join(directory, "standards/testing.md"), "utf8")).toBe(before);
+	});
+
+	test("revising a concept the bundle does not hold is refused", async () => {
+		const directory = await writableBundle();
+
+		const outcome = await store(directory).write({ ...draft, mode: "revise" });
+
+		expect(outcome.refused).toContain("does not exist");
+		expect(await store(directory).open("standards/elision")).toBeUndefined();
+	});
+
+	test("a body-only revision keeps everything it did not name", async () => {
+		const directory = await writableBundle();
+		await cp(join(VENDORED, "metrics/gross-margin.md"), join(directory, "standards/margin.md"));
+
+		await store(directory).write({
+			id: "standards/margin",
+			mode: "revise",
+			body: "# Definition\n\nRevenue minus full COGS, restated.",
+		});
+
+		const after = await store(directory).open("standards/margin");
+		expect(after?.title).toBe("Gross Margin");
+		expect(after?.description).toContain("Cost Allocation Standard");
+		expect(after?.exclusions[0]?.term).toBe("revenue minus product cost only");
+		expect(after?.sources).toHaveLength(2);
+		expect(after?.body).toContain("restated");
+	});
+
+	test("a revision is a draft, and a deprecated concept stays deprecated", async () => {
+		const directory = await writableBundle();
+		await writeFile(
+			join(directory, "standards/retired.md"),
+			"---\ntype: Standard\ntitle: Retired\nstatus: deprecated\n---\n\n# Definition\n\nSuperseded.\n",
+		);
+
+		await store(directory).write({
+			id: "standards/testing",
+			mode: "revise",
+			body: "# Definition\n\nA test earns its place when a plausible bug fails it.",
+		});
+		await store(directory).write({
+			id: "standards/retired",
+			mode: "revise",
+			body: "# Definition\n\nStill superseded, more precisely.",
+		});
+
+		// The text is no longer the text a human reviewed, so the lifecycle
+		// says draft — but a revision corrects what a superseded Concept
+		// says, it does not put it back in service.
+		expect((await store(directory).open("standards/testing"))?.status).toBe(
+			"draft",
+		);
+		expect((await store(directory).open("standards/retired"))?.status).toBe(
+			"deprecated",
+		);
+	});
+
+	test("a revision keeps the author's own formatting and comments", async () => {
+		const directory = await writableBundle();
+		await writeFile(
+			join(directory, "standards/styled.md"),
+			"---\ntype: Standard # the kind\ntitle: Styled\ntags: [a, b]\n---\n\n# Definition\n\nOriginal.\n",
+		);
+
+		await store(directory).write({
+			id: "standards/styled",
+			mode: "revise",
+			body: "# Definition\n\nRevised.",
+		});
+
+		// The bundle is the user's curated prose: a revision that silently
+		// reformatted it would show up as a diff nobody asked for.
+		const after = await readFile(join(directory, "standards/styled.md"), "utf8");
+		expect(after).toContain("# the kind");
+		expect(after).toContain("tags: [");
+		expect(after).toContain("Revised.");
+	});
+
+
+	test("an identifier that leaves the bundle is refused", async () => {
+		const { outside, bundle } = await writableBundleIn();
+
+		const outcome = await store(bundle).write({ ...draft, id: "../escaped" });
+
+		expect(outcome.refused).toContain("outside");
+		// Checked one level up, inside what this test owns: a documentation
+		// tool is not a file writer.
+		expect(await exists(join(outside, "escaped.md"))).toBe(false);
+		expect(await readdir(outside)).toEqual(["bundle"]);
+	});
+
+	test("a write that cannot complete leaves the concept as it was", async () => {
+		const directory = await writableBundle();
+		const path = join(directory, "standards/testing.md");
+		const before = await readFile(path, "utf8");
+		await chmod(join(directory, "standards"), 0o555);
+
+		const outcome = await store(directory).write({
+			id: "standards/testing",
+			mode: "revise",
+			body: "# Definition\n\nHalf a concept.",
+		});
+
+		await chmod(join(directory, "standards"), 0o755);
+		expect(outcome.refused).toBeTruthy();
+		expect(await readFile(path, "utf8")).toBe(before);
+	});
+
+	test("authoring into a curated level adds the entry to its listing", async () => {
+		const directory = await writableBundle();
+
+		await store(directory).write(draft);
+
+		const listing = await readFile(join(directory, "standards/index.md"), "utf8");
+		expect(listing).toContain("elision.md");
+		// Appended, not interleaved: the author's order survives.
+		expect(listing.indexOf("testing.md")).toBeLessThan(listing.indexOf("elision.md"));
+		const level = await store(directory).list("standards");
+		expect(level?.concepts.at(-1)?.id).toBe("standards/elision");
+		expect(level?.concepts.at(-1)?.unlisted).toBeUndefined();
+	});
+});
+
+describe("what an agent may not write", () => {
+	test("asking for human verification is refused, and nothing is written", async () => {
+		const directory = await writableBundle();
+
+		const outcome = await store(directory).write({
+			id: "standards/self-signed",
+			mode: "create",
+			type: "Standard",
+			title: "Self-signed",
+			body: "# Definition\n\nReviewed by me.",
+			verified: [{ by: "human:zero", at: "2026-09-24T00:00:00Z" }],
+		});
+
+		expect(outcome.refused).toContain("verification");
+		expect(await store(directory).open("standards/self-signed")).toBeUndefined();
+	});
+
+	test("an authored concept says a machine wrote it, and enters as a draft", async () => {
+		const directory = await writableBundle();
+
+		const { written } = await store(directory).write({
+			id: "standards/elision",
+			mode: "create",
+			type: "Standard",
+			title: "Elision",
+			body: "# Definition\n\nThe head and the tail survive with a marker.",
+		});
+
+		expect(written?.generated?.by).toContain("context-manager@");
+		expect(written?.generated?.at).toBe(AT.toISOString());
+		expect(written?.status).toBe("draft");
+		expect(written?.trust).toBe("unverified");
+	});
+
+	test("revising beneath a human review stops the review counting", async () => {
+		const directory = await writableBundle();
+		const before = await store(directory).open("standards/testing");
+		expect(before?.trust).toBe("human-reviewed");
+
+		await store(directory).write({
+			id: "standards/testing",
+			mode: "revise",
+			body: "# Definition\n\nA test earns its place when the agent says so.",
+		});
+
+		const after = await store(directory).open("standards/testing");
+		// Demoted, not stripped: the signature stays for whoever re-reviews.
+		expect(after?.trust).toBe("unverified");
+		expect(
+			await readFile(join(directory, "standards/testing.md"), "utf8"),
+		).toContain("human:zero");
 	});
 });
 

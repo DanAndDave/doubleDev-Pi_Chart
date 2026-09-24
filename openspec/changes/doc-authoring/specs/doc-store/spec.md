@@ -2,7 +2,7 @@
 
 ### Requirement: A Concept can be authored from inside a Conversation
 
-The Doc Store SHALL give an agent a way to create a new Concept, or revise one that exists, during a Turn and without leaving the Conversation. A created Concept SHALL be conformant and SHALL carry a stable identity the moment it is written, so that nothing further is required to make it readable and indexable. A revision SHALL preserve the parts of the Concept it does not name. A write SHALL be whole or not at all: an interrupted write SHALL leave the Concept as it was rather than half-written. Nothing outside the bundle SHALL be written.
+The Doc Store SHALL give an agent a way to create a new Concept, or revise one that exists, during a Turn and without leaving the Conversation. A created Concept SHALL be conformant and SHALL carry a stable identity the moment it is written, so that nothing further is required to make it readable and indexable. A revision SHALL preserve the parts of the Concept it does not name, other than its lifecycle and its provenance, which SHALL record that a machine changed it — a Concept an agent rewrote is no longer the Concept a human declared stable. A Concept already withdrawn SHALL stay withdrawn: a revision corrects what a superseded Concept says rather than returning it to service. A write SHALL be whole or not at all: an interrupted write SHALL leave the Concept as it was rather than half-written. Nothing outside the bundle SHALL be written.
 
 #### Scenario: A new concept is written and is readable
 
@@ -12,7 +12,17 @@ The Doc Store SHALL give an agent a way to create a new Concept, or revise one t
 #### Scenario: A revision keeps what it did not name
 
 - **WHEN** an agent revises a Concept's body and names none of its other fields
-- **THEN** those fields SHALL be unchanged
+- **THEN** its title, summary, sources and exclusions SHALL be unchanged
+
+#### Scenario: A revised concept is no longer declared stable
+
+- **WHEN** an agent revises a Concept a human had declared stable
+- **THEN** its lifecycle SHALL say the text is a draft again
+
+#### Scenario: A withdrawn concept stays withdrawn
+
+- **WHEN** an agent revises a Concept that had been superseded
+- **THEN** it SHALL remain superseded rather than returning to service
 
 #### Scenario: Creating over an existing concept is refused
 
@@ -94,7 +104,7 @@ A Concept created or revised during a Conversation SHALL be retrievable by meani
 
 ### Requirement: A Concept's exclusions and sources travel with it
 
-Where a Concept records what it is not, or what it was drawn from, that SHALL accompany the Concept wherever the Concept is served — to an agent walking the bundle, and into a Context Pack. A definition served without the exclusions that qualify it invites the mistake the exclusions exist to prevent.
+Where a Concept records what it is not, that SHALL accompany it wherever the Concept is served — to an agent walking the bundle, and into a Context Pack. A definition served without the exclusions that qualify it invites the mistake the exclusions exist to prevent. What a Concept was drawn from SHALL accompany it where the Concept is served whole, so prose carried with no provenance can still be checked against what it came from.
 
 #### Scenario: What a concept excludes is served with it
 

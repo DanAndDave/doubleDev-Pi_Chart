@@ -6,6 +6,7 @@ import {
 	type Pack,
 	type PackSource,
 } from "../src/assembler.ts";
+import type { Exclusion } from "../src/concept.ts";
 import { readJournal } from "../src/journal.ts";
 import { messageText, type HarnessMessage, type Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
@@ -118,6 +119,8 @@ describe("assemble", () => {
 						conceptId: "decisions/caching",
 						text: "We cache.",
 						trust: "unverified" as const,
+						sectionIndex: 0,
+						sectionCount: 1,
 						stale: false,
 						distance: 0.2,
 					},
@@ -144,12 +147,20 @@ describe("assemble", () => {
 describe("curated knowledge in a pack", () => {
 	const turns = (count: number) => reconstructTurns(conversation(count));
 	const earlier = { turnIndex: 9, turn: reconstructTurns(conversation(1))[0] };
-	const concept = (conceptId: string, text: string, stale = false) => ({
+	const concept = (
+		conceptId: string,
+		text: string,
+		stale = false,
+		parts: { index?: number; count?: number; exclusions?: Exclusion[] } = {},
+	) => ({
 		conceptId,
 		text,
 		trust: "unverified" as const,
 		stale,
 		distance: 0.2,
+		sectionIndex: parts.index ?? 0,
+		sectionCount: parts.count ?? 1,
+		exclusions: parts.exclusions,
 	});
 
 	test("a concept reaches the model as its own part", () => {
@@ -179,6 +190,76 @@ describe("curated knowledge in a pack", () => {
 		const pack = assemble({ turns: turns(1), concepts: [concept("decisions/old", "Old news.", true)] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }));
 
 		expect(JSON.stringify(pack.parts)).toContain("(stale)");
+	});
+
+	test("a fragment names the part it is and points at the rest", () => {
+		const pack = assemble(
+			{
+				turns: turns(1),
+				concepts: [
+					concept("metrics/gross-margin", "Revenue less full COGS.", false, {
+						index: 1,
+						count: 4,
+					}),
+				],
+			},
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
+		);
+
+		// A fragment headed with the Concept's name alone reads as the
+		// Concept's complete answer, which is the one thing curated
+		// knowledge must not do.
+		const text = JSON.stringify(pack.parts);
+		expect(text).toContain("[curated knowledge: metrics/gross-margin — part 2 of 4]");
+		expect(text).toContain("walk_documentation");
+	});
+
+	test("a concept carried whole is not marked as partial", () => {
+		const pack = assemble(
+			{ turns: turns(1), concepts: [concept("decisions/caching", "We cache.")] },
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
+		);
+
+		const text = JSON.stringify(pack.parts);
+		expect(text).toContain("[curated knowledge: decisions/caching]");
+		expect(text).not.toContain("part 1 of");
+		expect(text).not.toContain("walk_documentation");
+	});
+
+	test("what a concept records it is not travels with it", () => {
+		const pack = assemble(
+			{
+				turns: turns(1),
+				concepts: [
+					concept("metrics/gross-margin", "Revenue less full COGS.", false, {
+						exclusions: [
+							{
+								term: "revenue minus product cost only",
+								why: "that is the pre-FY2026 definition",
+								instead: "revenue minus full COGS",
+							},
+						],
+					}),
+				],
+			},
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
+		);
+
+		// A definition carried without the exclusions that qualify it
+		// invites the mistake they exist to prevent.
+		const text = JSON.stringify(pack.parts);
+		expect(text).toContain("Not: revenue minus product cost only");
+		expect(text).toContain("pre-FY2026");
+		expect(text).toContain("Use instead: revenue minus full COGS");
+	});
+
+	test("a concept recording no exclusions carries no placeholder", () => {
+		const pack = assemble(
+			{ turns: turns(1), concepts: [concept("decisions/caching", "We cache.")] },
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
+		);
+
+		expect(JSON.stringify(pack.parts)).not.toContain("Not:");
 	});
 
 	test("the doc budget bounds what is carried, and records what was offered", () => {
@@ -378,6 +459,8 @@ describe("codebase structure in a pack", () => {
 					conceptId: "decisions/caching",
 					text: "We cache.",
 					trust: "unverified" as const,
+					sectionIndex: 0,
+					sectionCount: 1,
 					stale: false,
 					distance: 0.2,
 				},
@@ -757,6 +840,8 @@ describe("the pack ceiling", () => {
 				conceptId: "decisions/caching",
 				text: "k".repeat(1200),
 				trust: "unverified" as const,
+				sectionIndex: 0,
+				sectionCount: 1,
 				stale: false,
 				distance: 0.2,
 			},
@@ -951,6 +1036,8 @@ describe("the pack ceiling", () => {
 					conceptId: "decisions/x",
 					text: "small",
 					trust: "unverified" as const,
+					sectionIndex: 0,
+					sectionCount: 1,
 					stale: false,
 					distance: 0.2,
 				},

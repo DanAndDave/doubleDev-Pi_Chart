@@ -12,9 +12,19 @@ import {
 	type AssemblerConfig,
 	type Pack,
 } from "./assembler.ts";
-import type { Concept } from "./concept.ts";
+import {
+	readExclusions,
+	readSources,
+	type Concept,
+} from "./concept.ts";
 import { loadConfig, setBudget, type Config } from "./config.ts";
-import { DocStore, readBundle, type DocWalk } from "./doc-store.ts";
+import {
+	DocStore,
+	readBundle,
+	type ConceptWriter,
+	type DocWalk,
+	type WriteOutcome,
+} from "./doc-store.ts";
 import { GraphStore } from "./graph-store.ts";
 import { describeChecks, Installation } from "./install.ts";
 import { describeTree, SpecStore } from "./spec-store.ts";
@@ -39,6 +49,7 @@ import {
 import {
 	describeRecorded,
 	renderCall,
+	renderConcept,
 	renderDiff,
 	renderExplanation,
 	renderLevel,
@@ -52,6 +63,8 @@ import type {
 	ExtensionAPI,
 	HandlerContext,
 	MemoryStatus,
+	SchemaBuilder,
+	SchemaField,
 	ToolResult,
 } from "./harness.ts";
 import { LocalEmbedder } from "./embedder.ts";
@@ -107,6 +120,8 @@ export interface Dependencies {
 	docs?: ConceptSearch;
 	/** The bundle as the agent walks it, Level by Level. */
 	walk?: DocWalk;
+	/** The bundle as the agent writes to it. */
+	author?: ConceptWriter;
 	/** What the installation needs. Injected so the checks are testable. */
 	install?: Installation;
 	/** The Codebase's programmatic structure. */
@@ -134,6 +149,71 @@ const UNKNOWN_CONVERSATION = "unknown-conversation";
 const DEFAULT_SEARCH_RESULTS = 5;
 /** A ceiling, so one call cannot empty the store into the window. */
 const MAX_SEARCH_RESULTS = 20;
+
+/**
+ * What `write_documentation` takes, in the harness's own schema builder.
+ *
+ * Built here rather than inline so the tool registers whether or not the
+ * harness supplies a builder: a tool with no declared parameters is still
+ * callable, and a missing builder must not withdraw the ability to write.
+ */
+function writeSchema(zod: SchemaBuilder | undefined): unknown {
+	if (!zod) return undefined;
+	return zod.object({
+		id: zod
+			.string()
+			.describe("Where it belongs, as a listing names it: `decisions/caching`"),
+		mode: zod
+			.enum(["create", "revise"])
+			.describe("Whether this is a new concept or a change to one"),
+		type: zod
+			.string()
+			.describe("What kind of concept: Decision, Standard, Metric")
+			.optional(),
+		title: zod.string().describe("Its title").optional(),
+		summary: zod
+			.string()
+			.describe(
+				"One sentence saying what it is about; it is what makes the " +
+					"concept findable by a paraphrase of its subject",
+			)
+			.optional(),
+		body: zod
+			.string()
+			.describe("The concept itself, in Markdown, with `# ` headings")
+			.optional(),
+		not: zod
+			.array(
+				zod.object({
+					term: zod.string().describe("What this is confusable with"),
+					why: zod.string().describe("Why that is wrong here").optional(),
+					instead: zod.string().describe("What to use instead").optional(),
+				}) as SchemaField,
+			)
+			.describe("What this concept is not, where that is worth saying")
+			.optional(),
+		sources: zod
+			.array(
+				zod.object({
+					title: zod.string().describe("What it is called").optional(),
+					resource: zod.string().describe("Where it is").optional(),
+				}) as SchemaField,
+			)
+			.describe("What this was drawn from")
+			.optional(),
+		// Declared so that asking for it reaches the refusal. Undeclared, a
+		// harness that validates arguments against this schema would strip
+		// the key, and the silent strip is exactly what must not happen: an
+		// agent told nothing believes it recorded a review.
+		verified: zod
+			.unknown()
+			.describe(
+				"Not accepted. Human review is recorded by a person, and asking " +
+					"for it here is refused with a reason.",
+			)
+			.optional(),
+	});
+}
 
 function toolResult(text: string, details: Record<string, unknown>): ToolResult {
 	return { content: [{ type: "text", text }], details };
@@ -183,6 +263,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const warnedNearCeiling = new Set<string>();
 	/** Said once a session: a Codebase with no graph is a condition, not an event. */
 	let missingGraphReported = false;
+	/** The whole-bundle indexing pass, so authoring can wait rather than race it. */
+	let indexingBundle: Promise<void> | undefined;
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -288,23 +370,26 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// Indexing is background work: a session must not wait on the
 			// bundle to send its first prompt. It does have to wait for the
 			// schema, which is migrated concurrently at startup.
-			inBackground(
-				"Doc Store indexing",
-				(async () => {
-					await ready;
-					const concepts = await bundle();
-					// No bundle is nothing to do, not a failure: most machines
-					// have no curated knowledge yet.
-					if (!concepts) return;
-					const { contested } = await docs.indexConcepts(concepts);
-					for (const conceptId of contested) {
-						deps.report(
-							`${conceptId} shares its identity with another concept ` +
-								`and was not indexed`,
-						);
-					}
-				})(),
-			);
+			//
+			// Kept, because a Concept written while this is still running
+			// would be pruned as absent from the snapshot this pass took, or
+			// overwritten with the text that snapshot held. Authoring waits
+			// for it rather than racing it.
+			indexingBundle = (async () => {
+				await ready;
+				const concepts = await bundle();
+				// No bundle is nothing to do, not a failure: most machines
+				// have no curated knowledge yet.
+				if (!concepts) return;
+				const { contested } = await docs.indexConcepts(concepts);
+				for (const conceptId of contested) {
+					deps.report(
+						`${conceptId} shares its identity with another concept ` +
+							`and was not indexed`,
+					);
+				}
+			})();
+			inBackground("Doc Store indexing", indexingBundle);
 		}
 
 		// Asked once, here, and remembered: the answer cannot change within a
@@ -682,6 +767,103 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		});
 	}
 
+	if (pi.registerTool && deps.author) {
+		pi.registerTool({
+			name: "write_documentation",
+			label: "Write to the documentation bundle",
+			description:
+				"Record a conclusion in the curated documentation bundle as a " +
+				"concept, or revise one that is already there. Use when " +
+				"something settled is worth keeping beyond this conversation. " +
+				"What you write enters as an unverified draft, recorded as " +
+				"machine-written: human review is not something this tool can " +
+				"record, and asking for it is refused. Creating refuses an " +
+				"identifier the bundle already holds and revising refuses one " +
+				"it does not; a revision keeps every field it does not name.",
+			parameters: writeSchema(pi.zod),
+			execute: (_id, params) => writeConcept(params),
+		});
+	}
+
+	/**
+	 * Records a conclusion as a Concept, and brings the index in line with
+	 * it before the tool returns.
+	 *
+	 * Indexed here rather than in the background: the point of writing from
+	 * inside a Conversation is that the next Call can retrieve what was
+	 * written, and a background pass would land after it. The embed is one
+	 * Concept's worth, on the tool's own Call.
+	 */
+	async function writeConcept(
+		params: Record<string, unknown>,
+	): Promise<ToolResult> {
+		const author = deps.author;
+		if (!author) return toolResult("No documentation bundle is configured.", {});
+
+		const id = text(params.id);
+		const mode = params.mode === "revise" ? "revise" : "create";
+		if (id === undefined) {
+			return toolResult("An id is required to write a concept.", {
+				failed: true,
+			});
+		}
+
+		let outcome: WriteOutcome;
+		try {
+			outcome = await author.write({
+				id,
+				mode,
+				type: text(params.type),
+				title: text(params.title),
+				summary: text(params.summary),
+				body: text(params.body),
+				exclusions: params.not === undefined
+					? undefined
+					: readExclusions(params.not),
+				sources: params.sources === undefined
+					? undefined
+					: readSources(params.sources),
+				verified: params.verified,
+			});
+		} catch (error) {
+			const reason = describe(error);
+			deps.report(`Writing to the bundle failed: ${reason}`);
+			return toolResult(`Could not write ${id}: ${reason}`, { failed: true });
+		}
+
+		const written = outcome.written;
+		if (!written) {
+			return toolResult(outcome.refused, { refused: true });
+		}
+
+		// The bundle is the record; the index is derived from it. A Concept
+		// that was written but could not be indexed is kept and said to be
+		// unretrievable until the next session start reconciles it.
+		let indexed = "";
+		if (deps.docs) {
+			try {
+				// After the whole-bundle pass, never beside it: that pass
+				// prunes what its own snapshot did not hold, and this Concept
+				// was written after the snapshot was taken.
+				await indexingBundle?.catch(() => undefined);
+				await deps.docs.indexConcept(written);
+				indexed = " It is retrievable from the next call onwards.";
+			} catch (error) {
+				const reason = describe(error);
+				deps.report(`Indexing ${written.id} failed: ${reason}`);
+				indexed =
+					` It could not be indexed (${reason}), so it is in the bundle ` +
+					`but not yet retrievable.`;
+			}
+		}
+
+		return toolResult(
+			`Wrote ${written.id} as a ${written.status} concept, unverified and ` +
+				`recorded as machine-written.${indexed}`,
+			{ concept: written.id, status: written.status },
+		);
+	}
+
 	/**
 	 * The bundle as the agent walks it: a Level, or one Concept opened from
 	 * one. Reads only; the Context Pack is untouched by it, which is what
@@ -704,13 +886,23 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// A Concept wins when both are given, which the tool says.
 			if (asked.concept !== undefined) {
 				const concept = await walk.open(asked.concept);
-				return concept
-					? toolResult(`# ${concept.title ?? concept.id}\n\n${concept.body}`, {
-							concept: concept.id,
-						})
-					: toolResult(`No concept called ${asked.concept}.`, {
-							missing: asked.concept,
-						});
+				if (!concept) {
+					// Absence is its own answer: "you guessed a name", not
+					// "something is here and it is broken".
+					return toolResult(`No concept called ${asked.concept}.`, {
+						missing: asked.concept,
+					});
+				}
+				if (!concept.conformant) {
+					// Served empty, a broken Concept reads as a Concept with
+					// nothing to say — the opposite of what it means.
+					return toolResult(
+						`${concept.id} cannot be read as a concept: ` +
+							`${concept.problem ?? "no reason recorded"}.`,
+						{ concept: concept.id, broken: true },
+					);
+				}
+				return toolResult(renderConcept(concept), { concept: concept.id });
 			}
 
 			const path = asked.level ?? "";
@@ -1284,11 +1476,13 @@ export default function contextManager(pi: ExtensionAPI): void {
 	// derived from the Codebase, the bundle from disk, the Spec Store from
 	// `stat` and a subprocess. Declining the record of what happened must
 	// not withdraw any of them, which two literals made it do.
+	const bundle = new DocStore(config.docBundle);
 	const shared = {
 		config,
 		assemble: defaultAssemble,
 		graph: new GraphStore(),
-		walk: new DocStore(config.docBundle),
+		walk: bundle,
+		author: bundle,
 		specs: new SpecStore(),
 		codebase: process.cwd(),
 		report: reportToStderr,

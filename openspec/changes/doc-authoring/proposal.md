@@ -15,7 +15,7 @@ What does reach a Context Pack is mislabelled. `searchConcepts` returns the best
 - A `write_documentation` tool creates or revises one Concept: conformant frontmatter, `status: draft`, a `generated:` provenance block, temporary-file-then-rename as `ensureIdentities` already writes (`src/doc-store.ts:283-285`), and a re-index of that one Concept so retrieval and walking agree before the next Call.
 - **The agent never writes `verified:`.** Trust is derived from verifiers (`src/concept.ts:145-158`) and retrieval ranks on it (`src/postgres-store.ts:955`). An agent that could self-award `human:` would promote its own draft above a reviewed Concept, so the tier the Doc Store ranks on stays human-granted. Authoring earns `unverified`.
 - A verification older than a Concept's most recent machine-recorded change stops counting toward its trust tier. Without this the `verified:` refusal is bypassable: revising a human-reviewed Concept leaves an old review vouching for text no human read, which promotes the agent's edit to the top retrieval tier by the back door. The dated signature stays in the file, so nothing is destroyed.
-- Attribution names the section and says more exists, and carries the Concept's `description`, `not:` entries and `sources:` with it.
+- Attribution names the section and says more exists, and carries the Concept's `not:` entries with it. `sources:` travel where the Concept is served whole — a bundle walk — rather than into a Pack, where the exclusions are what stop a definition being misread.
 - A Concept becomes findable by its author's own summary, by joining `description` to the text each section is indexed under — the default, subject to the measurement in `design.md` that would overturn it for first-section-only.
 - An unreadable Concept is reported as unreadable, not served as an empty Concept: `open` returns `nonConformant(id, "", problem)` (`src/doc-store.ts:140`) and `walkBundle` never inspects `problem`/`conformant` (`src/extension.ts:525-533`).
 - A curated `index.md` is reconciled against the Level's files, so a Concept omitted from a listing is still walkable rather than invisible (`src/doc-store.ts:232-255`), and authoring maintains the listing it writes into.
@@ -31,7 +31,7 @@ What does reach a Context Pack is mislabelled. `searchConcepts` returns the best
 
 ## Impact
 
-- **Schema:** none new. Section rows already carry `hash` (`src/postgres-store.ts:811-824`), so a single-Concept re-index is the existing incremental path scoped to one identity.
+- **Schema:** one nullable `exclusions` column on `concept_sections` (migration 17), so what a Concept declares it is not reaches a Pack without reading the bundle on the path the model waits on. Derived from the bundle like the rest of that row and refreshed by the next pass, so an older row reads back without it rather than failing. Nothing else: section rows already carry `hash` and `section_index` (`src/postgres-store.ts:811-824`), so a single-Concept re-index is the existing incremental path scoped to one identity and the section count is a window count over rows that already exist.
 - **Configuration:** none. The bundle path is already configured.
 - **Assembly:** curated messages grow by the disambiguation and provenance they now carry, which `token-budgets` already clamps — it shipped, so a Concept with a long `not:` block is elided visibly rather than enlarging an unbounded part.
 - **Performance:** one embed per written Concept, on the tool call, not the Call the model waits on.

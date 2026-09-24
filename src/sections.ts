@@ -7,7 +7,7 @@ export interface Section {
 	/** The Concept's path-derived id, for display. */
 	conceptId: string;
 	index: number;
-	/** What is embedded: the Concept's title, then the section's own text. */
+	/** What is embedded: the Concept's title and summary, then the section. */
 	text: string;
 	/** Content fingerprint, so re-indexing can skip what has not changed. */
 	hash: string;
@@ -27,12 +27,25 @@ const MINIMUM = 40;
  *
  * A Concept covering a definition, a rationale and a migration note has three
  * subjects; one vector for all three matches none of them well. Each section
- * carries the Concept's title so it keeps what it is about.
+ * carries the Concept's title and its author's own summary, so it keeps both
+ * what it is about and what the Concept as a whole is about.
+ *
+ * The summary goes on every section rather than the first, measured by
+ * `scripts/measure-summary-placement.ts` over this repository's decisions and
+ * the vendored bundle: it moved genuine queries
+ * from 0.244-0.438 to 0.229-0.427 while unrelated ones stayed at 0.597-0.644,
+ * and it put the right section of a multi-subject Concept first in 5 of 6
+ * probes against 3 with the summary on the first section alone. Repeating one
+ * summary does draw a Concept's sections together — mean distance between
+ * them fell from 0.239 to 0.100 — but ranking is relative, and the section's
+ * own text still decided which one won.
  */
 export function splitConcept(concept: Concept): Section[] {
 	if (!concept.conformant || !concept.identity) return [];
 
 	const title = concept.title ?? concept.id;
+	const summary = concept.description?.trim();
+	const head = summary ? `${title}\n${summary}` : title;
 	const body = concept.body.trim();
 	if (body.length === 0) return [];
 
@@ -47,7 +60,7 @@ export function splitConcept(concept: Concept): Section[] {
 			previous.hash = fingerprint(previous.text);
 			continue;
 		}
-		const text = `${title}\n\n${piece}`;
+		const text = `${head}\n\n${piece}`;
 		sections.push({
 			identity: concept.identity,
 			conceptId: concept.id,

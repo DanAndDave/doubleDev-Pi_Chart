@@ -951,12 +951,38 @@ function asStructure(around: Neighbourhood): HarnessMessage {
  * A Concept enters the window as knowledge with a source. Curated knowledge
  * the agent did not derive must be visibly borrowed, or it cannot be
  * questioned.
+ *
+ * What is carried is usually one section of a Concept, not the Concept, so
+ * the header says which part it is and how many there are, and the rest is
+ * offered through `walk_documentation`, which costs no Budget. A fragment
+ * headed with the Concept's name alone reads as the Concept's complete
+ * answer — the one thing curated knowledge must never do.
+ *
+ * What a Concept declares it is *not* travels with it: a definition served
+ * without the exclusions that bound it invites the mistake they exist to
+ * prevent.
  */
 function asCuratedKnowledge(hit: ConceptHit): HarnessMessage {
 	const caveat = hit.stale ? " (stale)" : "";
+	const partial = hit.sectionCount > 1;
+	const part = partial
+		? ` — part ${hit.sectionIndex + 1} of ${hit.sectionCount}`
+		: "";
+	const lines = [`[curated knowledge: ${hit.conceptId}${part}${caveat}]`, hit.text];
+	for (const exclusion of hit.exclusions ?? []) {
+		const why = exclusion.why ? ` — ${exclusion.why}` : "";
+		const instead = exclusion.instead ? ` Use instead: ${exclusion.instead}` : "";
+		lines.push(`Not: ${exclusion.term}${why}${instead}`);
+	}
+	if (partial) {
+		lines.push(
+			`(the rest of ${hit.conceptId} is readable with walk_documentation, ` +
+				`at no budget)`,
+		);
+	}
 	return {
 		role: "user",
-		content: `[curated knowledge: ${hit.conceptId}${caveat}]\n${hit.text}`,
+		content: lines.join("\n"),
 		cmCurated: true,
 	};
 }

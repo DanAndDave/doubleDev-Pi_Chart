@@ -1,4 +1,5 @@
 import { messageText } from "./messages.ts";
+import type { Concept } from "./concept.ts";
 import type { Level } from "./doc-store.ts";
 import type { FoundTurn } from "./thread-store.ts";
 import type { AbsenceCause, ExcludedCandidate } from "./assembler.ts";
@@ -403,7 +404,14 @@ export function renderLevel(level: Level): string {
 	}
 	for (const entry of level.concepts) {
 		const description = entry.description ? ` — ${entry.description}` : "";
-		lines.push(`  concept ${entry.id}${description}`);
+		// A Concept the listing omits is reported rather than hidden, and
+		// said to be missing from it: the listing is the author's judgement
+		// about what matters, and a file nothing names is invisible.
+		const unlisted = entry.unlisted ? " (not in this level's listing)" : "";
+		// Broken, not absent: a Concept that cannot be read is something to
+		// fix, and silence would read as a Level that does not hold it.
+		const broken = entry.problem ? ` (cannot be read: ${entry.problem})` : "";
+		lines.push(`  concept ${entry.id}${description}${unlisted}${broken}`);
 	}
 	if (level.levels.length === 0 && level.concepts.length === 0) {
 		lines.push("  nothing yet");
@@ -411,6 +419,45 @@ export function renderLevel(level: Level): string {
 	// Whether the ordering is the author's or ours is worth knowing: a
 	// curated listing says what the author thought mattered first.
 	if (level.curated) lines.push("(listing curated by the bundle's author)");
+	return lines.join("\n");
+}
+
+/**
+ * One Concept as an agent reads it whole.
+ *
+ * What it declares it is *not*, and what it was drawn from, are served with
+ * it: a definition read without the exclusions that bound it invites the
+ * mistake they exist to prevent, and prose with no provenance cannot be
+ * checked. A Concept recording neither carries no placeholder for them —
+ * an empty heading says something is missing where nothing is.
+ */
+export function renderConcept(concept: Concept): string {
+	const lines = [`# ${concept.title ?? concept.id}`];
+	if (concept.description) lines.push("", concept.description);
+	lines.push("", concept.body.trim());
+
+	if (concept.exclusions.length > 0) {
+		lines.push("", "This is not:");
+		for (const exclusion of concept.exclusions) {
+			const why = exclusion.why ? ` — ${exclusion.why}` : "";
+			const instead = exclusion.instead
+				? ` Use instead: ${exclusion.instead}`
+				: "";
+			lines.push(`- ${exclusion.term}${why}${instead}`);
+		}
+	}
+	if (concept.sources.length > 0) {
+		lines.push("", "Drawn from:");
+		for (const source of concept.sources) {
+			// A source that names only where it is says that once, not twice;
+			// one that names only its author still names something.
+			const named = source.title ?? source.id ?? source.author;
+			const where = source.resource ?? "";
+			lines.push(
+				named ? `- ${named}${where ? ` (${where})` : ""}` : `- ${where}`,
+			);
+		}
+	}
 	return lines.join("\n");
 }
 

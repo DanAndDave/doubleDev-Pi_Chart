@@ -251,6 +251,17 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS memory_backend TEXT`,
 		],
 	},
+	{
+		version: 17,
+		statements: [
+			// What a Concept declares it is *not*, carried beside the section
+			// it qualifies so a definition never reaches a Context Pack
+			// without the exclusions that bound it. Derived from the bundle
+			// like everything else in this table, and nullable: a row indexed
+			// before the column existed is refreshed by the next pass.
+			`ALTER TABLE concept_sections ADD COLUMN IF NOT EXISTS exclusions JSONB`,
+		],
+	},
 ];
 
 /**
@@ -932,13 +943,7 @@ export class PostgresStore implements
 	 */
 	async indexConcepts(concepts: Concept[], batch = 32): Promise<IndexResult> {
 		if (!this.embedder) return { embedded: 0, contested: [] };
-		const { dimensions } = await this.embedder.identity();
-		if (dimensions !== PINNED_DIMENSIONS) {
-			throw new Error(
-				`embedder produces ${dimensions} dimensions, ` +
-					`but the schema stores ${PINNED_DIMENSIONS}`,
-			);
-		}
+		await this.requirePinnedWidth(this.embedder);
 
 		const byIdentity = new Map<string, Concept>();
 		const contested: string[] = [];
@@ -963,29 +968,130 @@ export class PostgresStore implements
 		const sections = [...byIdentity.values()].flatMap(splitConcept);
 
 		await this.pruneConcepts(byIdentity, sections);
+		await this.refreshConceptMetadata(byIdentity);
+		const embedded = await this.embedSections(byIdentity, sections, batch);
+		return { embedded, contested };
+	}
 
+	/**
+	 * Brings the index in line with one Concept, leaving every other
+	 * Concept's entries where they are.
+	 *
+	 * The same code the whole-bundle pass runs, with the prune confined to
+	 * this identity: `pruneConcepts` deletes every indexed identity absent
+	 * from the map it is handed, so passing it one Concept would empty the
+	 * corpus. Re-passing the whole bundle instead would embed nothing extra
+	 * but re-parse every file, growing with the corpus rather than with the
+	 * edit — and this runs inside a Turn.
+	 *
+	 * A Concept revised into non-conformance, or deprecated, loses its
+	 * entries: it is no longer retrievable, which is what the file now says.
+	 *
+	 * One rule the whole-bundle pass has is missing here: it refuses a
+	 * Concept whose identity another file already claimed. A scoped pass
+	 * cannot see the other files, and does not need to — it runs on what
+	 * authoring just wrote, which carries either its own identity or a fresh
+	 * one. Session start reconciles a bundle that has since been copied by
+	 * hand.
+	 */
+	async indexConcept(concept: Concept, batch = 32): Promise<IndexResult> {
+		if (!this.embedder) return { embedded: 0, contested: [] };
+		await this.requirePinnedWidth(this.embedder);
+
+		const identity = concept.identity;
+		if (!identity) {
+			// A revision that broke the frontmatter took the identity key
+			// with it, so there is nothing to key on but the path the file
+			// was indexed under. Left indexed, the Concept would keep being
+			// retrieved as text nobody can read.
+			await this.sql`
+				DELETE FROM concept_sections WHERE concept_id = ${concept.id}`;
+			return { embedded: 0, contested: [] };
+		}
+
+		const indexable = concept.conformant && concept.status !== "deprecated";
+		const sections = indexable ? splitConcept(concept) : [];
+		await this.sql`
+			DELETE FROM concept_sections
+			WHERE identity = ${identity} AND section_index >= ${sections.length}`;
+		if (sections.length === 0) return { embedded: 0, contested: [] };
+
+		const byIdentity = new Map([[identity, concept]]);
+		await this.refreshConceptMetadata(byIdentity);
+		const embedded = await this.embedSections(
+			byIdentity,
+			sections,
+			batch,
+			identity,
+		);
+		return { embedded, contested: [] };
+	}
+
+	/** The schema stores one width; an embedder of another is a mistake. */
+	private async requirePinnedWidth(embedder: Embedder): Promise<void> {
+		const { dimensions } = await embedder.identity();
+		if (dimensions !== PINNED_DIMENSIONS) {
+			throw new Error(
+				`embedder produces ${dimensions} dimensions, ` +
+					`but the schema stores ${PINNED_DIMENSIONS}`,
+			);
+		}
+	}
+
+	/**
+	 * Frontmatter can change without the body changing — deprecating a
+	 * Concept, or reviewing one, is exactly that — so what a row carries
+	 * beside its vector is refreshed whether or not anything was embedded.
+	 */
+	private async refreshConceptMetadata(
+		byIdentity: Map<string, Concept>,
+	): Promise<void> {
+		// `::text::jsonb` rather than the `::jsonb` the accounting insert
+		// uses: the driver hands a string parameter to a jsonb site as a
+		// JSON string, so a single cast stores `"[…]"` — a scalar — and the
+		// exclusions come back as text inside the built object.
+		for (const [identity, concept] of byIdentity) {
+			const exclusions = JSON.stringify(concept.exclusions);
+			await this.sql`
+				UPDATE concept_sections
+				SET concept_id = ${concept.id}, status = ${concept.status},
+					trust = ${concept.trust}, stale = ${concept.stale},
+					exclusions = ${exclusions}::text::jsonb
+				WHERE identity = ${identity}
+					AND (concept_id, status, trust, stale, exclusions)
+						IS DISTINCT FROM (
+							${concept.id}, ${concept.status}, ${concept.trust},
+							${concept.stale}, ${exclusions}::text::jsonb)`;
+		}
+	}
+
+	/**
+	 * Embeds the sections whose content moved, and writes them.
+	 *
+	 * `scope` confines the hashes read to one Concept, so a single-Concept
+	 * pass reads that Concept's rows rather than the whole index's.
+	 */
+	private async embedSections(
+		byIdentity: Map<string, Concept>,
+		sections: Section[],
+		batch: number,
+		scope?: string,
+	): Promise<number> {
+		if (!this.embedder) return 0;
 		const known = new Map<string, string>();
-		const rows = (await this.sql`
-			SELECT identity, section_index, hash FROM concept_sections
-			WHERE embedding IS NOT NULL`) as {
+		const rows = (scope === undefined
+			? await this.sql`
+				SELECT identity, section_index, hash FROM concept_sections
+				WHERE embedding IS NOT NULL`
+			: await this.sql`
+				SELECT identity, section_index, hash FROM concept_sections
+				WHERE embedding IS NOT NULL AND identity = ${scope}`) as {
 			identity: string;
 			section_index: number;
 			hash: string;
 		}[];
 		for (const row of rows) {
 			known.set(`${row.identity}:${row.section_index}`, row.hash);
-		}
-
-		// Frontmatter can change without the body changing — deprecating a
-		// Concept is exactly that — so metadata is refreshed regardless.
-		for (const [identity, concept] of byIdentity) {
-			await this.sql`
-				UPDATE concept_sections
-				SET concept_id = ${concept.id}, status = ${concept.status},
-					trust = ${concept.trust}, stale = ${concept.stale}
-				WHERE identity = ${identity}
-					AND (concept_id, status, trust, stale) IS DISTINCT FROM
-						(${concept.id}, ${concept.status}, ${concept.trust}, ${concept.stale})`;
 		}
 
 		const changed = sections.filter(
@@ -1007,11 +1113,12 @@ export class PostgresStore implements
 				await this.sql`
 					INSERT INTO concept_sections
 						(identity, section_index, concept_id, status, trust, stale,
-						 hash, text, embedding)
+						 hash, text, exclusions, embedding)
 					VALUES (
 						${section.identity}, ${section.index}, ${section.conceptId},
 						${concept.status}, ${concept.trust}, ${concept.stale},
 						${section.hash}, ${section.text},
+						${JSON.stringify(concept.exclusions)}::text::jsonb,
 						${JSON.stringify(vector)}::vector
 					)
 					ON CONFLICT (identity, section_index) DO UPDATE SET
@@ -1021,11 +1128,12 @@ export class PostgresStore implements
 						stale = EXCLUDED.stale,
 						text = EXCLUDED.text,
 						hash = EXCLUDED.hash,
+						exclusions = EXCLUDED.exclusions,
 						embedding = EXCLUDED.embedding`;
 				embedded++;
 			}
 		}
-		return { embedded, contested };
+		return embedded;
 	}
 
 	/** Drops Concepts the bundle no longer has, and sections an edit removed. */
@@ -1089,7 +1197,8 @@ export class PostgresStore implements
 		const candidates = limit * CANDIDATE_FACTOR;
 		const [row] = (await this.sql`
 			WITH nearest AS (
-				SELECT identity, concept_id, text, status, trust, stale,
+				SELECT identity, concept_id, section_index, text, status, trust,
+					stale, exclusions,
 					embedding <=> ${embedding}::vector AS distance
 				FROM concept_sections
 				WHERE embedding IS NOT NULL
@@ -1104,7 +1213,8 @@ export class PostgresStore implements
 			),
 			best AS (
 				SELECT DISTINCT ON (identity)
-					identity, concept_id, text, trust, stale, distance
+					identity, concept_id, section_index, text, trust, stale,
+					exclusions, distance
 				FROM nearest
 				WHERE distance <= ${maxDistance} AND status <> 'deprecated'
 				ORDER BY identity, distance ASC
@@ -1122,11 +1232,18 @@ export class PostgresStore implements
 			),
 			ranked AS (
 				SELECT *,
-					distance > (SELECT min(distance) FROM best) + ${BAND} AS outside
+					distance > (SELECT min(distance) FROM best) + ${BAND} AS outside,
+					-- How many parts the Concept has, counted over the whole
+					-- index rather than the candidate window: a fragment must
+					-- be able to say what it is a fragment of, and the window
+					-- holds only the sections that came near this query.
+					(SELECT count(*)::int FROM concept_sections whole
+						WHERE whole.identity = best.identity) AS section_count
 				FROM best
 			),
 			chosen AS (
-				SELECT concept_id, text, trust, stale, distance,
+				SELECT concept_id, section_index, section_count, text, trust,
+					stale, exclusions, distance,
 					row_number() OVER (
 						-- Comparable matches first, ordered by trust and
 						-- freshness. Everything beyond the band is ordered by
@@ -1147,7 +1264,10 @@ export class PostgresStore implements
 					SELECT jsonb_agg(
 						jsonb_build_object(
 							'conceptId', concept_id, 'text', text, 'trust', trust,
-							'stale', stale, 'distance', distance)
+							'stale', stale, 'distance', distance,
+							'sectionIndex', section_index,
+							'sectionCount', section_count,
+							'exclusions', coalesce(exclusions, '[]'::jsonb))
 						ORDER BY ord)
 					FROM chosen WHERE ord <= ${limit}
 				), '[]'::jsonb) AS hits,

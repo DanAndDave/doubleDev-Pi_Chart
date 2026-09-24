@@ -141,6 +141,63 @@ describe("parseConcept", () => {
 		expect(concept.trust).toBe("human-reviewed");
 	});
 
+	test("a review the machine's last change postdates stops counting", () => {
+		const reviewed = parseConcept(
+			"a",
+			conceptFile(
+				"type: Standard\ngenerated: { by: agent, at: 2026-07-01T00:00:00Z }\n" +
+					"verified:\n  - { by: human:zero, at: 2026-07-02T00:00:00Z }",
+			),
+			AT,
+		);
+		const overwritten = parseConcept(
+			"b",
+			conceptFile(
+				"type: Standard\ngenerated: { by: agent, at: 2026-07-03T00:00:00Z }\n" +
+					"verified:\n  - { by: human:zero, at: 2026-07-02T00:00:00Z }",
+			),
+			AT,
+		);
+		const sameMoment = parseConcept(
+			"c",
+			conceptFile(
+				"type: Standard\ngenerated: { by: agent, at: 2026-07-02T00:00:00Z }\n" +
+					"verified:\n  - { by: human:zero, at: 2026-07-02T00:00:00Z }",
+			),
+			AT,
+		);
+
+		// A review of the text as it stands counts; one the machine wrote
+		// over does not. Signed at the same moment the change was recorded
+		// is a review of that change — the vendored bundle writes exactly
+		// that pair.
+		expect(reviewed.trust).toBe("human-reviewed");
+		expect(overwritten.trust).toBe("unverified");
+		expect(sameMoment.trust).toBe("human-reviewed");
+	});
+
+	test("an undated review counts only where nothing dates a change", () => {
+		const alone = parseConcept(
+			"a",
+			conceptFile("type: Standard\nverified:\n  - { by: human:zero }"),
+			AT,
+		);
+		const beneathAChange = parseConcept(
+			"b",
+			conceptFile(
+				"type: Standard\ngenerated: { by: agent, at: 2026-07-03T00:00:00Z }\n" +
+					"verified:\n  - { by: human:zero }",
+			),
+			AT,
+		);
+
+		// Otherwise writing beneath an undated signature would serve the
+		// agent's own text as human-reviewed, which is the hole the rule
+		// closes; with no dated change there is nothing to be older than.
+		expect(alone.trust).toBe("human-reviewed");
+		expect(beneathAChange.trust).toBe("unverified");
+	});
+
 	test("a file with no frontmatter at all is non-conformant", () => {
 		const concept = parseConcept("a", "Just a body, no frontmatter.\n", AT);
 

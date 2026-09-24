@@ -43,11 +43,21 @@ The same hole sits one step along — revise a reviewed Concept and its review v
 
 ### Attribution names the part and points at the rest
 
-The curated header becomes the Concept, the part carried and how many parts exist — `[curated knowledge: metrics/gross-margin — section 2 of 4]` — plus the note that the whole Concept is readable through `walk_documentation` at no Budget. That pointer turns a fragment from a false answer into a lead. Section index is already stored (`src/postgres-store.ts:811-824`) and the count is a window count over those rows, so the schema is untouched.
+The curated header becomes the Concept, the part carried and how many parts exist — `[curated knowledge: metrics/gross-margin — section 2 of 4]` — plus the note that the whole Concept is readable through `walk_documentation` at no Budget. That pointer turns a fragment from a false answer into a lead. Section index is already stored (`src/postgres-store.ts:811-824`) and the count is a window count over those rows, so attribution needs nothing the section table does not already hold.
+
+### What a Concept excludes rides the index; what it was drawn from does not
+
+A Pack carries the exclusions, so they have to be reachable on the Call the model waits on. Two ways: a nullable `exclusions` column written with the section, or opening the Concept's file for every hit during assembly. The column wins — the row already carries `text`, `trust` and `stale` for exactly this reason, and reading files under a retrieval deadline makes assembly depend on the filesystem's mood. It is derived and rebuildable on ADR-0002's terms, and an older row reads back without it.
+
+`sources:` stay out of the index. They qualify provenance rather than meaning, and a Pack that carried every citation would spend a Budget the exclusions need; an agent reading the Concept whole through `walk_documentation` gets them.
+
+### An authored Concept's lifecycle and provenance are the machine's, not the author's
+
+A revision preserves what it does not name — except `status` and `generated`, which record that a machine changed the text. Leaving `status: stable` on prose an agent rewrote would keep a human's lifecycle claim over text no human read, which is the same hole the `verified:` rule closes one step along. A deprecated Concept stays deprecated: a revision corrects what a superseded Concept says, it does not put it back in service.
 
 ### A Concept's summary joins the matched text, if measurement allows
 
-Default: the description prepended to every section's embedded text beside the title, because the first section alone leaves the rest of a Concept unfindable by the author's paraphrase. The risk is measurable — one description repeated across sections drags them toward a common vector, flattening the section-level discrimination `doc-store-recall` measured. Task 1 re-runs `scripts/measure-doc-threshold.ts` with descriptions attached against its recorded table: genuine 0.244-0.419, unrelated 0.610-0.653. If the genuine range rises or the gap narrows, the description goes to the first section only. Every hash moves, so session start re-embeds the corpus once.
+Default: the description prepended to every section's embedded text beside the title, because the first section alone leaves the rest of a Concept unfindable by the author's paraphrase. The risk is measurable — one description repeated across sections drags them toward a common vector, flattening the section-level discrimination `doc-store-recall` measured. Task 1 measures it against the recorded table — genuine 0.244-0.419, unrelated 0.610-0.653 — with a sibling of `scripts/measure-doc-threshold.ts` that carries the three placements, real summaries, the vendored bundle and section-shaped probes, checked in as `scripts/measure-summary-placement.ts` so the figures can be re-derived. If the genuine range rises or the gap narrows, the description goes to the first section only. Every hash moves, so session start re-embeds the corpus once.
 
 ### A curated listing is reconciled by appending, never by interleaving
 

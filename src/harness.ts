@@ -69,6 +69,12 @@ export interface SchemaBuilder {
 	object(shape: Record<string, SchemaField>): unknown;
 	string(): SchemaField;
 	number(): SchemaField;
+	/** For what a Concept declares it is not, and what it was drawn from. */
+	array(of: unknown): SchemaField;
+	/** For a choice the tool must make explicitly, such as create or revise. */
+	enum(values: string[]): SchemaField;
+	/** For an argument that is declared only so it can be refused by name. */
+	unknown(): SchemaField;
 }
 
 export interface ToolDefinition {

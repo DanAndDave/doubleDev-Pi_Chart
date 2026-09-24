@@ -229,6 +229,174 @@ describeStore("the concept index", () => {
 	});
 });
 
+describeStore("bringing one concept's index in line", () => {
+	let store: PostgresStore;
+	let embedded: string[][];
+
+	beforeAll(async () => {
+		const counting = new StubEmbedder();
+		embedded = [];
+		store = PostgresStore.connect(databaseUrl ?? "", {
+			identity: () => counting.identity(),
+			embed: (texts) => {
+				embedded.push(texts);
+				return counting.embed(texts);
+			},
+			embedQuery: (texts) => counting.embedQuery(texts),
+		});
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+		embedded.length = 0;
+	});
+
+	test("the rest of the index survives a scoped pass", async () => {
+		await store.indexConcepts([CACHING, BANNER]);
+
+		// A one-section Concept, revised. The pass must reach inside its own
+		// identity only: pruning by section position alone would take the
+		// second section of every other Concept with it, and handing the
+		// whole-bundle pass one Concept would empty the corpus outright.
+		await store.indexConcept(
+			concept(
+				"standards/banner",
+				"id-banner",
+				"The banner is a muted green, and never competes with the primary action or its label.",
+				"type: Standard\ntitle: Banner colour",
+			),
+		);
+
+		const survives = async (query: string) =>
+			(await store.searchConcepts(query, 5, 0.6)).hits.map(
+				(hit) => hit.conceptId,
+			);
+		expect(await survives("parsed configuration memory")).toEqual([
+			"decisions/caching",
+		]);
+		expect(await survives("rolling restarts drain connections")).toEqual([
+			"decisions/caching",
+		]);
+	});
+
+	test("a scoped pass embeds the sections that moved and nothing else", async () => {
+		await store.indexConcepts([CACHING, BANNER]);
+		embedded.length = 0;
+
+		const { embedded: count } = await store.indexConcept(
+			concept(
+				"decisions/caching",
+				"id-caching",
+				"## Decision\n\nWe keep parsed configuration in memory rather than re-reading it.\n\n" +
+					"## Deployment\n\nRolling restarts drain connections, then stop the node.",
+				"type: Decision\ntitle: Caching parsed configuration",
+			),
+		);
+
+		// One section changed. The Concept's untouched section, and every
+		// section of every other Concept, keep the vectors they had.
+		expect(count).toBe(1);
+		expect(embedded.flat()).toHaveLength(1);
+		expect(embedded.flat()[0]).toContain("stop the node");
+	});
+
+	test("a revision is findable by what it says and not by what it removed", async () => {
+		await store.indexConcepts([CACHING]);
+
+		await store.indexConcept(
+			concept(
+				"decisions/caching",
+				"id-caching",
+				"## Decision\n\nWe read configuration from disk on every request.",
+				"type: Decision\ntitle: Caching parsed configuration",
+			),
+		);
+
+		expect(
+			(await store.searchConcepts("configuration read from disk", 5, 0.6)).hits,
+		).not.toEqual([]);
+		expect(
+			(await store.searchConcepts("rolling restarts drain connections", 5, 0.6))
+				.hits,
+		).toEqual([]);
+	});
+
+	test("a concept revised into unreadability leaves retrieval", async () => {
+		await store.indexConcepts([CACHING, BANNER]);
+
+		await store.indexConcept(
+			parseConcept("decisions/caching", "no frontmatter at all\n", AT),
+		);
+
+		expect(
+			(await store.searchConcepts("parsed configuration memory", 5, 0.6)).hits,
+		).toEqual([]);
+		// And the corpus around it is untouched.
+		expect(
+			(await store.searchConcepts("muted green banner", 5, 0.6)).hits,
+		).not.toEqual([]);
+	});
+
+	test("what a concept declares it is not is carried by its hits", async () => {
+		await store.indexConcept(
+			concept(
+				"metrics/gross-margin",
+				"id-margin",
+				"## Definition\n\nRevenue less full cost of goods sold.",
+				"type: Metric\ntitle: Gross margin\nnot:\n  - term: revenue minus product cost only\n    why: that is the pre-FY2026 definition",
+			),
+		);
+
+		const [hit] = (await store.searchConcepts("revenue less full cost", 5, 0.6))
+			.hits;
+
+		expect(hit?.exclusions?.[0]?.term).toBe("revenue minus product cost only");
+		expect(hit?.sectionIndex).toBe(0);
+		expect(hit?.sectionCount).toBe(1);
+	});
+
+	test("a hit from a many-part concept says which part it is", async () => {
+		await store.indexConcepts([CACHING]);
+
+		const [hit] = (
+			await store.searchConcepts("rolling restarts drain connections", 5, 0.6)
+		).hits;
+
+		// Two sections; the second matched. A pack heads a fragment with
+		// this, so "part 2 of 2" has to come from the index.
+		expect(hit?.sectionIndex).toBe(1);
+		expect(hit?.sectionCount).toBe(2);
+	});
+
+	test("a concept written now is retrievable now", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-written-"));
+		const bundle = new DocStore(root);
+		await store.indexConcepts([BANNER]);
+
+		const { written } = await bundle.write({
+			id: "decisions/elision",
+			mode: "create",
+			type: "Decision",
+			title: "Elision",
+			summary: "What replaces the middle of a payload too large to carry whole.",
+			body: "## Decision\n\nThe head and the tail survive with a marker naming what went.",
+		});
+		await store.indexConcept(written ?? BANNER);
+
+		// Nothing restarted, no whole-bundle pass: the Conversation that
+		// wrote it can retrieve it.
+		const found = (
+			await store.searchConcepts("head and tail survive with a marker", 5, 0.6)
+		).hits;
+		expect(found.map((hit) => hit.conceptId)).toContain("decisions/elision");
+	});
+});
+
 /**
  * The query this file's ranking tests search with, and the vectors `place`
  * positions around it. Distances are set directly because no wording puts
@@ -613,6 +781,96 @@ describeModel("retrieval under the real model", () => {
 				expect(found.map((hit) => hit.conceptId)).toEqual([
 					"decisions/sharding",
 				]);
+			} finally {
+				await store.close();
+				await embedder.close();
+			}
+		},
+		300_000,
+	);
+
+	test(
+		"the concept that states its subject beats the one that leaves it implicit",
+		async () => {
+			const embedder = new LocalEmbedder(process.env.CM_BUN ?? "bun");
+			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
+			const body =
+				"## Decision\n\n`retain_days` defaults to 90. The sweep runs " +
+				"`DELETE FROM turns WHERE ingested_at < now() - $1`, then `VACUUM`.";
+			try {
+				await store.migrate();
+				await store.truncate();
+				// The same body twice. One Concept says what it is about; the
+				// other leaves it to the reader. Nothing else differs, so the
+				// ordering between them is the summary and nothing else — and
+				// alphabetically the summarised one loses, so a tie would put
+				// it second.
+				await store.indexConcepts([
+					concept(
+						"decisions/a-implicit",
+						"id-implicit",
+						body,
+						"type: Decision\ntitle: Retention",
+					),
+					concept(
+						"decisions/b-stated",
+						"id-stated",
+						body,
+						"type: Decision\ntitle: Retention\ndescription: How long the " +
+							"record of what happened is kept, and what is thrown away first.",
+					),
+				]);
+
+				// A paraphrase of the subject using none of the body's
+				// wording: not "retain_days", "sweep", "turns" or "vacuum".
+				const found = (
+					await store.searchConcepts(
+						"what do we throw away first when the past piles up",
+						2,
+						0.5,
+					)
+				).hits;
+
+				expect(found[0]?.conceptId).toBe("decisions/b-stated");
+				expect(found[0]?.distance).toBeLessThan(found[1]?.distance ?? 1);
+			} finally {
+				await store.close();
+				await embedder.close();
+			}
+		},
+		300_000,
+	);
+
+	test(
+		"the part of a concept a query is about is the part retrieved",
+		async () => {
+			const embedder = new LocalEmbedder(process.env.CM_BUN ?? "bun");
+			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
+			try {
+				await store.migrate();
+				await store.truncate();
+				await store.indexConcepts([
+					concept(
+						"decisions/retention",
+						"id-retention",
+						"## Decision\n\nRows are removed once their age passes the " +
+							"configured limit, and their accounting is kept.\n\n" +
+							"## Operation\n\nThe sweep runs at shutdown, never on the " +
+							"path a model waits on.",
+						"type: Decision\ntitle: Retention\n" +
+							"description: How long the record of what happened is kept, and what is thrown away first.",
+					),
+				]);
+
+				// One summary repeated across sections draws them together;
+				// what must survive is that the section's own text still
+				// decides which part comes back.
+				const [hit] = (
+					await store.searchConcepts("when does the sweep run", 2, 0.6)
+				).hits;
+
+				expect(hit?.sectionIndex).toBe(1);
+				expect(hit?.sectionCount).toBe(2);
 			} finally {
 				await store.close();
 				await embedder.close();

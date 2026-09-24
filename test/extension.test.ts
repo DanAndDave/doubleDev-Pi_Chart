@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -717,6 +717,7 @@ describe("recall wiring", () => {
 			config: { docConcepts: 2, docMaxDistance: 0.4 },
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => ({
 					hits: [],
 					rejected: 2,
@@ -1145,6 +1146,8 @@ describe("the doc store in a session", () => {
 		trust: "human-reviewed" as const,
 		stale: false,
 		distance: 0.2,
+		sectionIndex: 0,
+		sectionCount: 1,
 	};
 
 	test("concepts reach the pack", async () => {
@@ -1162,6 +1165,7 @@ describe("the doc store in a session", () => {
 			},
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => ({ hits: [hit], rejected: 0, misses: [] }),
 			},
 		});
@@ -1191,6 +1195,7 @@ describe("the doc store in a session", () => {
 			},
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => {
 					throw new Error("index offline");
 				},
@@ -1211,6 +1216,7 @@ describe("the doc store in a session", () => {
 		let indexed = 0;
 		const cm = harness({
 			docs: {
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				indexConcepts: async () => {
 					await indexing.promise;
 					indexed++;
@@ -1239,6 +1245,7 @@ describe("the doc store in a session", () => {
 		const cm = harness({
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 			},
 			bundle: async () => {
@@ -1258,6 +1265,7 @@ describe("a bundle that is not there", () => {
 		let indexed: number | undefined;
 		const cm = harness({
 			docs: {
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				indexConcepts: async (concepts) => {
 					indexed = concepts.length;
 					return { embedded: 0, contested: [] };
@@ -1280,6 +1288,7 @@ describe("a bundle that is not there", () => {
 	test("a concept that lost its identity race is named", async () => {
 		const cm = harness({
 			docs: {
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				indexConcepts: async () => ({
 					embedded: 0,
 					contested: ["decisions/caching-copy"],
@@ -1300,6 +1309,7 @@ describe("a bundle that is not there", () => {
 		let indexed = false;
 		const cm = harness({
 			docs: {
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				indexConcepts: async () => {
 					indexed = true;
 					return { embedded: 0, contested: [] };
@@ -2040,6 +2050,102 @@ describe("walking the documentation bundle", () => {
 		expect(await walk(cm, {})).toContain("No documentation bundle");
 	});
 
+	test("a concept that cannot be read is reported as such, not served empty", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-broken-"));
+		await Bun.write(join(root, "unparseable.md"), "no frontmatter at all\n");
+		const { cm } = walking(root);
+
+		const text = await walk(cm, { concept: "unparseable" });
+
+		// "There is nothing here to say" and "something is here and it is
+		// broken" are opposite answers.
+		expect(text).toContain("cannot be read as a concept");
+		expect(text).toContain("frontmatter");
+		expect(text).not.toContain("No concept called");
+	});
+
+	test("a concept whose file cannot be read names the read error", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-locked-"));
+		await Bun.write(
+			join(root, "locked.md"),
+			"---\ntype: Decision\ntitle: Locked\n---\n\nBody.\n",
+		);
+		await chmod(join(root, "locked.md"), 0o000);
+		const { cm } = walking(root);
+
+		const text = await walk(cm, { concept: "locked" });
+
+		await chmod(join(root, "locked.md"), 0o644);
+		// Unreadable is its own answer: not absent, and not a Concept with
+		// nothing in it.
+		expect(text).toContain("cannot be read as a concept");
+		expect(text.toLowerCase()).toContain("permission");
+		expect(text).not.toContain("No concept called");
+	});
+
+	test("a level lists its other concepts around a broken one", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-mixed-"));
+		await Bun.write(join(root, "broken.md"), "no frontmatter at all\n");
+		await Bun.write(
+			join(root, "sound.md"),
+			"---\ntype: Decision\ntitle: Sound\ndescription: readable\n---\n\nBody.\n",
+		);
+		const { cm } = walking(root);
+
+		const text = await walk(cm, {});
+
+		expect(text).toContain("concept sound");
+		expect(text).toContain("concept broken (cannot be read");
+	});
+
+	test("a concept the listing omits is offered, marked", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-unlisted-"));
+		await Bun.write(
+			join(root, "listed.md"),
+			"---\ntype: Decision\ntitle: Listed\ndescription: named by the listing\n---\n\nBody.\n",
+		);
+		await Bun.write(
+			join(root, "forgotten.md"),
+			"---\ntype: Decision\ntitle: Forgotten\ndescription: named by nothing\n---\n\nBody.\n",
+		);
+		await Bun.write(join(root, "index.md"), "# Bundle\n\n- [listed](listed.md) — named by the listing\n");
+		const { cm } = walking(root);
+
+		const text = await walk(cm, {});
+
+		expect(text).toContain("concept forgotten");
+		expect(text).toContain("not in this level's listing");
+		expect(text.indexOf("concept listed")).toBeLessThan(
+			text.indexOf("concept forgotten"),
+		);
+	});
+
+	test("what a concept is not, and what it came from, are served with it", async () => {
+		const { cm } = walking();
+
+		const text = await walk(cm, { concept: "metrics/gross-margin" });
+
+		expect(text).toContain("This is not:");
+		expect(text).toContain("revenue minus product cost only");
+		expect(text).toContain("Drawn from:");
+		expect(text).toContain("Cost Allocation & Margin Standard");
+	});
+
+	test("a concept recording neither carries no placeholder for them", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cm-walk-plain-"));
+		await Bun.write(
+			join(root, "plain.md"),
+			"---\ntype: Decision\ntitle: Plain\n---\n\nBody.\n",
+		);
+		const { cm } = walking(root);
+
+		const text = await walk(cm, { concept: "plain" });
+
+		expect(text).toContain("Body.");
+		expect(text).not.toContain("This is not:");
+		expect(text).not.toContain("Drawn from:");
+	});
+
 	test("walking leaves the context pack untouched", async () => {
 		// With the Doc Store wired too, so the curated part is populated
 		// and a walked Concept leaking into it would be visible.
@@ -2059,6 +2165,7 @@ describe("walking the documentation bundle", () => {
 			},
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: async () => ({
 					hits: [
 						{
@@ -2067,6 +2174,8 @@ describe("walking the documentation bundle", () => {
 							trust: "unverified" as const,
 							stale: false,
 							distance: 0.2,
+							sectionIndex: 0,
+							sectionCount: 1,
 						},
 					],
 					rejected: 0,
@@ -2084,6 +2193,99 @@ describe("walking the documentation bundle", () => {
 		// assembly carries.
 		expect(JSON.stringify(before?.messages)).toContain("curated knowledge");
 		expect(after?.messages).toEqual(before?.messages);
+	});
+});
+
+describe("writing to the documentation bundle", () => {
+	const draft = {
+		id: "decisions/caching",
+		mode: "create",
+		type: "Decision",
+		title: "Caching",
+		summary: "Whether parsed configuration is cached.",
+		body: "# Decision\n\nWe cache parsed configuration for the session.",
+	};
+
+	async function authoring(overrides: Parameters<typeof harness>[0] = {}) {
+		const root = await mkdtemp(join(tmpdir(), "cm-author-"));
+		const store = new DocStore(root);
+		const indexed: string[] = [];
+		const cm = harness({
+			walk: store,
+			author: store,
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async (concept) => {
+					indexed.push(concept.id);
+					return { embedded: 1, contested: [] };
+				},
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+			},
+			...overrides,
+		});
+		return { cm, root, indexed, store };
+	}
+
+	async function write(
+		cm: ReturnType<typeof harness>,
+		params: Record<string, unknown>,
+	): Promise<string> {
+		const result = await cm.tools.write_documentation?.execute("1", params);
+		return result?.content.map((block) => block.text).join("\n") ?? "";
+	}
+
+	test("a written concept is in the bundle and in the index", async () => {
+		const { cm, root, indexed } = await authoring();
+
+		const said = await write(cm, draft);
+
+		expect(said).toContain("draft");
+		// Indexed on the tool's own call, not in the background: the point
+		// of writing from inside a Conversation is that the next Call can
+		// retrieve it.
+		expect(indexed).toEqual(["decisions/caching"]);
+		const onDisk = await readFile(join(root, "decisions/caching.md"), "utf8");
+		expect(onDisk).toContain("We cache parsed configuration");
+	});
+
+	test("a refusal reaches the model with its reason, and writes nothing", async () => {
+		const { cm, indexed, store } = await authoring();
+
+		const said = await write(cm, {
+			...draft,
+			verified: [{ by: "human:zero", at: "2026-09-24T00:00:00Z" }],
+		});
+
+		expect(said).toContain("verification");
+		expect(indexed).toEqual([]);
+		expect(await store.open("decisions/caching")).toBeUndefined();
+	});
+
+	test("an index that fails costs the index, not the concept", async () => {
+		const { cm, root } = await authoring({
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => {
+					throw new Error("store unreachable");
+				},
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+			},
+		});
+
+		const said = await write(cm, draft);
+
+		// The bundle is the record the index is derived from.
+		expect(said).toContain("not yet retrievable");
+		expect(cm.reported.join("\n")).toContain("Indexing decisions/caching failed");
+		expect(await readFile(join(root, "decisions/caching.md"), "utf8")).toContain(
+			"We cache",
+		);
+	});
+
+	test("the tool is absent where no bundle is configured", async () => {
+		const cm = harness();
+
+		expect(cm.tools.write_documentation).toBeUndefined();
 	});
 });
 
@@ -2170,6 +2372,7 @@ describe("a store that misses its deadline", () => {
 			config: { tailTurns: 4, docConcepts: 2 },
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: () => new Promise(() => {}),
 			},
 		});
@@ -2207,6 +2410,7 @@ describe("a store that misses its deadline", () => {
 	test("a deadline nothing exceeds changes nothing", async () => {
 		const answering = {
 			indexConcepts: async () => ({ embedded: 0, contested: [] }),
+			indexConcept: async () => ({ embedded: 0, contested: [] }),
 			searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
 		};
 		const bounded = harness({ config: { docConcepts: 2 }, docs: answering });
@@ -2240,6 +2444,7 @@ describe("a store that misses its deadline", () => {
 			recall: { similarTurns: () => new Promise(() => {}) },
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
 				searchConcepts: () => new Promise(() => {}),
 			},
 			// Only the two methods assembly reaches for; the Store itself

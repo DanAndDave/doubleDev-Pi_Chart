@@ -1,4 +1,4 @@
-import type { Concept, TrustTier } from "./concept.ts";
+import type { Concept, Exclusion, TrustTier } from "./concept.ts";
 
 /** A Concept found by meaning, with the signals that qualify it. */
 export interface ConceptHit {
@@ -13,6 +13,16 @@ export interface ConceptHit {
 	 * mixed into it a second time would be the tie-break ADR-0003 refuses.
 	 */
 	distance: number;
+	/** Which part of the Concept matched, from zero. */
+	sectionIndex: number;
+	/**
+	 * How many parts the Concept has, so a fragment can say it is one.
+	 * Required rather than optional: a count nobody supplied would read as
+	 * a whole Concept, which is the one thing a fragment must not claim.
+	 */
+	sectionCount: number;
+	/** What the Concept declares it is not. Absent where it declares nothing. */
+	exclusions?: Exclusion[];
 }
 
 /** A Concept the relevance threshold refused, and how far it was. */
@@ -54,6 +64,8 @@ export interface IndexResult {
 export interface ConceptSearch {
 	/** Brings the index in line with the bundle. Returns what it did. */
 	indexConcepts(concepts: Concept[]): Promise<IndexResult>;
+	/** Brings it in line with one Concept, costing about that one Concept. */
+	indexConcept(concept: Concept): Promise<IndexResult>;
 	searchConcepts(
 		query: string,
 		limit: number,

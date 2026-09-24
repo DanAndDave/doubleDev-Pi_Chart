@@ -492,6 +492,8 @@ describe("the curated part in accounting", () => {
 						conceptId: "decisions/caching",
 						text: "We cache.",
 						trust: "unverified",
+						sectionIndex: 0,
+						sectionCount: 1,
 						stale: false,
 						distance: 0,
 					},

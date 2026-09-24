@@ -54,7 +54,15 @@ function misses(...pairs: [number, number][]): TurnMiss[] {
 }
 
 function concept(conceptId: string, text: string, distance: number): ConceptHit {
-	return { conceptId, text, trust: "unverified", stale: false, distance };
+	return {
+		conceptId,
+		text,
+		trust: "unverified",
+		stale: false,
+		distance,
+		sectionIndex: 0,
+		sectionCount: 1,
+	};
 }
 
 const CONVERSATION = [turn("older", 1), turn("recent", 2), turn("current", 3)];
