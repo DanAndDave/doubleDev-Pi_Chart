@@ -51,7 +51,7 @@ memory:
   backend: off
 ```
 
-The extension checks this at session start and reports loudly if it is still active — and says so too when the harness does not report its backend at all, because an invariant that cannot be checked is not a confirmed one.
+The extension checks this when a Conversation starts and reports loudly if it is still active — and says so too when the harness does not report its backend at all, because an invariant that cannot be checked is not a confirmed one. What it cannot do is remove the content: every backend injects into the system prompt, which is the Floor, and the Assembler does not supply the Floor. So the state is recorded against every Call as `off`, `active` or `unconfirmed`; `pack <turn>` says whether that Call ran with a second injector, and `pack summary` names every Call of the Conversation that did (ADR-0004).
 
 Every setting below has a working default. They exist for tuning, not for setup.
 
@@ -222,7 +222,7 @@ Turn 6, call 0
 - `/pack <turn>` or `/pack <turn>.<call>` — any Call the Conversation recorded. A Turn alone is its last Call; an address that was never recorded is refused, naming what is recorded, rather than answered with a different Call
 - `/pack why <subject>`, or `/pack why <address> <subject>` — why content matching that subject was not carried: the candidates that were excluded, nearest first, each with its distance or size and the threshold or Budget that excluded it. A number is a Turn; anything else matches a Concept id or a symbol. A leading address is only an address when a subject follows it, so `/pack why 4` asks about Turn 4 and `/pack why 12 4` asks about Turn 4 as Turn 12 saw it
 - `/pack diff` — what entered and left since the Call before it; `/pack diff <a> <b>` compares two named Calls
-- `/pack summary` — the whole Conversation, with average Budget spend, how the estimate compared with the reported window sizes, and where the harness compacted
+- `/pack summary` — the whole Conversation, with average Budget spend, how the estimate compared with the reported window sizes, where the harness compacted, and which Calls ran with the harness's memory backend not off
 - `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, `recall`, `docs`, `graph`. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens`, `docs-tokens`, `graph-tokens`, and `pack` for the whole pack's ceiling
 
 Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides, and the `estimate` line puts our figure beside the harness's so the bias the Budgets are applied to is visible.

@@ -8,6 +8,7 @@ import {
 	type RecordedPart,
 	type CallAddress,
 	type Measurement,
+	type MemoryBackendState,
 	type TailSource,
 	type TurnAccounting,
 } from "./accounting.ts";
@@ -237,6 +238,19 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS compaction_epoch INTEGER`,
 		],
 	},
+	{
+		version: 16,
+		statements: [
+			// What the harness's own memory backend was doing for this Call:
+			// `off`, `active`, or `unconfirmed`. The backend injects into the
+			// Floor, which the Assembler cannot reach, so this column is the
+			// only thing that says afterwards whether a Context Window had a
+			// second injector in it. Nullable and never backfilled — a Call
+			// recorded before the state was observed is unknown, and
+			// defaulting it to `off` would certify windows nobody checked.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS memory_backend TEXT`,
+		],
+	},
 ];
 
 /**
@@ -273,6 +287,7 @@ interface AccountingRow {
 	ceiling: number | null;
 	before_ceiling: number | null;
 	compaction_epoch: number | null;
+	memory_backend: MemoryBackendState | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -699,6 +714,7 @@ export class PostgresStore implements
 		address: CallAddress,
 		pack: Pack,
 		tailSource: TailSource,
+		memoryBackend: MemoryBackendState,
 	): Promise<void> {
 		const parts = pack.parts.map(recordPart);
 
@@ -706,12 +722,13 @@ export class PostgresStore implements
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
 				 approximate_tokens, unassembled, tail_source, budgets, rejected,
-				 unsearched, ceiling, before_ceiling)
+				 unsearched, ceiling, before_ceiling, memory_backend)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
 				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
-				${pack.unsearched}, ${pack.ceiling}, ${pack.beforeCeiling}
+				${pack.unsearched}, ${pack.ceiling}, ${pack.beforeCeiling},
+				${memoryBackend}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -724,19 +741,28 @@ export class PostgresStore implements
 				rejected = EXCLUDED.rejected,
 				unsearched = EXCLUDED.unsearched,
 				ceiling = EXCLUDED.ceiling,
-				before_ceiling = EXCLUDED.before_ceiling`;
+				before_ceiling = EXCLUDED.before_ceiling,
+				memory_backend = EXCLUDED.memory_backend`;
 	}
 
 	async recordUnassembled(
 		conversationId: string,
 		address: CallAddress,
+		memoryBackend: MemoryBackendState,
 	): Promise<void> {
 		await this.sql`
 			INSERT INTO call_accounting
-				(conversation_id, turn_index, call_index, recorded_at, unassembled)
-			VALUES (${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(), TRUE)
+				(conversation_id, turn_index, call_index, recorded_at, unassembled,
+				 memory_backend)
+			VALUES (
+				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
+				TRUE, ${memoryBackend}
+			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
-			DO UPDATE SET recorded_at = EXCLUDED.recorded_at, unassembled = TRUE`;
+			DO UPDATE SET
+				recorded_at = EXCLUDED.recorded_at,
+				unassembled = TRUE,
+				memory_backend = EXCLUDED.memory_backend`;
 	}
 
 	async recordMeasurements(
@@ -772,7 +798,8 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected, unsearched, ceiling, before_ceiling, compaction_epoch
+			       rejected, unsearched, ceiling, before_ceiling, compaction_epoch,
+			       memory_backend
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -803,6 +830,7 @@ export class PostgresStore implements
 			ceiling: row.ceiling ?? undefined,
 			beforeCeiling: row.before_ceiling ?? undefined,
 			compactionEpoch: row.compaction_epoch ?? undefined,
+			memoryBackend: row.memory_backend ?? undefined,
 		}));
 
 		return groupByTurn(conversationId, calls);

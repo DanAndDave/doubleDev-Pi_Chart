@@ -67,7 +67,7 @@ describe("checking an installation", () => {
 	test("a missing embedder runtime is named, with what to do", async () => {
 		const checks = await installation({ reachable: true }).check(
 			config(),
-			true,
+			"off",
 		);
 
 		const runtime = checks.find((check) => check.name === "embedder runtime");
@@ -78,7 +78,7 @@ describe("checking an installation", () => {
 	test("a store declined on purpose is not reported as a fault", async () => {
 		const checks = await installation({ bun: "/usr/bin/bun" }).check(
 			config({ databaseUrl: "" }),
-			true,
+			"off",
 		);
 
 		const store = checks.find((check) => check.name === "thread store");
@@ -90,7 +90,7 @@ describe("checking an installation", () => {
 	test("an unreachable store is named, with the command that fixes it", async () => {
 		const checks = await installation({ bun: "/usr/bin/bun" }).check(
 			config(),
-			true,
+			"off",
 		);
 
 		const store = checks.find((check) => check.name === "thread store");
@@ -98,21 +98,36 @@ describe("checking an installation", () => {
 		expect(store?.fix).toContain("setup");
 	});
 
+	test("an active backend is a fault, with the setting that fixes it", async () => {
+		const checks = await installation({
+			bun: "/usr/bin/bun",
+			reachable: true,
+		}).check(config(), "active");
+
+		const memory = checks.find((check) => check.name === "harness memory");
+		expect(memory?.ok).toBe(false);
+		expect(memory?.detail).toContain("active");
+		expect(memory?.fix).toContain("memory: {backend: off}");
+	});
+
 	test("a harness that never reported its memory is not counted as off", async () => {
 		const checks = await installation({
 			bun: "/usr/bin/bun",
 			reachable: true,
-		}).check(config(), undefined);
+		}).check(config(), "unconfirmed");
 
 		const memory = checks.find((check) => check.name === "harness memory");
 		expect(memory?.ok).toBe(false);
 		expect(memory?.detail).toContain("cannot be confirmed");
+		// Not rounded to active either: a harness that says nothing has not
+		// said there is a second injector, only that nobody checked.
+		expect(memory?.detail).not.toContain("active");
 	});
 
 	test("structure is reported from the store that exists, not from configuration", async () => {
 		const withNoStore = await installation({ bun: "/usr/bin/bun" }).check(
 			config({ graphExtract: true }),
-			true,
+			"off",
 			false,
 		);
 
@@ -127,7 +142,7 @@ describe("checking an installation", () => {
 	test("extraction declined is not extraction broken", async () => {
 		const checks = await installation({ bun: "/usr/bin/bun" }).check(
 			config({ graphExtract: false }),
-			true,
+			"off",
 			true,
 		);
 
@@ -140,7 +155,7 @@ describe("checking an installation", () => {
 	test("a configured extraction with a store reads as on", async () => {
 		const checks = await installation({ bun: "/usr/bin/bun" }).check(
 			config({ graphExtract: true }),
-			true,
+			"off",
 			true,
 		);
 
@@ -154,7 +169,7 @@ describe("checking an installation", () => {
 			bun: "/usr/bin/bun",
 			reachable: true,
 			bundle: true,
-		}).check(config(), true);
+		}).check(config(), "off");
 
 		expect(checks.every((check) => check.ok)).toBe(true);
 		expect(checks.every((check) => check.fix === undefined)).toBe(true);
@@ -164,7 +179,7 @@ describe("checking an installation", () => {
 		const checks = await installation({
 			bun: "/usr/bin/bun",
 			reachable: true,
-		}).check(config(), true);
+		}).check(config(), "off");
 
 		// A machine with no curated knowledge yet is the ordinary case.
 		const bundle = checks.find((check) => check.name === "doc bundle");
@@ -174,7 +189,7 @@ describe("checking an installation", () => {
 
 	test("checking reads only", async () => {
 		const ran: string[][] = [];
-		await installation({ bun: "/usr/bin/bun", ran }).check(config(), true);
+		await installation({ bun: "/usr/bin/bun", ran }).check(config(), "off");
 
 		// A status check that starts containers is a trap.
 		expect(ran).toEqual([]);

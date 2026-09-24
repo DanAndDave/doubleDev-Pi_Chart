@@ -20,8 +20,8 @@ describe("accounting", () => {
 	test("reads back turns in turn order", async () => {
 		const store = new MemoryAccounting();
 
-		await store.recordPack("conv-1", at(1, 0), pack(PROMPT), "thread-store");
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(1, 0), pack(PROMPT), "thread-store", "off");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		const turns = await store.readAccounting("conv-1");
 		expect(turns.map((turn) => turn.turnIndex)).toEqual([0, 1]);
@@ -30,9 +30,9 @@ describe("accounting", () => {
 	test("groups every call of a tool-using turn under that turn", async () => {
 		const store = new MemoryAccounting();
 
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
-		await store.recordPack("conv-1", at(0, 1), pack(PROMPT), "thread-store");
-		await store.recordPack("conv-1", at(1, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
+		await store.recordPack("conv-1", at(0, 1), pack(PROMPT), "thread-store", "off");
+		await store.recordPack("conv-1", at(1, 0), pack(PROMPT), "thread-store", "off");
 
 		const turns = await store.readAccounting("conv-1");
 		expect(turns.map((turn) => turn.calls.length)).toEqual([2, 1]);
@@ -40,7 +40,7 @@ describe("accounting", () => {
 
 	test("separates the pack from the floor once the harness reports them", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		await store.recordMeasurements("conv-1", [
 			{ ...at(0, 0), snapshot: { promptTokens: 29352, nonMessageTokens: 25588 } },
@@ -64,7 +64,7 @@ describe("accounting", () => {
 
 	test("a trivially small pack still reports its floor", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 		await store.recordMeasurements("conv-1", [
 			{ ...at(0, 0), snapshot: { promptTokens: 25600, nonMessageTokens: 25588 } },
 		]);
@@ -85,6 +85,7 @@ describe("accounting", () => {
 				{ role: "user", content: "current" },
 			),
 			"thread-store",
+			"off",
 		);
 
 		const [turn] = await store.readAccounting("conv-1");
@@ -99,7 +100,7 @@ describe("accounting", () => {
 
 	test("marks locally counted attribution as approximate", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 		expect(turn?.calls[0]?.parts[0]?.approximate).toBe(true);
@@ -107,7 +108,7 @@ describe("accounting", () => {
 
 	test("records where the verbatim tail came from", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "harness-fallback");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "harness-fallback", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 		expect(turn?.calls[0]?.tailSource).toBe("harness-fallback");
@@ -115,7 +116,7 @@ describe("accounting", () => {
 
 	test("keeps a turn whose assembly failed, marked unassembled", async () => {
 		const store = new MemoryAccounting();
-		await store.recordUnassembled("conv-1", at(0, 0));
+		await store.recordUnassembled("conv-1", at(0, 0), "off");
 		await store.recordMeasurements("conv-1", [
 			{ ...at(0, 0), snapshot: { promptTokens: 30000, nonMessageTokens: 25588 } },
 		]);
@@ -138,8 +139,8 @@ describe("accounting", () => {
 
 	test("keeps conversations apart", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
-		await store.recordPack("conv-2", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
+		await store.recordPack("conv-2", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		const turns = await store.readAccounting("conv-2");
 		expect(turns).toHaveLength(1);
@@ -148,7 +149,7 @@ describe("accounting", () => {
 
 	test("an unmeasured call is readable and reports no floor", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 		expect(turn?.floorTokens).toBeUndefined();
@@ -157,7 +158,7 @@ describe("accounting", () => {
 
 	test("records the estimate beside the size the harness reported", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		await store.recordMeasurements("conv-1", [
 			{ ...at(0, 0), snapshot: { promptTokens: 29352, nonMessageTokens: 25588 } },
@@ -199,6 +200,7 @@ describe("accounting", () => {
 				budgets({ recallTurns: 2, recallTokens: 500 }),
 			),
 			"thread-store",
+			"off",
 		);
 
 		const [turn] = await store.readAccounting("conv-1");
@@ -235,6 +237,7 @@ describe("accounting", () => {
 				budgets({ tailTurns: 1, packTokens: 300 }),
 			),
 			"thread-store",
+			"off",
 		);
 
 		const [turn] = await store.readAccounting("conv-1");
@@ -250,7 +253,7 @@ describe("accounting", () => {
 
 	test("a record written before these reasons existed still reads", async () => {
 		const store = new MemoryAccounting();
-		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store");
+		await store.recordPack("conv-1", at(0, 0), pack(PROMPT), "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 		const part = turn?.calls[0]?.parts[0];

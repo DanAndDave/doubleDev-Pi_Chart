@@ -3,6 +3,7 @@ import {
 	type AccountingStore,
 	type CallAddress,
 	type Measurement,
+	type MemoryBackendState,
 	type TailSource,
 } from "./accounting.ts";
 import {
@@ -50,6 +51,7 @@ import type {
 	BranchEntry,
 	ExtensionAPI,
 	HandlerContext,
+	MemoryStatus,
 	ToolResult,
 } from "./harness.ts";
 import { LocalEmbedder } from "./embedder.ts";
@@ -143,6 +145,20 @@ function text(value: unknown): string | undefined {
 }
 
 /**
+ * The harness's answer in our vocabulary.
+ *
+ * Silence — no `memory`, no `status`, or a `status` that threw — is
+ * `unconfirmed`. An answer naming a backend other than `off`, or declaring
+ * itself active, is `active`; only an answer that says neither is `off`.
+ */
+function backendState(status: MemoryStatus | undefined): MemoryBackendState {
+	if (!status) return "unconfirmed";
+	if (status.active === true) return "active";
+	if (status.backend && status.backend !== "off") return "active";
+	return "off";
+}
+
+/**
  * Wires the Assembler into the harness.
  *
  * Everything of consequence lives behind this function: reconstruction,
@@ -150,10 +166,12 @@ function text(value: unknown): string | undefined {
  * the only code that knows the harness exists.
  */
 export function register(pi: ExtensionAPI, deps: Dependencies): void {
-	/** What the harness said about its memory backend, if it said anything. */
-	let memoryOff: boolean | undefined;
-	/** Whether it has been asked at all. Unasked is not "did not answer". */
-	let memoryAsked = false;
+	/**
+	 * What the harness's own memory backend was doing, as of this
+	 * Conversation's start. Unconfirmed until it has answered, because that
+	 * is what it is: nothing has said the invariant holds.
+	 */
+	let memoryBackend: MemoryBackendState = "unconfirmed";
 	const measuredByConversation = new Map<string, number>();
 	/** One ingest-and-embed sweep per Conversation at a time. */
 	const sweeping = new Map<string, Promise<void>>();
@@ -289,29 +307,35 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 		}
 
-		const status = await ctx.memory?.status?.();
-		// Remembered for `context-manager`, which runs long after this and
-		// has no way to ask the harness itself.
-		memoryAsked = true;
-		memoryOff = status
-			? status.active !== true && (!status.backend || status.backend === "off")
-			: undefined;
-		if (!status) {
-			// The same rule the Spec Store applies to a missing CLI: an
-			// invariant that cannot be checked is unknown, and reporting
-			// nothing would read as "verified off" (ADR-0003).
+		// Asked once, here, and remembered: the answer cannot change within a
+		// Conversation, `context-manager` runs long after this with no way to
+		// ask the harness itself, and every Call records what was observed.
+		//
+		// A `status` that throws is silence, not an answer — the same rule the
+		// Spec Store applies to a missing CLI. An invariant that cannot be
+		// checked is unknown, and treating it as off would certify a window
+		// nobody looked at (ADR-0003).
+		let status: MemoryStatus | undefined;
+		try {
+			status = await ctx.memory?.status?.();
+		} catch {
+			status = undefined;
+		}
+		memoryBackend = backendState(status);
+		if (memoryBackend === "unconfirmed") {
 			deps.report(
 				"The harness does not report its memory backend, so it cannot be " +
 					"confirmed off. Two systems injecting recall into one window " +
-					"makes a bad pack impossible to diagnose.",
+					"makes a bad pack impossible to diagnose. Every call of this " +
+					"conversation is recorded as unconfirmed, not as clean.",
 			);
-			return;
-		}
-		if (status.active === true || (status.backend && status.backend !== "off")) {
+		} else if (memoryBackend === "active") {
 			deps.report(
-				`The harness memory backend is active (${status.backend ?? "unknown"}). ` +
-					"Two systems will inject recalled content into one context window; " +
-					"set memory.backend to off.",
+				`The harness memory backend is active (${status?.backend ?? "unknown"}). ` +
+					"It injects recall into the system prompt, which the assembler " +
+					"cannot reach, so this window has two injectors in it; set " +
+					"`memory: {backend: off}` in ~/.omp/agent/config.yml. Every call " +
+					"of this conversation is recorded as active.",
 			);
 		}
 	});
@@ -382,7 +406,15 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 			inBackground(
 				"Accounting",
-				deps.accounting.recordPack(conversationId, address, pack, tailSource),
+				// The state rides the write that already happens off the
+				// request path: the model waits for none of it.
+				deps.accounting.recordPack(
+					conversationId,
+					address,
+					pack,
+					tailSource,
+					memoryBackend,
+				),
 			);
 
 			return { messages: pack.messages };
@@ -393,7 +425,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			reportSafely(`Assembly failed, turn left unassembled: ${describe(error)}`);
 			inBackground(
 				"Unassembled turn",
-				deps.accounting.recordUnassembled(conversationId, address),
+				deps.accounting.recordUnassembled(
+					conversationId,
+					address,
+					memoryBackend,
+				),
 			);
 			return undefined;
 		}
@@ -798,7 +834,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const done = await install.setup(deps.config);
 			const after = await install.check(
 				deps.config,
-				memoryState(),
+				memoryBackend,
 				deps.graph !== undefined,
 			);
 			return `${describeChecks(done)}\n\nNow:\n${describeChecks(after)}`;
@@ -808,13 +844,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		return describeChecks(
-			await install.check(deps.config, memoryState(), deps.graph !== undefined),
+			await install.check(deps.config, memoryBackend, deps.graph !== undefined),
 		);
-	}
-
-	/** What to tell the installation about the harness's memory backend. */
-	function memoryState(): boolean | undefined {
-		return memoryAsked ? memoryOff : undefined;
 	}
 
 	/**

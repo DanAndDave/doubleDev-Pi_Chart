@@ -2,6 +2,7 @@ import { mkdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import type { Config } from "./config.ts";
+import type { MemoryBackendState } from "./accounting.ts";
 import { runProcess, type RunCommand } from "./process.ts";
 
 /**
@@ -77,7 +78,7 @@ export class Installation {
 	 */
 	async check(
 		config: Config,
-		memoryOff: boolean | undefined,
+		memoryBackend: MemoryBackendState,
 		structure: boolean = true,
 	): Promise<Check[]> {
 		const checks: Check[] = [];
@@ -105,16 +106,26 @@ export class Installation {
 					: "not reachable; turns are not recorded and nothing is recalled",
 			fix: answers || declined ? undefined : "run `context-manager setup`",
 		});
+		// The same three states the report at a Conversation's start
+		// distinguishes, in the same words: a check that read "not reported"
+		// where the report read "unconfirmed" would look like two different
+		// findings with two different remedies.
 		checks.push({
 			name: "harness memory",
-			ok: memoryOff === true,
+			ok: memoryBackend === "off",
 			detail:
-				memoryOff === true
+				memoryBackend === "off"
 					? "off, as it must be"
-					: memoryOff === false
-						? "active; two systems will inject recall into one window"
-						: "not reported by this harness, so it cannot be confirmed off",
-			fix: memoryOff === true ? undefined : "set `memory: {backend: off}` in ~/.omp/agent/config.yml",
+					: memoryBackend === "active"
+						? "active; it injects recall into the system prompt, which " +
+							"the assembler cannot reach, so this window has two " +
+							"injectors in it"
+						: "not reported by this harness, so it cannot be confirmed " +
+							"off; calls are recorded as unconfirmed, not as clean",
+			fix:
+				memoryBackend === "off"
+					? undefined
+					: "set `memory: {backend: off}` in ~/.omp/agent/config.yml",
 		});
 
 		const bundle = await this.exists(config.docBundle);

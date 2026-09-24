@@ -7,12 +7,14 @@ import { join } from "node:path";
 import { DocStore } from "../src/doc-store.ts";
 import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
 import { SpecStore } from "../src/spec-store.ts";
+import { Installation } from "../src/install.ts";
 
 import {
 	MemoryAccounting,
 	type AccountingStore,
 	type CallAddress,
 	type Measurement,
+	type MemoryBackendState,
 	type TailSource,
 } from "../src/accounting.ts";
 import { assemble, type Pack } from "../src/assembler.ts";
@@ -47,6 +49,7 @@ interface Recorded extends CallAddress {
 	pack?: Pack;
 	unassembled?: boolean;
 	tailSource?: TailSource;
+	memoryBackend?: MemoryBackendState;
 }
 
 interface Harness {
@@ -106,17 +109,17 @@ function harness(overrides: Overrides = {}): Harness {
 	}
 
 	const accounting: AccountingStore = {
-		recordPack: (_conversationId, address, pack, tailSource) =>
+		recordPack: (_conversationId, address, pack, tailSource, memoryBackend) =>
 			track(
-				Promise.resolve(recorded.push({ ...address, pack, tailSource })).then(
-					() => {},
-				),
+				Promise.resolve(
+					recorded.push({ ...address, pack, tailSource, memoryBackend }),
+				).then(() => {}),
 			),
-		recordUnassembled: (_conversationId, address) =>
+		recordUnassembled: (_conversationId, address, memoryBackend) =>
 			track(
-				Promise.resolve(recorded.push({ ...address, unassembled: true })).then(
-					() => {},
-				),
+				Promise.resolve(
+					recorded.push({ ...address, unassembled: true, memoryBackend }),
+				).then(() => {}),
 			),
 		recordMeasurements: (_conversationId, measurements) =>
 			track(Promise.resolve(measured.push(...measurements)).then(() => {})),
@@ -397,27 +400,153 @@ describe("a pack approaching its ceiling", () => {
 	});
 });
 
-describe("memory backend check", () => {
-	test("reports loudly when the harness memory backend is active", async () => {
-		const cm = harness();
+describe("the harness's own memory backend", () => {
+	const prompt = { role: "user" as const, content: "what changed?" };
+	const active = { memory: { status: () => ({ backend: "mnemopi", active: true }) } };
+	const off = { memory: { status: () => ({ backend: "off", active: false }) } };
 
-		await cm.sessionStart(
+	test("an active backend is named, with the setting that turns it off", async () => {
+		const named = harness();
+		const flagless = harness();
+
+		await named.sessionStart({}, ctx([], active));
+		// A backend named without an `active` flag is still a backend: the
+		// harness's status is a shape we read, not a promise it made.
+		await flagless.sessionStart(
 			{},
-			ctx([], { memory: { status: () => ({ backend: "mnemopi", active: true }) } }),
+			ctx([], { memory: { status: () => ({ backend: "local" }) } }),
 		);
+		await flagless.context({ messages: [prompt] }, ctx());
+		await flagless.settle();
 
-		expect(cm.reported.join()).toContain("mnemopi");
+		expect(named.reported.join("\n")).toContain("mnemopi");
+		expect(named.reported.join("\n")).toContain("memory: {backend: off}");
+		expect(flagless.reported.join("\n")).toContain("local");
+		expect(flagless.recorded[0]?.memoryBackend).toBe("active");
 	});
 
-	test("stays quiet when the backend is off", async () => {
-		const cm = harness();
+	test("a harness that never answers is unconfirmed, not off", async () => {
+		const absent = harness();
+		const silent = harness();
+		const threw = harness();
 
-		await cm.sessionStart(
+		// Three ways to say nothing: no memory at all, no status call, and a
+		// status call that fails. An invariant nobody could check is not a
+		// confirmed one (ADR-0003).
+		await absent.sessionStart({}, ctx());
+		await silent.sessionStart({}, ctx([], { memory: {} }));
+		await threw.sessionStart(
 			{},
-			ctx([], { memory: { status: () => ({ backend: "off", active: false }) } }),
+			ctx([], {
+				memory: {
+					status: () => {
+						throw new Error("no backend loaded");
+					},
+				},
+			}),
 		);
 
+		for (const cm of [absent, silent, threw]) {
+			expect(cm.reported.join("\n")).toContain("cannot be confirmed off");
+			await cm.context({ messages: [prompt] }, ctx());
+			await cm.settle();
+			expect(cm.recorded[0]?.memoryBackend).toBe("unconfirmed");
+		}
+	});
+
+	test("a confirmed-off backend is silent, and recorded as off", async () => {
+		const cm = harness();
+
+		await cm.sessionStart({}, ctx([], off));
+		await cm.context({ messages: [prompt] }, ctx());
+		await cm.settle();
+
 		expect(cm.reported).toEqual([]);
+		expect(cm.recorded[0]?.memoryBackend).toBe("off");
+	});
+
+	test("the report is made once a conversation, and every call is recorded", async () => {
+		const cm = harness();
+
+		await cm.sessionStart({}, ctx([], active));
+		for (let call = 0; call < 3; call++) {
+			await cm.context({ messages: [prompt] }, ctx());
+		}
+		await cm.settle();
+
+		// One line for a condition that holds all conversation: a line per
+		// model request is a line nobody reads. What makes it durable is the
+		// record, which every Call carries.
+		expect(
+			cm.reported.filter((line) => line.includes("memory backend is active")),
+		).toHaveLength(1);
+		expect(cm.recorded.map((call) => call.memoryBackend)).toEqual([
+			"active",
+			"active",
+			"active",
+		]);
+	});
+
+	test("an active backend costs the turn nothing", async () => {
+		const exposed = harness();
+		const clean = harness();
+
+		await exposed.sessionStart({}, ctx([], active));
+		await clean.sessionStart({}, ctx([], off));
+		const withBackend = await exposed.context({ messages: [prompt] }, ctx());
+		const without = await clean.context({ messages: [prompt] }, ctx());
+		await exposed.settle();
+		await clean.settle();
+
+		// Refusing to assemble would hand the Turn back to the harness's own
+		// accumulating window, which is the thing this project replaces.
+		expect(withBackend?.messages).toEqual(without?.messages);
+		expect(withBackend?.messages).toEqual([prompt]);
+	});
+
+	test("an unassembled call still records what was in the window", async () => {
+		const cm = harness({
+			assemble: () => {
+				throw new Error("assembly failed");
+			},
+		});
+
+		await cm.sessionStart({}, ctx([], active));
+		await cm.context({ messages: [prompt] }, ctx());
+		await cm.settle();
+
+		// The Call most worth diagnosing afterwards is the one where both
+		// things went wrong at once.
+		expect(cm.recorded[0]).toMatchObject({
+			unassembled: true,
+			memoryBackend: "active",
+		});
+	});
+
+	test("the on-demand check says what the report at conversation start said", async () => {
+		const cm = harness({
+			install: new Installation({
+				// Reads only, and none of them from this machine: the
+				// question here is what the check says about the backend.
+				reachable: async () => true,
+				bun: async () => "/usr/bin/bun",
+				exists: async () => false,
+			}),
+		});
+
+		await cm.sessionStart({}, ctx([], active));
+		await cm.commands["context-manager"]?.handler("", {});
+
+		// Two surfaces, one condition, said the same way: a check reading
+		// "not reported" where the report read "active" would look like two
+		// different findings with two different remedies.
+		const shown = cm.shown.join("\n");
+		const reported = cm.reported.join("\n");
+		expect(shown).toContain("harness memory");
+		for (const shared of ["active", "two injectors", "memory: {backend: off}"]) {
+			expect(shown).toContain(shared);
+			expect(reported).toContain(shared);
+		}
 	});
 });
 
@@ -1707,29 +1836,6 @@ describe("the spec store in a session", () => {
 		expect(shown).toContain("openspec/specs is missing");
 		expect(shown).toContain("specs init");
 		expect(shown).toContain("change/half-done");
-	});
-});
-
-describe("an invariant that cannot be checked", () => {
-	test("a harness that does not report its memory backend is said so", async () => {
-		const cm = harness();
-
-		// Not the same as verified off: a silent return would read as
-		// confirmation (ADR-0003).
-		await cm.sessionStart({}, ctx([], { memory: {} }));
-
-		expect(cm.reported.join("\n")).toContain("cannot be confirmed off");
-	});
-
-	test("a harness that reports it off says nothing", async () => {
-		const cm = harness();
-
-		await cm.sessionStart(
-			{},
-			ctx([], { memory: { status: () => ({ backend: "off", active: false }) } }),
-		);
-
-		expect(cm.reported.join("\n")).not.toContain("memory backend");
 	});
 });
 

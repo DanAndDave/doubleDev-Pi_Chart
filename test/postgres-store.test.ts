@@ -73,6 +73,7 @@ describeStore("PostgresStore", () => {
 			{ turnIndex: 0, callIndex: 0 },
 			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 })),
 			"thread-store",
+			"off",
 		);
 		await store.recordMeasurements("conv-1", [
 			{
@@ -97,9 +98,9 @@ describeStore("PostgresStore", () => {
 
 	test("accounting for a tool-using turn groups its calls", async () => {
 		const pack = assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store");
-		await store.recordPack("conv-1", { turnIndex: 1, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off");
+		await store.recordPack("conv-1", { turnIndex: 1, callIndex: 0 }, pack, "thread-store", "off");
 
 		const turns = await store.readAccounting("conv-1");
 
@@ -107,7 +108,7 @@ describeStore("PostgresStore", () => {
 	});
 
 	test("a call whose assembly failed is kept, marked unassembled", async () => {
-		await store.recordUnassembled("conv-1", { turnIndex: 0, callIndex: 0 });
+		await store.recordUnassembled("conv-1", { turnIndex: 0, callIndex: 0 }, "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 
@@ -138,7 +139,7 @@ describeStore("PostgresStore", () => {
 			},
 			budgets({ tailTurns: 1, packTokens: 300 }),
 		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		// A separate connection stands in for a later process: the reasons a
 		// pack was reduced have to outlive the Call that recorded them.

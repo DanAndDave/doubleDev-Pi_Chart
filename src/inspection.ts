@@ -1,5 +1,6 @@
 import type {
 	CallAccounting,
+	MemoryBackendState,
 	RecordedPart,
 	TailSource,
 	TurnAccounting,
@@ -115,6 +116,12 @@ export interface CallView {
 	compactionEpoch?: number;
 	/** True where the harness compacted the Conversation at this Call. */
 	compacted: boolean;
+	/**
+	 * What the harness's own memory backend was doing for this Call. Absent
+	 * on Calls recorded before it was observed, which is not the same as a
+	 * Call observed to be clean.
+	 */
+	memoryBackend?: MemoryBackendState;
 	/** Whether any part of this Call names what it excluded. */
 	explained: boolean;
 }
@@ -150,6 +157,17 @@ export interface ConversationSummary {
 	averageEstimateRatio?: number;
 	/** Where the harness compacted the Conversation, in order. */
 	compactions: { turnIndex: number; callIndex: number }[];
+	/**
+	 * The Calls that ran with the harness's own memory backend active or
+	 * unconfirmed — a second injector in the Context Window the Assembler
+	 * could not reach (ADR-0004). Empty where every Call was observed off,
+	 * and where none recorded the state at all.
+	 */
+	exposed: {
+		turnIndex: number;
+		callIndex: number;
+		state: MemoryBackendState;
+	}[];
 	/** Per part: how much of its Budget it typically spent. */
 	budgetUse: {
 		source: PackSource;
@@ -195,6 +213,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		ceiling: call.ceiling,
 		beforeCeiling: call.beforeCeiling,
 		compactionEpoch: call.compactionEpoch,
+		memoryBackend: call.memoryBackend,
 		// Set by `inspectConversation`, which is the only place that can
 		// see the Call before this one: a compaction is a change of epoch,
 		// and one Call alone has nothing to have changed from.
@@ -327,6 +346,16 @@ export function summarise(
 		compactions: calls
 			.filter((call) => call.compacted)
 			.map((call) => ({ turnIndex: call.turnIndex, callIndex: call.callIndex })),
+		// Which Calls ran with a second injector in the window. Listed
+		// rather than counted: "two of nine" invites the question the
+		// addresses answer, and `pack <n>` is what reads one of them.
+		exposed: calls
+			.filter((call) => call.memoryBackend && call.memoryBackend !== "off")
+			.map((call) => ({
+				turnIndex: call.turnIndex,
+				callIndex: call.callIndex,
+				state: call.memoryBackend ?? "unconfirmed",
+			})),
 		budgetUse: budgetUse(calls),
 	};
 

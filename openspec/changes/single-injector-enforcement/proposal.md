@@ -21,7 +21,7 @@ So, of the four options originally set out:
 - **Strip memory-originated messages** in `assemble()` — **unavailable**. Evidence above. This was the recommendation; it is withdrawn.
 - **Refuse to assemble** when the backend is active — available and **rejected**: returning `undefined` hands the Turn to the harness's accumulating array (`src/extension.ts:349-359`), trading a diagnosable Context Window for the ungoverned one this project exists to replace, unrecoverably from inside a Conversation.
 - **Keep it advisory** — the current behaviour; one missable stderr line that leaves nothing behind.
-- **Rewrite the requirement to what is enforceable, and make the detection durable** — **chosen**. The invariant is named over the Context Window, the check stays at Conversation start, the report becomes unmissable, and the state is recorded per Call so a contaminated Conversation is identifiable long after the line scrolled past. The Pack-level assertion survives as its own scenario, because it is still true.
+- **Rewrite the requirement to what is enforceable, and make the detection durable** — **chosen**. The invariant is named over the Context Window, the check stays at Conversation start, the report names the backend and the setting that disables it, and the state is recorded per Call so a contaminated Conversation is identifiable long after the line scrolled past. The Pack-level assertion survives as its own scenario, because it is still true.
 
 Unknown stays its own state under all of it: a harness that does not answer is reported as unconfirmed and never rounded to off.
 

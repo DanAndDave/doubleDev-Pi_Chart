@@ -4,7 +4,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { MemoryAccounting, recordPart } from "../src/accounting.ts";
+import {
+	MemoryAccounting,
+	recordPart,
+	type MemoryBackendState,
+	type TurnAccounting,
+} from "../src/accounting.ts";
 import { assemble } from "../src/assembler.ts";
 import type { ConceptHit } from "../src/doc-index.ts";
 import {
@@ -61,7 +66,7 @@ async function viewOf(
 ): Promise<CallView> {
 	const store = new MemoryAccounting();
 	const address = { turnIndex: 0, callIndex: 0 };
-	await store.recordPack("conv-1", address, assemble(input, config), "thread-store");
+	await store.recordPack("conv-1", address, assemble(input, config), "thread-store", "off");
 	const [recordedTurn] = await store.readAccounting("conv-1");
 	const call = recordedTurn?.calls[0];
 	if (!call) throw new Error("nothing recorded");
@@ -165,7 +170,7 @@ describe("the rejected-candidate ledger", () => {
 			},
 			budgets({ tailTurns: 1, recallTurns: 1, docConcepts: 1, docTokens: 400 }),
 		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const [recordedTurn] = await store.readAccounting("conv-1");
 		const written = JSON.stringify(recordedTurn?.calls[0]?.parts);
@@ -498,6 +503,7 @@ describe("the estimate against the reported window", () => {
 			address,
 			assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 })),
 			"thread-store",
+			"off",
 		);
 		if (snapshot) {
 			await store.recordMeasurements("conv-1", [{ ...address, snapshot }]);
@@ -542,6 +548,7 @@ describe("the estimate against the reported window", () => {
 				address,
 				assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 })),
 				"thread-store",
+				"off",
 			);
 			await store.recordMeasurements("conv-1", [
 				{ ...address, snapshot: { promptTokens, nonMessageTokens: 200 } },
@@ -574,6 +581,7 @@ describe("a harness compaction", () => {
 				address,
 				assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 })),
 				"thread-store",
+				"off",
 			);
 			await store.recordMeasurements("conv-1", [
 				{
@@ -623,6 +631,68 @@ describe("a harness compaction", () => {
 		const calls = inspectConversation(await epochs(undefined, undefined));
 
 		expect(calls.some((call) => call.compacted)).toBe(false);
+	});
+});
+
+describe("a call's competing injector", () => {
+	const recorded = async (
+		...states: MemoryBackendState[]
+	): Promise<TurnAccounting[]> => {
+		const store = new MemoryAccounting();
+		for (const [callIndex, state] of states.entries()) {
+			await store.recordPack(
+				"conv-1",
+				{ turnIndex: callIndex, callIndex: 0 },
+				assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 })),
+				"thread-store",
+				state,
+			);
+		}
+		return store.readAccounting("conv-1");
+	};
+
+	const recordedWith = async (
+		...states: MemoryBackendState[]
+	): Promise<CallView[]> => inspectConversation(await recorded(...states));
+
+	test("an exposed call says so, and a clean one says nothing", async () => {
+		const [exposed, clean] = await recordedWith("active", "off");
+
+		// The report at the Conversation's start scrolls away; this is what
+		// answers "was that window contaminated" afterwards.
+		expect(renderCall(exposed ?? missing())).toContain(
+			"memory backend was active",
+		);
+		expect(renderCall(clean ?? missing())).not.toContain("memory");
+	});
+
+	test("an unconfirmed call reads as unconfirmed, not as clean", async () => {
+		const [unconfirmed] = await recordedWith("unconfirmed");
+		// A row from before the state was recorded at all, which is what the
+		// Thread Store returns for a Call written by an earlier version.
+		const unrecorded = inspectCall({ turnIndex: 1, callIndex: 0, parts: [] });
+
+		expect(renderCall(unconfirmed ?? missing())).toContain(
+			"unconfirmed rather than clean",
+		);
+		expect(unrecorded.memoryBackend).toBeUndefined();
+		expect(renderCall(unrecorded)).not.toContain("memory");
+	});
+
+	test("a conversation names the calls that ran with a second injector", async () => {
+		const mixed = summarise("conv-1", await recorded("active", "active", "off"));
+		const clean = summarise("conv-1", await recorded("off", "off"));
+
+		// Which Calls, not whether any: a backend switched off partway
+		// leaves a Conversation whose earlier windows are the suspect ones.
+		expect(mixed.exposed).toEqual([
+			{ turnIndex: 0, callIndex: 0, state: "active" },
+			{ turnIndex: 1, callIndex: 0, state: "active" },
+		]);
+		expect(renderSummary(mixed)).toContain("not off for 2 of 3 calls");
+		expect(renderSummary(mixed)).toContain("0.0 (active), 1.0 (active)");
+		expect(clean.exposed).toEqual([]);
+		expect(renderSummary(clean)).not.toContain("memory backend");
 	});
 });
 

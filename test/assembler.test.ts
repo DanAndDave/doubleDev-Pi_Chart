@@ -103,13 +103,41 @@ describe("assemble", () => {
 	test("parts account for every message in the pack, in order", () => {
 		const turns = reconstructTurns(conversation(3));
 
-		const pack = assemble({ turns: turns }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
+		// Every part populated at once, because this is the assertion the
+		// single-injector invariant rests on at the Pack level: a Pack's
+		// messages are exactly its parts' messages concatenated, so content
+		// no part contributed cannot be in it.
+		const pack = assemble(
+			{
+				turns,
+				recalled: [
+					{ turnIndex: 9, turn: { index: 9, prompt: "older", messages: [] } },
+				],
+				concepts: [
+					{
+						conceptId: "decisions/caching",
+						text: "We cache.",
+						trust: "unverified" as const,
+						stale: false,
+						distance: 0.2,
+					},
+				],
+				structure: [
+					{
+						symbol: { id: "assemble()", label: "assemble()", file: "src/a.ts", position: "L10" },
+						edges: [],
+						dropped: 0,
+					},
+				],
+			},
+			budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 2, graphSymbols: 2 }),
+		);
 		const fromParts = pack.parts.flatMap((part) => part.messages);
 
 		expect(fromParts).toEqual(pack.messages);
 		expect(
 			pack.parts.filter((part) => part.messages.length > 0).map((part) => part.source),
-		).toEqual(["verbatim-tail", "current-turn"]);
+		).toEqual(["recalled", "curated", "structure", "verbatim-tail", "current-turn"]);
 	});
 });
 

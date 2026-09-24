@@ -156,6 +156,21 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
+	// What else was filling this window. Said only when the backend was
+	// active or unconfirmed: off is the condition the whole design assumes,
+	// a Call recorded before the state existed has nothing to say, and a
+	// line per Call restating either would bury the two that matter.
+	if (view.memoryBackend === "active") {
+		lines.push(
+			"  memory        the harness memory backend was active for this call",
+		);
+	} else if (view.memoryBackend === "unconfirmed") {
+		lines.push(
+			"  memory        the harness never reported its memory backend, so " +
+				"this call is unconfirmed rather than clean",
+		);
+	}
+
 	if (view.ceiling !== undefined) {
 		lines.push(
 			`  ceiling       ~${view.beforeCeiling ?? "?"} of ${view.ceiling} tokens` +
@@ -291,6 +306,19 @@ export function renderSummary(summary: ConversationSummary): string {
 		lines.push(
 			`  the harness compacted this conversation at turn ${at.turnIndex}, ` +
 				`call ${at.callIndex}`,
+		);
+	}
+
+	// The Conversation-level answer to "which windows had two injectors in
+	// them": one line naming the Calls, since a Conversation is usually
+	// uniform and the exceptions are what a reader is looking for.
+	if (summary.exposed.length > 0) {
+		const addresses = summary.exposed
+			.map((at) => `${at.turnIndex}.${at.callIndex} (${at.state})`)
+			.join(", ");
+		lines.push(
+			`  the harness memory backend was not off for ${summary.exposed.length} ` +
+				`of ${summary.calls} calls: ${addresses}`,
 		);
 	}
 

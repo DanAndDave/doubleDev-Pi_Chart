@@ -161,6 +161,7 @@ describeStore("retention", () => {
 				approximateTokens: 42,
 			},
 			"thread-store",
+			"off",
 		);
 		await age(0, 90);
 

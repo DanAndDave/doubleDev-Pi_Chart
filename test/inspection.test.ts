@@ -55,7 +55,7 @@ async function record(options: {
 	const store = new MemoryAccounting();
 	const address = { turnIndex: 0, callIndex: options.callIndex ?? 0 };
 	const pack = assemble({ turns: options.turns, recalled: options.recalled }, budgets({ tailTurns: options.tailTurns, recallTurns: options.recallTurns, docConcepts: 0, graphSymbols: 0 }));
-	await store.recordPack("conv-1", address, pack, "thread-store");
+	await store.recordPack("conv-1", address, pack, "thread-store", "off");
 	if (options.measured) {
 		await store.recordMeasurements("conv-1", [
 			{ ...address, snapshot: options.measured },
@@ -210,7 +210,7 @@ describe("summarising a conversation", () => {
 		const pack = assemble({ turns: CONVERSATION, recalled: recalled(7) }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
 		for (const callIndex of [0, 1]) {
 			const address = { turnIndex: callIndex, callIndex: 0 };
-			await store.recordPack("conv-1", address, pack, "thread-store");
+			await store.recordPack("conv-1", address, pack, "thread-store", "off");
 			await store.recordMeasurements("conv-1", [
 				{ ...address, snapshot: { promptTokens: 30_000, nonMessageTokens: 24_000 } },
 			]);
@@ -415,7 +415,7 @@ describe("relevance against budget", () => {
 	test("a part that found little is not reported as trimmed", async () => {
 		const store = new MemoryAccounting();
 		const pack = assemble({ turns: CONVERSATION, recalled: recalled(7), rejected: 4 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const part = inspectCall(
 			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
@@ -429,7 +429,7 @@ describe("relevance against budget", () => {
 	test("a call where everything was rejected reports the part as refused", async () => {
 		const store = new MemoryAccounting();
 		const pack = assemble({ turns: CONVERSATION, recalled: [], rejected: 6 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const view = inspectCall(
 			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
@@ -447,7 +447,7 @@ describe("relevance against budget", () => {
 	test("trimming still outranks irrelevance when both happened", async () => {
 		const store = new MemoryAccounting();
 		const pack = assemble({ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const part = inspectCall(
 			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),

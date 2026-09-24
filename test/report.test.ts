@@ -146,6 +146,7 @@ describe("rendering a summary", () => {
 			{ source: "recalled", averageCarried: 2.25, averageIrrelevant: 0, budget: 3, timesTrimmed: 0 },
 		],
 		compactions: [],
+		exposed: [],
 	};
 
 	test("reports the floor's share and each budget's spend", () => {
@@ -163,6 +164,7 @@ describe("rendering a summary", () => {
 			measuredCalls: 0,
 			budgetUse: [],
 			compactions: [],
+			exposed: [],
 		});
 
 		expect(text).toBe("Nothing recorded for this conversation yet.");

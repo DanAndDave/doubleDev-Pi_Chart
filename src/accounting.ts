@@ -17,6 +17,16 @@ export interface CallAddress {
 export type TailSource = "thread-store" | "harness-fallback";
 
 /**
+ * What the harness's own memory backend was doing while a Conversation ran,
+ * in the three states it can actually be in.
+ *
+ * `unconfirmed` is not a synonym for off: a harness that does not answer has
+ * told us nothing, and rounding silence to off would make it indistinguishable
+ * from one that confirmed it (ADR-0003, ADR-0004).
+ */
+export type MemoryBackendState = "off" | "active" | "unconfirmed";
+
+/**
  * What one Call's Context Window was made of.
  *
  * `packTokens` and `floorTokens` come from the harness's own report and are
@@ -56,6 +66,13 @@ export interface CallAccounting extends CallAddress {
 	 * was read — an epoch nobody recorded is unknown, not zero.
 	 */
 	compactionEpoch?: number;
+	/**
+	 * What the harness's own memory backend was doing for this Call. The
+	 * Assembler cannot reach the Floor the backend injects into, so this is
+	 * the record that says whether anything else was filling the window.
+	 * Absent on Calls recorded before it was observed.
+	 */
+	memoryBackend?: MemoryBackendState;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -121,6 +138,11 @@ export interface Measurement extends CallAddress {
 /**
  * Records what each Context Window contained. Implemented by the Thread Store
  * in production and in memory for tests that do not need a database.
+ *
+ * `memoryBackend` is required on both writes because every Call has one: a
+ * Conversation that could not interrogate the harness is `unconfirmed`, not
+ * absent. Absence means only that a row predates the record, which is a
+ * read-side fact about old rows and never a choice a writer makes.
  */
 export interface AccountingStore {
 	recordPack(
@@ -128,10 +150,12 @@ export interface AccountingStore {
 		address: CallAddress,
 		pack: Pack,
 		tailSource: TailSource,
+		memoryBackend: MemoryBackendState,
 	): Promise<void>;
 	recordUnassembled(
 		conversationId: string,
 		address: CallAddress,
+		memoryBackend: MemoryBackendState,
 	): Promise<void>;
 	recordMeasurements(
 		conversationId: string,
@@ -250,6 +274,7 @@ export class MemoryAccounting implements AccountingStore {
 		address: CallAddress,
 		pack: Pack,
 		tailSource: TailSource,
+		memoryBackend: MemoryBackendState,
 	): Promise<void> {
 		const call = this.at(conversationId, address);
 		call.at = new Date().toISOString();
@@ -261,15 +286,18 @@ export class MemoryAccounting implements AccountingStore {
 		call.unsearched = pack.unsearched;
 		call.ceiling = pack.ceiling;
 		call.beforeCeiling = pack.beforeCeiling;
+		call.memoryBackend = memoryBackend;
 	}
 
 	async recordUnassembled(
 		conversationId: string,
 		address: CallAddress,
+		memoryBackend: MemoryBackendState,
 	): Promise<void> {
 		const call = this.at(conversationId, address);
 		call.at = new Date().toISOString();
 		call.unassembled = true;
+		call.memoryBackend = memoryBackend;
 	}
 
 	async recordMeasurements(

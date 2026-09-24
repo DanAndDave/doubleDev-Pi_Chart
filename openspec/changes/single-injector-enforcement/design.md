@@ -36,7 +36,7 @@ Two of the proposal's four options are now unavailable and one is wrong:
 - **Strip in `assemble()`** — impossible. The content is in the Floor. The evidence is above.
 - **Refuse to assemble when the backend is active** — available, and rejected. Returning `undefined` hands the Turn to the harness's own accumulating array (`src/extension.ts:349-359`), which is the unbounded Context Window this project exists to replace. Trading a diagnosable Window for an ungoverned one makes the failure worse, and it punishes the user for a setting in a file rather than fixing it. It is also unrecoverable from inside a Conversation.
 - **Keep it advisory** — the current behaviour, and insufficient on its own: one stderr line at `session_start` is missable and leaves nothing behind.
-- **Rewrite the requirement to match what is enforceable, and make the detection durable** — chosen. The spec names the Window, the check stays at `session_start`, the report becomes unmissable, and the state is recorded per Call so the Conversation's Accounting answers "was this window contaminated" long after the line scrolled away.
+- **Rewrite the requirement to match what is enforceable, and make the detection durable** — chosen. The spec names the Window, the check stays at `session_start`, the report names the backend and the setting that disables it, and the state is recorded per Call so the Conversation's Accounting answers "was this window contaminated" long after the line scrolled away.
 
 This is a deliberate spec edit, not drift: the old sentence is kept as its own scenario, because "no memory content in a Pack" remains true and worth asserting — it is simply not the whole invariant.
 
@@ -65,7 +65,7 @@ A tempting extra is to report how many tokens the backend's block costs. `floorT
 ## Risks / Trade-offs
 
 - **The spec promises less than it did** → it promises something true and checkable instead of something unfalsifiable. The Pack-level assertion survives as a scenario; the Window-level hazard becomes stated rather than implied.
-- **A user can still run two injectors** → and will now see an unmissable report and leave a per-Call record behind. Prevention was never available to the Assembler; this slice makes the failure diagnosable, which is exactly what ADR-0003 asks for.
+- **A user can still run two injectors** → and will now see a report naming the backend and the remedy, and leave a per-Call record behind — which is what survives the line scrolling away. Prevention was never available to the Assembler; this slice makes the failure diagnosable, which is exactly what ADR-0003 asks for.
 - **One more nullable column** → dropped and rebuilt with the rest of the derived store; absent on older rows, which the delta requires to keep reading.
 - **The evidence is documentation, not a live experiment** → the three quotations agree across three backends, and `/memory view`'s own description ("the current backend injection payload") corroborates them. Task 1 confirms it live against one backend before the requirement is rewritten, so the spec edit rests on a measurement rather than on a doc read.
 

@@ -177,7 +177,7 @@ describeStore("per-part detail round-trips", () => {
 					{ turnIndex: 9, turn: { index: 9, prompt: "oldest", messages: [] } },
 				],
 			}, budgets({ tailTurns: 2, recallTurns: 1, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 		const recalledPart = turn?.calls[0]?.parts.find(
@@ -217,7 +217,7 @@ describeStore("per-part detail round-trips", () => {
 			},
 			budgets({ tailTurns: 2, recallTurns: 1, recallMaxDistance: 0.52 }),
 		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
 		const recalledPart = turn?.calls[0]?.parts.find(
@@ -291,15 +291,62 @@ describeStore("per-part detail round-trips", () => {
 		expect(calls[0]?.compacted).toBe(false);
 	});
 
+	test("which calls ran with a second injector survives a round trip", async () => {
+		const pack = (prompt: string) =>
+			assemble(
+				{ turns: [{ prompt, messages: [{ role: "user", content: prompt }] }] },
+				budgets({ tailTurns: 2 }),
+			);
+		// One Conversation whose backend was fixed partway: the question the
+		// record exists to answer is which Calls were exposed, not whether
+		// any were.
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack("a"), "thread-store", "active");
+		await store.recordPack("conv-1", { turnIndex: 1, callIndex: 0 }, pack("b"), "thread-store", "unconfirmed");
+		await store.recordPack("conv-1", { turnIndex: 2, callIndex: 0 }, pack("c"), "thread-store", "off");
+
+		const calls = inspectConversation(await store.readAccounting("conv-1"));
+
+		expect(calls.map((call) => call.memoryBackend)).toEqual([
+			"active",
+			"unconfirmed",
+			"off",
+		]);
+	});
+
+	test("a call recorded before the backend was observed reads back unknown", async () => {
+		await store["sql"]`
+			INSERT INTO call_accounting
+				(conversation_id, turn_index, call_index, parts, approximate_tokens)
+			VALUES ('conv-1', 0, 0,
+				'[{"source":"verbatim-tail","approximateTokens":12}]'::jsonb, 12)`;
+
+		const calls = inspectConversation(await store.readAccounting("conv-1"));
+
+		// Absent, not off: a row written before the column existed says
+		// nothing about what was in that window.
+		expect(calls[0]?.memoryBackend).toBeUndefined();
+	});
+
+	test("an unassembled call records the state too", async () => {
+		await store.recordUnassembled("conv-1", { turnIndex: 0, callIndex: 0 }, "active");
+
+		const calls = inspectConversation(await store.readAccounting("conv-1"));
+
+		// The Call worth diagnosing afterwards is the one where assembly
+		// failed and something else was filling the window.
+		expect(calls[0]?.unassembled).toBe(true);
+		expect(calls[0]?.memoryBackend).toBe("active");
+	});
+
 	test("any recorded call of a stored conversation is addressable", async () => {
 		const pack = (prompt: string) =>
 			assemble(
 				{ turns: [{ prompt, messages: [{ role: "user", content: prompt }] }] },
 				budgets({ tailTurns: 2 }),
 			);
-		await store.recordPack("conv-1", { turnIndex: 4, callIndex: 0 }, pack("a"), "thread-store");
-		await store.recordPack("conv-1", { turnIndex: 4, callIndex: 1 }, pack("b"), "thread-store");
-		await store.recordPack("conv-1", { turnIndex: 7, callIndex: 0 }, pack("c"), "thread-store");
+		await store.recordPack("conv-1", { turnIndex: 4, callIndex: 0 }, pack("a"), "thread-store", "off");
+		await store.recordPack("conv-1", { turnIndex: 4, callIndex: 1 }, pack("b"), "thread-store", "off");
+		await store.recordPack("conv-1", { turnIndex: 7, callIndex: 0 }, pack("c"), "thread-store", "off");
 
 		const calls = inspectConversation(await store.readAccounting("conv-1"));
 
