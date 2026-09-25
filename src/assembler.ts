@@ -321,12 +321,15 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
-	// Withheld here rather than at ingest: the Journal recorded what
-	// happened, and an unanswered call is part of what happened. It is the
-	// Context Window that may not carry one — a provider refuses a call with
-	// no result outright — so the refusal belongs where messages become
-	// protocol messages, which is also where Turns from the live array pass.
-	const byCount = (
+	// The Turns the tail will reach, needed here as well because a
+	// recollection of a Turn the tail already carries is a Turn in the
+	// window twice. Withheld calls are applied here rather than at ingest:
+	// the Journal recorded what happened, and an unanswered call is part of
+	// what happened. It is the Context Window that may not carry one — a
+	// provider refuses a call with no result outright — so the refusal
+	// belongs where messages become protocol messages, which is also where
+	// Turns from the live array pass.
+	const inTail = (
 		config.tail.count > 0 ? completed.slice(-config.tail.count) : []
 	).map(paired);
 
@@ -335,21 +338,22 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// Recall comes first among the parts this Assembler composes, all of
 	// which are background for the Turns that follow them, and it is
 	// trimmed to its own Budget so it can never crowd out the tail.
-	const carried = byCount.concat(current ? [current] : []);
+	const carried = inTail.concat(current ? [current] : []);
 	const eligible = eligibleRecollections(recalled, carried);
-	const recollections = fit(
+	const selectRecall = selecting(
 		eligible,
-		config.recall.count,
-		config.recall.tokens,
 		(each, allowance) => [asRecollection(each, allowance)],
+		(each) => ({ turnIndex: each.turnIndex }),
+		(kept) => ({ turnIndices: kept.map((each) => each.turnIndex) }),
 		"shorten",
 	);
+	const recollections = selectRecall(config.recall);
 	parts.push({
 		source: "recalled",
 		messages: recollections.messages,
 		approximateTokens: recollections.tokens,
-		carried: recollections.kept.length,
-		turnIndices: recollections.kept.map((each) => each.turnIndex),
+		carried: recollections.carried,
+		turnIndices: recollections.turnIndices,
 		budget: config.recall,
 		candidates: eligible.length,
 		irrelevant: rejected,
@@ -357,7 +361,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		excluded: exclusion(rejected, recollections),
 		excludedCandidates: ledger(
 			[
-				...byBudget(recollections, (each) => ({ turnIndex: each.turnIndex })),
+				...recollections.excluded,
 				...refused(recallMisses, config.recallMaxDistance, (miss) => ({
 					turnIndex: miss.turnIndex,
 				})),
@@ -366,7 +370,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		),
 		absent: absence({
 			budget: config.recall.count,
-			carried: recollections.kept.length,
+			carried: recollections.carried,
 			candidates: eligible.length,
 			rejected,
 			unavailable: unavailable.recalled,
@@ -376,15 +380,19 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	// Curated knowledge sits with recall, ahead of the newest Turns: it is
 	// background the agent is being given, not something it just said.
-	const curated = fit(concepts, config.docs.count, config.docs.tokens, (hit) => [
-		asCuratedKnowledge(hit),
-	]);
+	const selectCurated = selecting(
+		concepts,
+		(hit) => [asCuratedKnowledge(hit)],
+		(hit) => ({ conceptId: hit.conceptId, distance: hit.distance }),
+		(kept) => ({ conceptIds: kept.map((hit) => hit.conceptId) }),
+	);
+	const curated = selectCurated(config.docs);
 	parts.push({
 		source: "curated",
 		messages: curated.messages,
 		approximateTokens: curated.tokens,
-		carried: curated.kept.length,
-		conceptIds: curated.kept.map((hit) => hit.conceptId),
+		carried: curated.carried,
+		conceptIds: curated.conceptIds,
 		budget: config.docs,
 		candidates: concepts.length,
 		irrelevant: conceptsRejected,
@@ -392,10 +400,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		excluded: exclusion(conceptsRejected, curated),
 		excludedCandidates: ledger(
 			[
-				...byBudget(curated, (hit) => ({
-					conceptId: hit.conceptId,
-					distance: hit.distance,
-				})),
+				...curated.excluded,
 				...refused(conceptMisses, config.docMaxDistance, (miss) => ({
 					conceptId: miss.conceptId,
 				})),
@@ -404,7 +409,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		),
 		absent: absence({
 			budget: config.docs.count,
-			carried: curated.kept.length,
+			carried: curated.carried,
 			candidates: concepts.length,
 			rejected: conceptsRejected,
 			unavailable: unavailable.curated,
@@ -414,31 +419,29 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	// Structure is what the Codebase is, so it comes before what was said
 	// about it — and ahead of the tail for the same reason recall is.
-	const structural = fit(
+	const selectStructure = selecting(
 		structure,
-		config.graph.count,
-		config.graph.tokens,
 		(each) => [asStructure(each)],
+		(each) => ({ symbol: qualify(each.symbol) }),
+		(kept) => ({ symbols: kept.map((each) => qualify(each.symbol)) }),
 	);
+	const structural = selectStructure(config.graph);
 	parts.push({
 		source: "structure",
 		messages: structural.messages,
 		approximateTokens: structural.tokens,
-		carried: structural.kept.length,
-		symbols: structural.kept.map((each) => qualify(each.symbol)),
+		carried: structural.carried,
+		symbols: structural.symbols,
 		budget: config.graph,
 		candidates: structure.length,
 		// Symbols are matched by name, not ranked by distance, so this part
 		// cannot refuse anything for irrelevance and says so.
 		unranked: true,
 		excluded: exclusion(0, structural),
-		excludedCandidates: ledger(
-			byBudget(structural, (each) => ({ symbol: qualify(each.symbol) })),
-			bound,
-		),
+		excludedCandidates: ledger(structural.excluded, bound),
 		absent: absence({
 			budget: config.graph.count,
-			carried: structural.kept.length,
+			carried: structural.carried,
 			candidates: structure.length,
 			rejected: 0,
 			unavailable: unavailable.structure,
@@ -452,43 +455,24 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// working session can be three times the whole tail Budget, and a
 	// drop-only rule would empty the tail exactly when working state matters
 	// most.
-	const tail = fitTail(byCount, config.tail.tokens);
+	const selectTail = tailSelector(completed);
+	const tail = selectTail(config.tail);
 	parts.push({
 		source: "verbatim-tail",
 		messages: tail.messages,
 		approximateTokens: tail.tokens,
-		carried: tail.kept.length,
-		turnIndices: tail.kept
-			.map((turn) => turn.index)
-			.filter((index) => index !== undefined),
+		carried: tail.carried,
+		turnIndices: tail.turnIndices,
 		budget: config.tail,
 		candidates: completed.length,
 		// Recency, not relevance: the tail takes the newest Turns whatever
 		// they are about.
 		unranked: true,
-		excluded: exclusion(0, {
-			...tail,
-			excludedByCount: Math.max(completed.length - byCount.length, 0),
-		}),
-		excludedCandidates: ledger(
-			[
-				...byBudget(tail, (turn) => ({ turnIndex: turn.index })),
-				// The Turns the count never reached, newest first: they are
-				// older than everything the window held, so they follow it.
-				...completed
-					.slice(0, Math.max(completed.length - byCount.length, 0))
-					.reverse()
-					.map((turn) => ({
-						turnIndex: turn.index,
-						reason: "count" as const,
-						budget: config.tail.count,
-					})),
-			],
-			bound,
-		),
+		excluded: exclusion(0, tail),
+		excludedCandidates: ledger(tail.excluded, bound),
 		absent: absence({
 			budget: config.tail.count,
-			carried: tail.kept.length,
+			carried: tail.carried,
 			candidates: completed.length,
 			rejected: 0,
 			unavailable: unavailable["verbatim-tail"],
@@ -519,50 +503,10 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// Concept is retrievable next Call, a recollection is re-retrievable
 	// within the Conversation, and the tail is irreplaceable working state.
 	reduceToCeiling(parts, config.packTokens, bound, {
-		structure: (room) => {
-			const refitted = fit(structure, config.graph.count, room, (each) => [
-				asStructure(each),
-			]);
-			return {
-				...refitted,
-				carried: refitted.kept.length,
-				symbols: refitted.kept.map((each) => qualify(each.symbol)),
-			};
-		},
-		curated: (room) => {
-			const refitted = fit(concepts, config.docs.count, room, (hit) => [
-				asCuratedKnowledge(hit),
-			]);
-			return {
-				...refitted,
-				carried: refitted.kept.length,
-				conceptIds: refitted.kept.map((hit) => hit.conceptId),
-			};
-		},
-		recalled: (room) => {
-			const refitted = fit(
-				eligible,
-				config.recall.count,
-				room,
-				(each, allowance) => [asRecollection(each, allowance)],
-				"shorten",
-			);
-			return {
-				...refitted,
-				carried: refitted.kept.length,
-				turnIndices: refitted.kept.map((each) => each.turnIndex),
-			};
-		},
-		"verbatim-tail": (room) => {
-			const refitted = fitTail(byCount, room);
-			return {
-				...refitted,
-				carried: refitted.kept.length,
-				turnIndices: refitted.kept
-					.map((turn) => turn.index)
-					.filter((index) => index !== undefined),
-			};
-		},
+		structure: { select: selectStructure, budget: config.graph },
+		curated: { select: selectCurated, budget: config.docs },
+		recalled: { select: selectRecall, budget: config.recall },
+		"verbatim-tail": { select: selectTail, budget: config.tail },
 	});
 
 	const composed = compose(parts, supplied);
@@ -717,6 +661,60 @@ interface Fitted<T> {
 }
 
 /**
+ * What a part carried under a Budget, and what each denomination cost it.
+ *
+ * The identities rather than the candidates: every consumer — the part it
+ * fills, the ledger, the ceiling's re-selection — only ever wanted to know
+ * which Turns, Concepts or symbols survived.
+ */
+interface Selected {
+	carried: number;
+	messages: HarnessMessage[];
+	tokens: number;
+	excludedByCount: number;
+	excludedBySize: number;
+	shortened: boolean;
+	/** What the Budget kept out, by identity, strongest first. */
+	excluded: ExcludedCandidate[];
+	turnIndices?: number[];
+	conceptIds?: string[];
+	symbols?: string[];
+}
+
+/**
+ * A part's selection, as a function of the Budget it runs under.
+ *
+ * One per part, called twice: once with the part's own Budget, and again
+ * with the room the ceiling leaves it. The two passes were the same rule
+ * written twice, which meant a new part had to be selected in two places
+ * that could drift apart.
+ */
+type Selector = (within: Budget) => Selected;
+
+/** A selector over candidates a renderer turns into messages. */
+function selecting<T>(
+	candidates: T[],
+	render: (candidate: T, allowance?: number) => HarnessMessage[],
+	identify: (candidate: T) => Omit<ExcludedCandidate, "reason">,
+	carried: (kept: T[]) => Pick<Selected, "turnIndices" | "conceptIds" | "symbols">,
+	whenNothingFits: "drop" | "shorten" = "drop",
+): Selector {
+	return (within) => {
+		const fitted = fit(candidates, within, render, whenNothingFits);
+		return {
+			carried: fitted.kept.length,
+			messages: fitted.messages,
+			tokens: fitted.tokens,
+			excludedByCount: fitted.excludedByCount,
+			excludedBySize: fitted.excludedBySize,
+			shortened: fitted.shortened,
+			excluded: byBudget(fitted, identify),
+			...carried(fitted.kept),
+		};
+	};
+}
+
+/**
  * Takes candidates strongest-first under both Budgets: the count first,
  * because it is the cheaper constraint to explain, then the size. Stops at
  * the first candidate that does not fit rather than skipping it, so a pack
@@ -731,13 +729,12 @@ interface Fitted<T> {
  */
 function fit<T>(
 	candidates: T[],
-	countBudget: number,
-	tokenBudget: number,
+	within: Budget,
 	render: (candidate: T, allowance?: number) => HarnessMessage[],
 	whenNothingFits: "drop" | "shorten" = "drop",
 ): Fitted<T> {
-	const budget = Math.max(tokenBudget, 0);
-	const allowed = candidates.slice(0, Math.max(countBudget, 0));
+	const budget = Math.max(within.tokens, 0);
+	const allowed = candidates.slice(0, Math.max(within.count, 0));
 	const kept: T[] = [];
 	const messages: HarnessMessage[] = [];
 	let tokens = 0;
@@ -783,14 +780,7 @@ function fit<T>(
 				excludedByCount: Math.max(candidates.length - allowed.length, 0),
 				excludedBySize: Math.max(excludedBySize - 1, 0),
 				shortened: true,
-				excluded: excludedOf(
-					candidates,
-					allowed,
-					kept.length + 1,
-					render,
-					countBudget,
-					budget,
-				),
+				excluded: excludedOf(candidates, allowed, kept.length + 1, render, within),
 			};
 		}
 	}
@@ -802,14 +792,7 @@ function fit<T>(
 		excludedByCount: Math.max(candidates.length - allowed.length, 0),
 		excludedBySize,
 		shortened: false,
-		excluded: excludedOf(
-			candidates,
-			allowed,
-			kept.length,
-			render,
-			countBudget,
-			budget,
-		),
+		excluded: excludedOf(candidates, allowed, kept.length, render, within),
 	};
 }
 
@@ -827,8 +810,7 @@ function excludedOf<T>(
 	allowed: T[],
 	keptCount: number,
 	render: (candidate: T, allowance?: number) => HarnessMessage[],
-	countBudget: number,
-	tokenBudget: number,
+	within: Budget,
 ): Excluded<T>[] {
 	const excluded: Excluded<T>[] = [];
 	for (let index = keptCount; index < allowed.length; index++) {
@@ -838,23 +820,67 @@ function excludedOf<T>(
 			candidate,
 			reason: "size",
 			tokens: approximateTokens(render(candidate)),
-			budget: tokenBudget,
+			budget: Math.max(within.tokens, 0),
 		});
 	}
 	for (let index = allowed.length; index < candidates.length; index++) {
 		const candidate = candidates[index];
 		if (candidate === undefined) continue;
-		excluded.push({ candidate, reason: "count", budget: countBudget });
+		excluded.push({ candidate, reason: "count", budget: within.count });
 	}
 	return excluded;
 }
 
 /**
- * The verbatim tail, newest Turn first and kept in order. Unlike every other
- * part the tail may not come back empty: its newest Turn is retained with its
- * tool results shortened when it cannot fit whole, because that Turn is what
- * the current one is reasoning about.
+ * The verbatim tail's selector, over the Turns already answered.
+ *
+ * Both Budgets arrive the same way every other part's do, so the count is
+ * applied here rather than by the caller: the tail is the part whose count
+ * exclusions used to be computed outside it and patched in afterwards,
+ * which made `Fitted` mean two things depending on who filled it.
+ *
+ * Newest Turn first and kept in order. Unlike every other part the tail may
+ * not come back empty: its newest Turn is retained with its tool results
+ * shortened when it cannot fit whole, because that Turn is what the current
+ * one is reasoning about.
  */
+function tailSelector(completed: Turn[]): Selector {
+	return (within) => {
+		const byCount = (
+			within.count > 0 ? completed.slice(-within.count) : []
+		).map(paired);
+		const byCountExcluded = Math.max(completed.length - byCount.length, 0);
+		// The Turns the count never reached, newest first: they are older
+		// than everything the window held, so they follow what the size
+		// Budget kept out.
+		const beyondCount: ExcludedCandidate[] = completed
+			.slice(0, byCountExcluded)
+			.reverse()
+			.map((turn) => ({
+				turnIndex: turn.index,
+				reason: "count" as const,
+				budget: within.count,
+			}));
+		const fitted = fitTail(byCount, within.tokens);
+		return {
+			carried: fitted.kept.length,
+			messages: fitted.messages,
+			tokens: fitted.tokens,
+			excludedByCount: byCountExcluded,
+			excludedBySize: fitted.excludedBySize,
+			shortened: fitted.shortened,
+			excluded: [
+				...byBudget(fitted, (turn) => ({ turnIndex: turn.index })),
+				...beyondCount,
+			],
+			turnIndices: fitted.kept
+				.map((turn) => turn.index)
+				.filter((index) => index !== undefined),
+		};
+	};
+}
+
+/** The size Budget's half of the tail: how far back it reaches. */
 function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 	const budget = Math.max(tokenBudget, 0);
 	const kept: Turn[] = [];
@@ -1567,20 +1593,11 @@ const REDUCTION_ORDER: PackSource[] = [
 	"verbatim-tail",
 ];
 
-/**
- * Re-selects a part's content under the room the ceiling leaves it, reporting
- * the identities it kept so the accounting stays truthful about what a
- * reduced part carried.
- */
-type Refit = (room: number) => {
-	carried: number;
-	messages: HarnessMessage[];
-	tokens: number;
-	shortened: boolean;
-	turnIndices?: number[];
-	conceptIds?: string[];
-	symbols?: string[];
-};
+/** A part's selector and the Budget it ran under, for the ceiling to reuse. */
+interface Reducible {
+	select: Selector;
+	budget: Budget;
+}
 
 /**
  * Brings a pack within its ceiling, in place.
@@ -1595,7 +1612,7 @@ function reduceToCeiling(
 	parts: PackPart[],
 	ceiling: number,
 	bound: number,
-	refit: Partial<Record<PackSource, Refit>>,
+	reducible: Partial<Record<PackSource, Reducible>>,
 ): void {
 	const ceilingTokens = Math.max(ceiling, 0);
 	if (totalOf(parts) <= ceilingTokens) return;
@@ -1616,8 +1633,10 @@ function reduceToCeiling(
 			symbols: part.symbols ?? [],
 		};
 		const room = Math.max(ceilingTokens - (totalOf(parts) - sizeBefore), 0);
-		const reselect = refit[source];
-		const result = reselect?.(room);
+		// The part's own count still applies: the ceiling takes size, and a
+		// part reduced by it is the same selection under less room.
+		const reduce = reducible[source];
+		const result = reduce?.select({ count: reduce.budget.count, tokens: room });
 		const usable = result !== undefined && result.tokens <= room;
 
 		part.withoutCeiling = sizeBefore;
