@@ -112,8 +112,8 @@ export interface RecordedPart {
 	/**
 	 * The Budget that bounded it, where one did. Rows written before a
 	 * Budget was one value carry the pair `budget`/`tokenBudget` instead,
-	 * which the inspector still reads: a recorded Call is history, and
-	 * history is not migrated.
+	 * which the inspector still reads: a recorded Call is what was sent,
+	 * and nothing migrates it.
 	 */
 	budget?: Budget | number;
 	/** The token half, on rows written before the pair became one value. */

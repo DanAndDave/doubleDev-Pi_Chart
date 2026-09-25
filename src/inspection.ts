@@ -28,9 +28,10 @@ export interface PartView {
 	symbols: string[];
 	/**
 	 * The Budget in force, whose size half a part's irreducible content may
-	 * exceed.
+	 * exceed. The size is absent on a Call recorded before one was kept, so
+	 * a Budget nobody wrote is never reported as a Budget of zero.
 	 */
-	budget?: Budget;
+	budget?: { count: number; tokens?: number };
 	candidates?: number;
 	/** True when the Budget, not the supply, decided what it carried. */
 	trimmed: boolean;
@@ -453,13 +454,17 @@ function budgetUse(calls: CallView[]): ConversationSummary["budgetUse"] {
  * The Budget a recorded part carried, in whichever shape it was written.
  *
  * A Call recorded before a Budget was one value carries the count and the
- * size as two fields. Those rows are history — nothing migrates them — so
- * the reader takes both and reports the same thing either way.
+ * size as two fields, and an older one carries the count alone. Nothing
+ * migrates them, so the reader takes every shape and reports what was
+ * recorded — never a size nobody wrote.
  */
-function budgetOf(part: RecordedPart): Budget | undefined {
+function budgetOf(part: RecordedPart): { count: number; tokens?: number } | undefined {
 	if (typeof part.budget === "object") return part.budget;
 	if (part.budget === undefined && part.tokenBudget === undefined) return undefined;
-	return { count: part.budget ?? 0, tokens: part.tokenBudget ?? 0 };
+	// A count with no size beside it is a Call from before sizes were kept.
+	// Reporting its size as zero would make every such part read as one
+	// that overran a Budget nobody set.
+	return { count: part.budget ?? 0, tokens: part.tokenBudget };
 }
 
 function mean(values: number[]): number {

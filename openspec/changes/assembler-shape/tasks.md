@@ -4,9 +4,14 @@
 
   `scripts/assembler-baseline.ts`, over the 310 Journals on this machine,
   at four configurations — the shipped defaults, a tight ceiling, a tight
-  tail, and one small enough that everything binds — so a single run
-  exercises the paths a refactor can break. 2,656 Packs, each serialised
-  with its parts, its messages and every Call-level figure.
+  tail, and one small enough that everything binds. 2,656 Packs, each
+  serialised with its parts, its messages and every Call-level figure.
+
+  What it covers is the verbatim tail, the current Turn, Elision and the
+  ceiling's reduction of them: it runs with no Store and no embedder, so
+  recall, curated knowledge and structure have no candidates in it. Those
+  three are carried by `test/assembler.test.ts`, which exercises each
+  under its own Budget and under the ceiling.
 
 - [x] 1.2 Verify the baseline reproduces: assemble twice with no code changed and confirm the two sets are byte-identical, so a later diff means the refactor and not the harness
 
@@ -80,7 +85,11 @@
 
 - [x] 3.6 Verify the baseline is unchanged
 
-  Byte-identical across all 2,656.
+  Byte-identical across all 2,656. What that covers is the tail and the
+  ceiling's reduction of it: the instrument runs with no Store and no
+  embedder, so recall, curated knowledge and structure have no candidates
+  in it. `selecting()` over candidates is carried by `test/assembler.test.ts`,
+  which exercises all three parts and the ceiling's re-selection of them.
 
 ## 4. Elision in its own module
 
@@ -134,12 +143,41 @@
   It says "content" where it said "result". Bundled with 4.6, one move of
   the string rather than two.
 
-  Measured across the same 2,656 Packs: **2,369 unchanged, 287 changed**,
-  and **0** changed what they selected — every difference is the marker's
-  wording and the head and tail either side of it. The median changed Pack
-  moved by **11** estimated tokens (−409 to +570), and the number of Packs
+  Measured across the same 2,656 Packs, at HEAD: **2,369 unchanged, 287
+  changed**, and **0** changed what they selected. The number of Packs
   whose irreducible content exceeds the ceiling is **311** before and
   after.
+
+  Three things differ inside those 287, and the third was not asked for:
+
+  - the marker's wording;
+  - the head and the tail either side of it, because `shortenText` retries
+    in the room it may spend rather than in the half it keeps. It is a
+    search step, not a contract — every candidate is still checked against
+    the allowance — but it moves a head and a tail by up to a whole
+    iteration, which is most of what the 287 are;
+  - **315 markers that reported a negative count are gone.** A message
+    whose head and tail covered its text reported `elided ~-N tokens`,
+    which is the same defect 4.8 fixes, seen from the marker's side.
+
+  The token delta over the 287 runs −9,548 to +1,418 with a median of 0;
+  the large negatives are the Packs 4.8 stopped duplicating.
+
+- [x] 4.8 Not asked for, and taken anyway: a message shortened for its metadata alone carried its text twice
+
+  Where a tool result's text already fits and only its `details` have to
+  go, the head and the tail cover the whole text between them, and
+  emitting both carried the middle twice — a shortened message longer than
+  the one it replaced. **141** of the 2,656 Packs held one, the worst
+  carrying **10,260** characters of content where **5,165** was the whole
+  of it.
+
+  The old code had the same exposure; folding the arithmetic into `elide`
+  is what made it visible, and leaving it there while touching every line
+  around it was not defensible. `elide` now returns the text with a marker
+  of its own — nothing from the middle went, so the elision marker would
+  have claimed something untrue — and "a message shortened for its
+  metadata alone keeps its text once" fails without the guard.
 
 ## 5. Verification
 
@@ -162,7 +200,7 @@
 
 - [x] 5.3 Run the default, store-backed and live suites and the type checker, and confirm `openspec validate assembler-shape` passes
 
-  `bunx tsc --noEmit` clean; 546 default tests pass; 684 with
+  `bunx tsc --noEmit` clean; 547 default tests pass; 685 with
   `CM_DATABASE_URL` set; `openspec validate --all --strict` passes. Live: a
   governed Conversation with `CM_TAIL_TOKENS=1200` carried a shortened tail
   (`verbatim-tail ~1135 tokens (1 of 8, content shortened)`) beside two
@@ -170,8 +208,8 @@
 
 - [x] 5.4 Confirm `src/assembler.ts` is shorter by roughly the elision family and that its remaining contents are selection and ceiling reduction only
 
-  1,698 lines to 1,454. What left: the elision family to `src/elision.ts`
-  (311 lines, up from 44) and the token estimate to `src/tokens.ts` (43),
+  1,698 lines to 1,459. What left: the elision family to `src/elision.ts`
+  (327 lines, up from 44) and the token estimate to `src/tokens.ts` (43),
   which both modules need and which was the alternative to an import
   cycle. What remains is selection, the parts it fills, composition and
   ceiling reduction.

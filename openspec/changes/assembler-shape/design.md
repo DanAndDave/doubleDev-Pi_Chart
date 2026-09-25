@@ -15,7 +15,7 @@ See `proposal.md` for what the code review found and why none of it is a defect.
 
 **Non-Goals:**
 
-- Any behaviour change, including a better one. A finding that cannot be taken without changing a Pack is dropped, not negotiated.
+- Any behaviour change, except the three the marker forced and this design records below. A finding that cannot be taken without changing a Pack is dropped, not negotiated — and each of the three is measured against every Pack this machine can produce.
 - Touching what is selected, shortened, ranked, or reported.
 - Renaming settings or Accounting fields. `CM_TAIL_TOKENS`, `tokenBudget`, `withoutCeiling` and the rest are a published surface; this is internal shape only.
 
@@ -54,6 +54,14 @@ Named for the concept `CONTEXT.md` defines rather than for the mechanic, which a
 
 The alternative, leaving it in place behind a comment, loses because the module boundary is what stops the next payload rule being written inside the Ceiling reducer.
 
+### Three changes a Pack can see, and why each was taken here
+
+Tasks 4.5–4.7 ask for the marker's arithmetic to be folded into `elide` and for what the marker claims to be corrected. Both change bytes a Pack carries, so "byte-identical" holds through tasks 2, 3 and 4.1–4.4 and is replaced by a measured bound after that. Three differences, over 2,656 Packs:
+
+- **The marker says "content" where it said "result".** Both a tool result and the arguments of a call route through it, so a `write` whose file went read as a result that had. 287 Packs differ; **none** differs in what it selected.
+- **The retry loop shrinks the room, not the halves.** `shortenText` retries until the shortened message actually fits, and the step it retries by is now 10% of the room rather than 10% of a half. It is a search step, not a contract: every candidate is still checked against the allowance, and what changes is which iteration lands first. Measured within the 287 above.
+- **A message shortened for its metadata alone keeps its text once.** Where the halves cover the whole text, emitting both carried the middle twice — a shortened message longer than the one it replaced, on 141 Packs. Left in place it would have been a defect this change walked past, so it is fixed and marked with its own wording, which names what went and says the content is whole.
+
 ### `renderCall`'s reason table moves with nothing else
 
 `src/report.ts`'s `REASONS` table already landed during the review fixes and is the shape the finding asked for. It stays; this change does not touch `report.ts` except where a field rename forces it.
@@ -82,7 +90,7 @@ The alternative, leaving it in place behind a comment, loses because the module 
 | Accounting reads both shapes | Store boundary (`CM_DATABASE_URL`): write a row in the old shape by hand, read it through `readAccounting`, assert the view. |
 | The inspector renders unchanged | The existing `report.test.ts`, unchanged. |
 
-The existing suite is the seam: a refactor that needs new behavioural tests is not a refactor. The only new test is the old-shape Accounting row, because that is the one genuinely new behaviour — tolerating a shape the code no longer writes.
+The existing suite is the seam: a refactor that needs new behavioural tests is not a refactor. Three tests are new, and each is one of the three cases where this is not purely a refactor: an Accounting row in the old pair shape, one in the older count-only shape — whose size must stay absent rather than be read as a Budget of zero — and the message shortened for its metadata alone.
 
 ## Open Questions
 

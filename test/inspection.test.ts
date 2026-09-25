@@ -169,6 +169,31 @@ describe("budget spend", () => {
 		expect(part?.dropped).toBe(3);
 	});
 
+	test("a call recorded before sizes were kept has no size budget invented", () => {
+		const view = inspectCall({
+			turnIndex: 0,
+			callIndex: 0,
+			parts: [
+				{
+					source: "recalled",
+					approximateTokens: 900,
+					approximate: true,
+					carried: 2,
+					// Older still: a count, and no size at all.
+					budget: 4,
+					candidates: 5,
+				},
+			],
+		});
+		const part = view.parts.find((each) => each.source === "recalled");
+
+		// Zero would read as a Budget the part overran, and `/pack` would
+		// call every such part irreducible.
+		expect(part?.budget).toEqual({ count: 4, tokens: undefined });
+		expect(renderCall(view)).not.toContain("irreducible");
+		expect(renderCall(view)).toContain("2 of 4");
+	});
+
 	test("a part under its budget is not reported as trimmed", async () => {
 		const turns = await record({
 			turns: CONVERSATION,

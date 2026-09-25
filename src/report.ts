@@ -84,7 +84,8 @@ const REASONS: ((part: PartView) => string | undefined)[] = [
 	// left to look like a fit: a Turn of many messages, each already as short
 	// as is worth carrying, has a floor no Budget can argue with.
 	(part) =>
-		part.budget !== undefined && part.approximateTokens > part.budget.tokens
+		part.budget?.tokens !== undefined &&
+		part.approximateTokens > part.budget.tokens
 			? `over its ${part.budget.tokens}-token budget, irreducible`
 			: undefined,
 ];

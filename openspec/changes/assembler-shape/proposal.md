@@ -16,7 +16,7 @@ None is a defect. Every one is a shape that will cost the next person more than 
 - **`fitTail` owning both of its Budgets.** `fit()` computes `excludedByCount` itself while `fitTail` hardcodes it to zero and `assemble()` patches it from outside — and the Ceiling's refit closure does not patch it at all, so `Fitted<T>` means two different things depending on which producer filled it.
 - **`Refit` and `Fitted<T>` reconciled.** `Refit` returns `Fitted<T>` minus `kept` plus four `PackPart` fields, so every refit closure spreads one shape into the other and discards `kept`. One shape, or an explicit `Partial<PackPart>`, leaves one thing to reason about.
 
-**Not in scope:** any behaviour change. Every Pack this produces must be byte-identical to the Pack `token-budgets` produces, and the suite is the evidence. No new settings, no spec deltas, no changes to what is selected, shortened, or reported.
+**Not in scope:** any change to what a Pack *selects*. Every Pack this produces must be byte-identical to the Pack `token-budgets` produces, and a baseline over every Journal on the machine is the evidence — except where reconciling the two elision families changes the marker itself, which `design.md` records and bounds. No new settings and no spec deltas.
 
 ## Capabilities
 

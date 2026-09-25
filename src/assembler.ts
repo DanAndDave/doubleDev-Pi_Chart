@@ -685,9 +685,8 @@ interface Selected {
  * A part's selection, as a function of the Budget it runs under.
  *
  * One per part, called twice: once with the part's own Budget, and again
- * with the room the ceiling leaves it. The two passes were the same rule
- * written twice, which meant a new part had to be selected in two places
- * that could drift apart.
+ * with the room the ceiling leaves it. One rule for both, so a part cannot
+ * be selected one way under its own Budget and another under the ceiling.
  */
 type Selector = (within: Budget) => Selected;
 
@@ -834,10 +833,9 @@ function excludedOf<T>(
 /**
  * The verbatim tail's selector, over the Turns already answered.
  *
- * Both Budgets arrive the same way every other part's do, so the count is
- * applied here rather than by the caller: the tail is the part whose count
- * exclusions used to be computed outside it and patched in afterwards,
- * which made `Fitted` mean two things depending on who filled it.
+ * Both Budgets arrive the same way every other part's do, and the count is
+ * applied here rather than by the caller, so `Selected.excludedByCount`
+ * means the same thing for the tail as for every other part.
  *
  * Newest Turn first and kept in order. Unlike every other part the tail may
  * not come back empty: its newest Turn is retained with its tool results
@@ -880,8 +878,16 @@ function tailSelector(completed: Turn[]): Selector {
 	};
 }
 
-/** The size Budget's half of the tail: how far back it reaches. */
-function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
+/**
+ * The size Budget's half of the tail: how far back it reaches.
+ *
+ * The count is not its business — `tailSelector` applies it before this
+ * runs — so it does not report a count exclusion it did not make.
+ */
+function fitTail(
+	byCount: Turn[],
+	tokenBudget: number,
+): Omit<Fitted<Turn>, "excludedByCount"> {
 	const budget = Math.max(tokenBudget, 0);
 	const kept: Turn[] = [];
 	let tokens = 0;
@@ -916,7 +922,6 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 				kept: [],
 				messages: [],
 				tokens: 0,
-				excludedByCount: 0,
 				excludedBySize: byCount.length,
 				shortened: false,
 				excluded: excluded(byCount.length),
@@ -927,7 +932,6 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 			kept: [newest],
 			messages: shortened.messages,
 			tokens: shortened.tokens,
-			excludedByCount: 0,
 			excludedBySize: byCount.length - 1,
 			shortened: shortened.shortened,
 			excluded: excluded(byCount.length - 1),
@@ -938,7 +942,6 @@ function fitTail(byCount: Turn[], tokenBudget: number): Fitted<Turn> {
 		kept,
 		messages: kept.flatMap((turn) => turn.messages),
 		tokens,
-		excludedByCount: 0,
 		excludedBySize: byCount.length - kept.length,
 		shortened: false,
 		excluded: excluded(byCount.length - kept.length),
@@ -1011,7 +1014,7 @@ function ledger(candidates: ExcludedCandidate[], bound: number): ExcludedCandida
 
 /** The candidates a part's own Budgets excluded, named. */
 function byBudget<T>(
-	fitted: Fitted<T>,
+	fitted: Pick<Fitted<T>, "excluded">,
 	identify: (candidate: T) => Omit<ExcludedCandidate, "reason">,
 ): ExcludedCandidate[] {
 	return fitted.excluded.map((each) => ({

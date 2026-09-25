@@ -41,6 +41,15 @@ const ELISION = (tokens: number, alsoDropped: number) =>
 const ELIDED_WHOLE = (tokens: number) =>
 	`… [context-manager elided ~${tokens} tokens here]`;
 
+/**
+ * The marker for content carried whole that lost only what travelled
+ * beside it: a tool result whose text fitted and whose `details` did not.
+ * Says so rather than reusing the elision marker, which would claim a
+ * middle went that is still there.
+ */
+const METADATA_ONLY = (tokens: number) =>
+	`\n… [context-manager dropped ~${tokens} tokens of tool metadata; this content is whole]\n`;
+
 /** What else went with the text, beside the characters it may spend. */
 interface Elision {
 	/**
@@ -61,9 +70,9 @@ interface Elision {
  * Head, marker, tail — a payload elided to the characters it may spend,
  * or nothing when it cannot be spent on a head and a tail worth reading.
  *
- * The arithmetic lives here rather than at each caller: every one of them
- * sized its halves by asking the marker how long it was, and three then
- * derived the same estimate of what the middle had cost.
+ * The arithmetic lives here because it is the marker's: how much room a
+ * head and a tail have left depends on how long the marker is, and what
+ * the middle cost is what the marker reports.
  */
 export function elide(
 	text: string,
@@ -73,18 +82,18 @@ export function elide(
 	const half = Math.floor((characters - ELISION(0, alsoDropped).length) / 2);
 	if (half < floor) return undefined;
 	// A head and a tail that between them cover the text would carry its
-	// middle twice, which is how a message shortened for its metadata alone
-	// used to come back longer than it went in. Nothing of the text goes;
-	// the marker still says what went beside it.
+	// middle twice, and a shortened message longer than the one it replaced
+	// is not a shortened message. Nothing of the text goes, so the marker
+	// names only what went beside it.
 	if (half * 2 >= text.length) {
-		return alsoDropped > 0 ? `${text}${ELISION(alsoDropped, alsoDropped)}` : text;
+		return alsoDropped > 0 ? `${text}${METADATA_ONLY(alsoDropped)}` : text;
 	}
 	const removed = Math.ceil((text.length - half * 2) / 4) + alsoDropped;
 	return `${text.slice(0, half)}${ELISION(removed, alsoDropped)}${text.slice(-half)}`;
 }
 
 /** The marker for a payload elided whole, in tokens. */
-export function elidedWhole(text: string): string {
+function elidedWhole(text: string): string {
 	return ELIDED_WHOLE(Math.ceil(text.length / 4));
 }
 
@@ -242,8 +251,13 @@ function shortenPayloads(
 		// Never below a readable head and tail, even where the share is
 		// smaller than that: the alternative is carrying the payload whole.
 		const room = Math.max(each * 4, atLeast());
+		// A payload no longer than the room would come back longer for
+		// having been elided, marker and all.
+		if (passed.length <= room) return block;
+		// Never undefined: `room` is at least what a marker and two
+		// floor-sized halves take, which is the floor asked for below.
 		const elided = elide(passed, room, { floor: SHORTEST_HALF_CHARACTERS });
-		if (elided === undefined || passed.length <= room) return block;
+		if (elided === undefined) return block;
 		shortened = true;
 		return { ...call, arguments: elided };
 	});
