@@ -9,19 +9,39 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 ## Requirements
 
 - [omp](https://github.com/can1357/oh-my-pi) — the harness this loads into
-- Bun (pinned in `mise.toml`; `mise install` provides it)
+- Bun 1.4.2 (pinned in `mise.toml`). Get it with `mise`, or install Bun natively per OS — see [Install](#install).
 - Nothing more for the Thread Store: it is embedded (PGlite — Postgres compiled to WASM, with an official pgvector build), runs in this process, and persists to `~/.pi-chart/store`. A fresh machine needs only Bun. To run against a real Postgres server instead — for a heavier corpus — set `PICHART_DATABASE_URL` to any pgvector-capable one (a system package, [Postgres.app](https://postgresapp.com), or a hosted [Neon](https://neon.tech)/[Supabase](https://supabase.com)); `compose.yaml` serves one for `docker compose up`. Declining the store with `PICHART_DATABASE_URL=""` keeps Accounting for the Conversation in progress, so `/pack` still answers; a configured server that is unreachable keeps none, and `/pack` answers only once it is back.
 
 ## Install
 
+Clone the repository:
+
 ```sh
 git clone <repo> pi-chart && cd pi-chart
+```
+
+**Get Bun 1.4.2.** With [`mise`](https://mise.jdx.dev) — on macOS, Linux, or Windows — it comes straight from `mise.toml`:
+
+```sh
 mise trust && mise install
+```
+
+`mise trust` is required before the pinned Bun resolves in a fresh clone. Without `mise`, install Bun natively for your OS:
+
+- **macOS** — `brew install oven-sh/bun/bun`, or `curl -fsSL https://bun.sh/install | bash`
+- **Ubuntu / Debian** — `sudo apt install unzip` (the installer needs it), then `curl -fsSL https://bun.sh/install | bash`
+- **Windows** — `powershell -c "irm bun.sh/install.ps1 | iex"`, or `scoop install bun`
+
+A native install pulls the latest Bun rather than the pinned 1.4.2, which is fine day to day; to match the pin exactly, run `curl -fsSL https://bun.sh/install | bash -s bun-v1.4.2` (or use the `mise` path above).
+
+**Then, on any OS,** install dependencies and link the extension:
+
+```sh
 bun install
 omp install .
 ```
 
-`mise trust` is required before the pinned Bun resolves in a fresh clone. `omp install .` links the extension for every session on the machine — there is no symlink to place and no path to configure.
+`omp install .` links the extension for every session on the machine — there is no symlink to place and no path to configure.
 
 ### Coming from `context-manager`
 
