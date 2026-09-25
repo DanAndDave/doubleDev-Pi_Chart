@@ -30,8 +30,8 @@ export async function fixture(name: string): Promise<HarnessMessage[]> {
  * Tests that are about counts should not have to state five token numbers to
  * say so; tests that are about sizes state the ones they mean.
  */
-export function budgets(counts: Partial<AssemblerConfig>): AssemblerConfig {
-	return {
+export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
+	const flat: FlatBudgets = {
 		tailTurns: 0,
 		recallTurns: 0,
 		docConcepts: 0,
@@ -48,6 +48,36 @@ export function budgets(counts: Partial<AssemblerConfig>): AssemblerConfig {
 		explainCandidates: DEFAULT_EXPLAIN_CANDIDATES,
 		...counts,
 	};
+	return {
+		tail: { count: flat.tailTurns, tokens: flat.tailTokens },
+		recall: { count: flat.recallTurns, tokens: flat.recallTokens },
+		docs: { count: flat.docConcepts, tokens: flat.docTokens },
+		graph: { count: flat.graphSymbols, tokens: flat.graphTokens },
+		packTokens: flat.packTokens,
+		recallMaxDistance: flat.recallMaxDistance,
+		docMaxDistance: flat.docMaxDistance,
+		explainCandidates: flat.explainCandidates,
+	};
+}
+
+/**
+ * The names the settings use, which is what a test says what it means in:
+ * `CM_TAIL_TURNS` and `CM_TAIL_TOKENS` are two variables, so a test
+ * bounding one of them should not have to write a Budget literal.
+ */
+interface FlatBudgets {
+	tailTurns: number;
+	recallTurns: number;
+	docConcepts: number;
+	graphSymbols: number;
+	tailTokens: number;
+	recallTokens: number;
+	docTokens: number;
+	graphTokens: number;
+	packTokens: number;
+	recallMaxDistance: number;
+	docMaxDistance: number;
+	explainCandidates: number;
 }
 
 /** Larger than any pack a test builds, so a size Budget never binds by accident. */

@@ -1030,7 +1030,7 @@ describe("a budget below what must be carried", () => {
 
 		expect(tail?.carried).toBe(1);
 		expect(tail?.shortened).toBe(true);
-		expect(tail?.tokenBudget).toBe(500);
+		expect(tail?.budget?.tokens).toBe(500);
 		// Carried, and honest about it: the Budget is reported beside a spend
 		// that exceeds it rather than the part reading as though it fitted.
 		expect(tail?.approximateTokens).toBeGreaterThan(500);

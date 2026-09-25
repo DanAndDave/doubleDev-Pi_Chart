@@ -1,3 +1,5 @@
+import type { AssemblerConfig } from "./assembler.ts";
+
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -93,6 +95,27 @@ export interface Config {
 	 * their policy, not this project's default.
 	 */
 	retainDays?: number;
+}
+
+/**
+ * The settings as the Assembler wants them: one Budget per part, rather
+ * than the pairs the environment names.
+ *
+ * The environment keeps the pairs because that is what it is — `CM_TAIL_TURNS`
+ * and `CM_TAIL_TOKENS` are two variables, and `pack budget` names nine of
+ * them — so the two shapes meet here, once, instead of at every reader.
+ */
+export function assemblerConfig(config: Config): AssemblerConfig {
+	return {
+		tail: { count: config.tailTurns, tokens: config.tailTokens },
+		recall: { count: config.recallTurns, tokens: config.recallTokens },
+		docs: { count: config.docConcepts, tokens: config.docTokens },
+		graph: { count: config.graphSymbols, tokens: config.graphTokens },
+		packTokens: config.packTokens,
+		recallMaxDistance: config.recallMaxDistance,
+		docMaxDistance: config.docMaxDistance,
+		explainCandidates: config.explainCandidates,
+	};
 }
 
 export const DEFAULT_TAIL_TURNS = 8;

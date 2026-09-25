@@ -23,7 +23,7 @@ import type { Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import { renderCall } from "../src/report.ts";
 import type { RecalledTurn } from "../src/thread-store.ts";
-import { budgets, settings } from "./fixtures.ts";
+import { budgets, settings, UNBOUNDED } from "./fixtures.ts";
 
 function turn(prompt: string, index?: number): Turn {
 	return {
@@ -140,7 +140,32 @@ describe("budget spend", () => {
 		);
 
 		expect(part?.trimmed).toBe(true);
-		expect(part?.budget).toBe(2);
+		expect(part?.budget?.count).toBe(2);
+		expect(part?.dropped).toBe(3);
+	});
+
+	test("a call recorded before the budget was one value still reads", () => {
+		const view = inspectCall({
+			turnIndex: 0,
+			callIndex: 0,
+			parts: [
+				{
+					source: "recalled",
+					approximateTokens: 900,
+					approximate: true,
+					carried: 2,
+					// The shape `token-budgets` wrote: a count and a size, as
+					// two fields. Rows like it are history, and history is not
+					// migrated.
+					budget: 4,
+					tokenBudget: 8_000,
+					candidates: 5,
+				},
+			],
+		});
+		const part = view.parts.find((each) => each.source === "recalled");
+
+		expect(part?.budget).toEqual({ count: 4, tokens: 8_000 });
 		expect(part?.dropped).toBe(3);
 	});
 
@@ -530,7 +555,7 @@ describe("the curated part in accounting", () => {
 					approximateTokens: 40,
 					carried: 1,
 					conceptIds: ["decisions/caching"],
-					budget: 2,
+					budget: { count: 2, tokens: UNBOUNDED },
 					candidates: 1,
 				}),
 			],
@@ -551,7 +576,7 @@ describe("comparing packs that carried concepts", () => {
 					approximateTokens: 40,
 					carried: conceptIds.length,
 					conceptIds,
-					budget: 2,
+					budget: { count: 2, tokens: UNBOUNDED },
 				}),
 			],
 		});
@@ -611,7 +636,7 @@ describe("the structure part in accounting", () => {
 					approximateTokens: 63,
 					carried: 1,
 					symbols: ["assemble()"],
-					budget: 3,
+					budget: { count: 3, tokens: UNBOUNDED },
 					candidates: 2,
 				}),
 				recordPart({
@@ -642,7 +667,7 @@ describe("the structure part in accounting", () => {
 					approximateTokens: 200,
 					carried: 2,
 					symbols: ["a()", "b()"],
-					budget: 2,
+					budget: { count: 2, tokens: UNBOUNDED },
 					candidates: 4,
 				}),
 			],

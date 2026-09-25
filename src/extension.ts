@@ -17,7 +17,12 @@ import {
 	readSources,
 	type Concept,
 } from "./concept.ts";
-import { loadConfig, setBudget, type Config } from "./config.ts";
+import {
+	assemblerConfig,
+	loadConfig,
+	setBudget,
+	type Config,
+} from "./config.ts";
 import {
 	DocStore,
 	readBundle,
@@ -480,20 +485,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 						structure: structure.unavailable,
 					},
 				},
-				{
-					tailTurns: deps.config.tailTurns,
-					recallTurns: deps.config.recallTurns,
-					docConcepts: deps.config.docConcepts,
-					graphSymbols: deps.config.graphSymbols,
-					tailTokens: deps.config.tailTokens,
-					recallTokens: deps.config.recallTokens,
-					docTokens: deps.config.docTokens,
-					graphTokens: deps.config.graphTokens,
-					packTokens: deps.config.packTokens,
-					recallMaxDistance: deps.config.recallMaxDistance,
-					docMaxDistance: deps.config.docMaxDistance,
-					explainCandidates: deps.config.explainCandidates,
-				},
+				assemblerConfig(deps.config),
 			);
 
 			warnIfNearCeiling(conversationId, pack);

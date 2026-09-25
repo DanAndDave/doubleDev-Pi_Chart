@@ -84,8 +84,8 @@ const REASONS: ((part: PartView) => string | undefined)[] = [
 	// left to look like a fit: a Turn of many messages, each already as short
 	// as is worth carrying, has a floor no Budget can argue with.
 	(part) =>
-		part.tokenBudget !== undefined && part.approximateTokens > part.tokenBudget
-			? `over its ${part.tokenBudget}-token budget, irreducible`
+		part.budget !== undefined && part.approximateTokens > part.budget.tokens
+			? `over its ${part.budget.tokens}-token budget, irreducible`
 			: undefined,
 ];
 
@@ -98,7 +98,8 @@ const REASONS: ((part: PartView) => string | undefined)[] = [
  */
 function carriedOf(part: PartView): string {
 	// The count Budget reads as "2 of 4" and leads; every reason follows it.
-	const spend = part.budget === undefined ? [] : [`${part.carried} of ${part.budget}`];
+	const spend =
+		part.budget === undefined ? [] : [`${part.carried} of ${part.budget.count}`];
 	return wrap([...spend, ...reasons(part)]);
 }
 

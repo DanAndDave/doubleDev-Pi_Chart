@@ -1,5 +1,6 @@
 import type {
 	AbsenceCause,
+	Budget,
 	ExcludedCandidate,
 	Pack,
 	PackSource,
@@ -108,9 +109,14 @@ export interface RecordedPart {
 	conceptIds?: string[];
 	/** Symbols this part carried, by name — identity, not count. */
 	symbols?: string[];
-	/** The count Budget that bounded it, where one did. */
-	budget?: number;
-	/** The token Budget that bounded it, which irreducible content may exceed. */
+	/**
+	 * The Budget that bounded it, where one did. Rows written before a
+	 * Budget was one value carry the pair `budget`/`tokenBudget` instead,
+	 * which the inspector still reads: a recorded Call is history, and
+	 * history is not migrated.
+	 */
+	budget?: Budget | number;
+	/** The token half, on rows written before the pair became one value. */
 	tokenBudget?: number;
 	/** How many candidates it chose from. */
 	candidates?: number;
@@ -216,8 +222,7 @@ export function recordPart(part: {
 	turnIndices?: number[];
 	conceptIds?: string[];
 	symbols?: string[];
-	budget?: number;
-	tokenBudget?: number;
+	budget?: Budget;
 	candidates?: number;
 	irrelevant?: number;
 	excluded?: PartExclusion;
@@ -237,7 +242,6 @@ export function recordPart(part: {
 		conceptIds: part.conceptIds,
 		symbols: part.symbols,
 		budget: part.budget,
-		tokenBudget: part.tokenBudget,
 		candidates: part.candidates,
 		irrelevant: part.irrelevant,
 		excluded: part.excluded,

@@ -232,7 +232,7 @@ describeStore("curated knowledge against a live model", () => {
 				expect(curated[0]?.conceptIds).toContain(
 					"decisions/0001-settlement-window",
 				);
-				expect(curated[0]?.carried).toBeLessThanOrEqual(curated[0]?.budget ?? 0);
+				expect(curated[0]?.carried).toBeLessThanOrEqual(curated[0]?.budget?.count ?? 0);
 			} finally {
 				await store.close();
 			}
@@ -309,7 +309,7 @@ describeGraph("codebase structure against a live model", () => {
 					"parseConcept() (src/concept.ts",
 				);
 				expect(structure[0]?.carried).toBeLessThanOrEqual(
-					structure[0]?.budget ?? 0,
+					structure[0]?.budget?.count ?? 0,
 				);
 			} finally {
 				await store.close();

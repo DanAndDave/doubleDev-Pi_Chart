@@ -12,29 +12,33 @@ import type { ConceptHit, ConceptMiss } from "./doc-index.ts";
 import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
 import type { RecalledTurn, TurnMiss } from "./thread-store.ts";
 
+/**
+ * What a part may carry, in both denominations at once.
+ *
+ * One value because it is one concept: a part is trimmed to whichever of
+ * the two binds first. A count says something a size cannot — `count: 0`
+ * is how a user asks for the current Turn alone — and a size says what a
+ * count cannot: a Turn carrying six file reads costs two orders of
+ * magnitude more than one carrying a sentence. Measured on real Journals,
+ * an eight-Turn tail reached 974,861 estimated tokens, so the count alone
+ * bounds nothing.
+ */
+export interface Budget {
+	/** How many candidates, at most. */
+	count: number;
+	/** How large, in estimated tokens, at most. */
+	tokens: number;
+}
+
 export interface AssemblerConfig {
-	/** How many completed Turns are carried verbatim ahead of the current one. */
-	tailTurns: number;
-	/** How many recalled Turns a pack may carry. */
-	recallTurns: number;
-	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
-	docConcepts: number;
-	/** How many symbols' neighbourhoods a pack may carry. Zero disables them. */
-	graphSymbols: number;
-	/**
-	 * Size Budgets, in estimated tokens, beside the counts above. A part is
-	 * trimmed to whichever of its two Budgets binds first.
-	 *
-	 * A count says something a size cannot — `tailTurns: 0` is how a user
-	 * asks for the current Turn alone — and a size says what a count cannot:
-	 * a Turn carrying six file reads costs two orders of magnitude more than
-	 * one carrying a sentence. Measured on real Journals, an eight-Turn tail
-	 * reached 974,861 estimated tokens, so the count alone bounds nothing.
-	 */
-	tailTokens: number;
-	recallTokens: number;
-	docTokens: number;
-	graphTokens: number;
+	/** Completed Turns carried verbatim ahead of the current one. */
+	tail: Budget;
+	/** Turns a pack may carry that were recalled by meaning. */
+	recall: Budget;
+	/** Concepts a pack may carry. A count of zero disables curated knowledge. */
+	docs: Budget;
+	/** Symbols' neighbourhoods a pack may carry. A count of zero disables them. */
+	graph: Budget;
 	/**
 	 * The whole pack's ceiling, in estimated tokens, independent of any one
 	 * part's Budget. When the selected parts exceed it they are reduced in a
@@ -89,15 +93,14 @@ export interface PackPart {
 	conceptIds?: string[];
 	/** Which symbols this part carried, by name. Identity, not count. */
 	symbols?: string[];
-	/** The count Budget that bounded this part, where one did. */
-	budget?: number;
 	/**
-	 * The token Budget that bounded it. Recorded beside what the part spent,
-	 * because a part carrying irreducible content can exceed it: a Turn of
-	 * many messages, each already at the shortest length worth carrying, has
-	 * a floor the Budget cannot argue with.
+	 * The Budget that bounded this part, where one did. Recorded beside
+	 * what the part spent, because a part carrying irreducible content can
+	 * exceed the size half of it: a Turn of many messages, each already at
+	 * the shortest length worth carrying, has a floor no Budget can argue
+	 * with.
 	 */
-	tokenBudget?: number;
+	budget?: Budget;
 	/**
 	 * How many candidates were refused for being insufficiently relevant, as
 	 * opposed to excluded by the Budget. A part that carried little because
@@ -324,7 +327,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// no result outright — so the refusal belongs where messages become
 	// protocol messages, which is also where Turns from the live array pass.
 	const byCount = (
-		config.tailTurns > 0 ? completed.slice(-config.tailTurns) : []
+		config.tail.count > 0 ? completed.slice(-config.tail.count) : []
 	).map(paired);
 
 	const parts: PackPart[] = [];
@@ -336,8 +339,8 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	const eligible = eligibleRecollections(recalled, carried);
 	const recollections = fit(
 		eligible,
-		config.recallTurns,
-		config.recallTokens,
+		config.recall.count,
+		config.recall.tokens,
 		(each, allowance) => [asRecollection(each, allowance)],
 		"shorten",
 	);
@@ -347,8 +350,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		approximateTokens: recollections.tokens,
 		carried: recollections.kept.length,
 		turnIndices: recollections.kept.map((each) => each.turnIndex),
-		budget: config.recallTurns,
-		tokenBudget: config.recallTokens,
+		budget: config.recall,
 		candidates: eligible.length,
 		irrelevant: rejected,
 		threshold: config.recallMaxDistance,
@@ -363,7 +365,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			bound,
 		),
 		absent: absence({
-			budget: config.recallTurns,
+			budget: config.recall.count,
 			carried: recollections.kept.length,
 			candidates: eligible.length,
 			rejected,
@@ -374,7 +376,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	// Curated knowledge sits with recall, ahead of the newest Turns: it is
 	// background the agent is being given, not something it just said.
-	const curated = fit(concepts, config.docConcepts, config.docTokens, (hit) => [
+	const curated = fit(concepts, config.docs.count, config.docs.tokens, (hit) => [
 		asCuratedKnowledge(hit),
 	]);
 	parts.push({
@@ -383,8 +385,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		approximateTokens: curated.tokens,
 		carried: curated.kept.length,
 		conceptIds: curated.kept.map((hit) => hit.conceptId),
-		budget: config.docConcepts,
-		tokenBudget: config.docTokens,
+		budget: config.docs,
 		candidates: concepts.length,
 		irrelevant: conceptsRejected,
 		threshold: config.docMaxDistance,
@@ -402,7 +403,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			bound,
 		),
 		absent: absence({
-			budget: config.docConcepts,
+			budget: config.docs.count,
 			carried: curated.kept.length,
 			candidates: concepts.length,
 			rejected: conceptsRejected,
@@ -415,8 +416,8 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// about it — and ahead of the tail for the same reason recall is.
 	const structural = fit(
 		structure,
-		config.graphSymbols,
-		config.graphTokens,
+		config.graph.count,
+		config.graph.tokens,
 		(each) => [asStructure(each)],
 	);
 	parts.push({
@@ -425,8 +426,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		approximateTokens: structural.tokens,
 		carried: structural.kept.length,
 		symbols: structural.kept.map((each) => qualify(each.symbol)),
-		budget: config.graphSymbols,
-		tokenBudget: config.graphTokens,
+		budget: config.graph,
 		candidates: structure.length,
 		// Symbols are matched by name, not ranked by distance, so this part
 		// cannot refuse anything for irrelevance and says so.
@@ -437,7 +437,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			bound,
 		),
 		absent: absence({
-			budget: config.graphSymbols,
+			budget: config.graph.count,
 			carried: structural.kept.length,
 			candidates: structure.length,
 			rejected: 0,
@@ -452,7 +452,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// working session can be three times the whole tail Budget, and a
 	// drop-only rule would empty the tail exactly when working state matters
 	// most.
-	const tail = fitTail(byCount, config.tailTokens);
+	const tail = fitTail(byCount, config.tail.tokens);
 	parts.push({
 		source: "verbatim-tail",
 		messages: tail.messages,
@@ -461,8 +461,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		turnIndices: tail.kept
 			.map((turn) => turn.index)
 			.filter((index) => index !== undefined),
-		budget: config.tailTurns,
-		tokenBudget: config.tailTokens,
+		budget: config.tail,
 		candidates: completed.length,
 		// Recency, not relevance: the tail takes the newest Turns whatever
 		// they are about.
@@ -482,13 +481,13 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 					.map((turn) => ({
 						turnIndex: turn.index,
 						reason: "count" as const,
-						budget: config.tailTurns,
+						budget: config.tail.count,
 					})),
 			],
 			bound,
 		),
 		absent: absence({
-			budget: config.tailTurns,
+			budget: config.tail.count,
 			carried: tail.kept.length,
 			candidates: completed.length,
 			rejected: 0,
@@ -521,7 +520,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// within the Conversation, and the tail is irreplaceable working state.
 	reduceToCeiling(parts, config.packTokens, bound, {
 		structure: (room) => {
-			const refitted = fit(structure, config.graphSymbols, room, (each) => [
+			const refitted = fit(structure, config.graph.count, room, (each) => [
 				asStructure(each),
 			]);
 			return {
@@ -531,7 +530,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			};
 		},
 		curated: (room) => {
-			const refitted = fit(concepts, config.docConcepts, room, (hit) => [
+			const refitted = fit(concepts, config.docs.count, room, (hit) => [
 				asCuratedKnowledge(hit),
 			]);
 			return {
@@ -543,7 +542,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		recalled: (room) => {
 			const refitted = fit(
 				eligible,
-				config.recallTurns,
+				config.recall.count,
 				room,
 				(each, allowance) => [asRecollection(each, allowance)],
 				"shorten",
@@ -575,10 +574,10 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		leadingTokens: approximateTokens(composed.leading),
 		parts,
 		budgets: {
-			tail: config.tailTurns,
-			recall: config.recallTurns,
-			docs: config.docConcepts,
-			graph: config.graphSymbols,
+			tail: config.tail.count,
+			recall: config.recall.count,
+			docs: config.docs.count,
+			graph: config.graph.count,
 		},
 		rejected,
 		unsearched,

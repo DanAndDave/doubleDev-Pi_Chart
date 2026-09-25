@@ -7,6 +7,7 @@ import type {
 } from "./accounting.ts";
 import type {
 	AbsenceCause,
+	Budget,
 	ExcludedCandidate,
 	PackSource,
 	PartExclusion,
@@ -25,9 +26,11 @@ export interface PartView {
 	conceptIds: string[];
 	/** Which symbols it carried, by name, where it carried any. */
 	symbols: string[];
-	budget?: number;
-	/** The token Budget in force, which a part's irreducible content may exceed. */
-	tokenBudget?: number;
+	/**
+	 * The Budget in force, whose size half a part's irreducible content may
+	 * exceed.
+	 */
+	budget?: Budget;
 	candidates?: number;
 	/** True when the Budget, not the supply, decided what it carried. */
 	trimmed: boolean;
@@ -293,6 +296,7 @@ function viewPart(part: RecordedPart): PartView {
 	const dropped =
 		candidates === undefined ? 0 : Math.max(candidates - carried, 0);
 
+	const budget = budgetOf(part);
 	return {
 		source: part.source,
 		symbols,
@@ -300,12 +304,11 @@ function viewPart(part: RecordedPart): PartView {
 		carried,
 		turnIndices,
 		conceptIds,
-		budget: part.budget,
-		tokenBudget: part.tokenBudget,
+		budget,
 		candidates,
 		// Trimmed means the Budget bound it, not merely that supply ran out
 		// or that nothing was relevant enough to carry.
-		trimmed: dropped > 0 && part.budget !== undefined && carried >= part.budget,
+		trimmed: dropped > 0 && budget !== undefined && carried >= budget.count,
 		dropped,
 		irrelevant: part.irrelevant ?? 0,
 		excluded: part.excluded,
@@ -441,9 +444,22 @@ function budgetUse(calls: CallView[]): ConversationSummary["budgetUse"] {
 		averageIrrelevant: mean(parts.map((part) => part.irrelevant)),
 		// The Budget most recently in force: an average across a mid-session
 		// change would describe a Budget that never existed.
-		budget: parts.findLast((part) => part.budget !== undefined)?.budget,
+		budget: parts.findLast((part) => part.budget !== undefined)?.budget?.count,
 		timesTrimmed: parts.filter((part) => part.trimmed).length,
 	}));
+}
+
+/**
+ * The Budget a recorded part carried, in whichever shape it was written.
+ *
+ * A Call recorded before a Budget was one value carries the count and the
+ * size as two fields. Those rows are history — nothing migrates them — so
+ * the reader takes both and reports the same thing either way.
+ */
+function budgetOf(part: RecordedPart): Budget | undefined {
+	if (typeof part.budget === "object") return part.budget;
+	if (part.budget === undefined && part.tokenBudget === undefined) return undefined;
+	return { count: part.budget ?? 0, tokens: part.tokenBudget ?? 0 };
 }
 
 function mean(values: number[]): number {
