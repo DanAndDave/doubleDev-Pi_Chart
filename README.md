@@ -17,7 +17,7 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 Clone the repository:
 
 ```sh
-git clone <repo> pi-chart && cd pi-chart
+git clone git@github.com:DanAndDave/doubleDev-Pi_Chart.git pi-chart && cd pi-chart
 ```
 
 **Get Bun 1.4.2.** With [`mise`](https://mise.jdx.dev) — on macOS, Linux, or Windows — it comes straight from `mise.toml`:

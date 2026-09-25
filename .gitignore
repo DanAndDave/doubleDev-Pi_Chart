@@ -1,5 +1,6 @@
 node_modules/
 *.log
+*.stderr
 
 # Written by graph extraction (PICHART_GRAPH=on), derived from the tree.
 graphify-out/
