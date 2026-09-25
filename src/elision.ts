@@ -206,7 +206,7 @@ function shortenText(
 		if (content === undefined) break;
 		const candidate: HarnessMessage = {
 			...withoutDetails,
-			content,
+			content: asCarried(message.content, content),
 			piChartShortened: true,
 		};
 		const tokens = approximateTokens([candidate]);
@@ -217,6 +217,19 @@ function shortenText(
 
 	if (best === undefined) return { message, tokens: cost, shortened: false };
 	return { message: best.message, tokens: best.tokens, shortened: true };
+}
+
+/**
+ * The shortened text, in the shape the message carried it.
+ *
+ * A message's `content` is protocol: the harness hands a tool result to a
+ * provider as the blocks it arrived in, and a bare string where blocks
+ * were is a request the provider refuses — a Turn that fails rather than
+ * a Turn that carries less. Blocks in, one text block out; a string in, a
+ * string out.
+ */
+function asCarried(original: unknown, text: string): string | ContentBlock[] {
+	return Array.isArray(original) ? [{ type: "text", text }] : text;
 }
 
 /**
@@ -254,9 +267,7 @@ function shortenPayloads(
 		// A payload no longer than the room would come back longer for
 		// having been elided, marker and all.
 		if (passed.length <= room) return block;
-		// Never undefined: `room` is at least what a marker and two
-		// floor-sized halves take, which is the floor asked for below.
-		const elided = elide(passed, room, { floor: SHORTEST_HALF_CHARACTERS });
+		const elided = elideArguments(call.arguments, room);
 		if (elided === undefined) return block;
 		shortened = true;
 		return { ...call, arguments: elided };
@@ -265,6 +276,44 @@ function shortenPayloads(
 	if (!shortened) return { message, tokens: cost, shortened: false };
 	const result: HarnessMessage = { ...message, content: kept, piChartShortened: true };
 	return { message: result, tokens: approximateTokens([result]), shortened: true };
+}
+
+/**
+ * What a call passed, shortened to the characters it may spend, still an
+ * object.
+ *
+ * Its shape is protocol: a provider is handed the arguments as the object
+ * the model produced, so a string in their place is a request the provider
+ * refuses outright — which is a Turn that fails rather than a Turn that
+ * carries less. The bulk of an oversized call is one or two long strings
+ * in it, so those give way, longest first, and everything else — the path,
+ * the flags, the ids the model is reasoning about — is untouched.
+ */
+function elideArguments(passed: unknown, room: number): unknown {
+	if (typeof passed !== "object" || passed === null || Array.isArray(passed)) {
+		return undefined;
+	}
+	const shortened: Record<string, unknown> = { ...(passed as Record<string, unknown>) };
+	const strings = Object.entries(shortened)
+		.filter(([, value]) => typeof value === "string")
+		.sort((a, b) => (b[1] as string).length - (a[1] as string).length);
+	if (strings.length === 0) return undefined;
+
+	let elided = false;
+	for (const [key] of strings) {
+		if (JSON.stringify(shortened).length <= room) break;
+		const value = shortened[key];
+		if (typeof value !== "string") continue;
+		// What this one may spend: the room, less what the rest of the
+		// object costs around it.
+		const rest = JSON.stringify({ ...shortened, [key]: "" }).length;
+		const allowance = room - rest;
+		const cut = elide(value, allowance, { floor: SHORTEST_HALF_CHARACTERS });
+		if (cut === undefined || cut.length >= value.length) continue;
+		shortened[key] = cut;
+		elided = true;
+	}
+	return elided ? shortened : undefined;
 }
 
 function payloadCost(blocks: ContentBlock[]): number {

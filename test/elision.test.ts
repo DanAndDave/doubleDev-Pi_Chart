@@ -117,6 +117,72 @@ describe("shortening", () => {
 		expect(carried).toContain("tool metadata");
 	});
 
+	test("a shortened tool result keeps the blocks it arrived in", () => {
+		const pack = assemble(
+			{ turns: [turnOf(1, bulky(2000, "m")), turnOf(2)] },
+			budgets({ tailTurns: 1, tailTokens: 500 }),
+		);
+		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
+		const shortened = tail?.messages.find(
+			(message) => message.role === "toolResult",
+		);
+
+		// Shape is protocol: a provider is handed a tool result as the
+		// blocks it arrived in, and a bare string where blocks were is a
+		// request it refuses — a Turn that fails rather than one that
+		// carries less.
+		expect(Array.isArray(shortened?.content)).toBe(true);
+		expect(messageText(shortened ?? { role: "toolResult" })).toContain("elided");
+	});
+
+	test("a shortened tool call still passes an object", () => {
+		const call: HarnessMessage = {
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "call-w",
+					name: "write",
+					arguments: { path: "/tmp/notes.md", content: "z".repeat(20_000) },
+				},
+			],
+		};
+		const pack = assemble(
+			{
+				turns: [
+					{
+						index: 1,
+						prompt: "write it",
+						messages: [
+							{ role: "user", content: "write it" },
+							call,
+							// Answered, or the tail withholds the call and there
+							// is nothing to shorten.
+							{ role: "toolResult", toolCallId: "call-w", content: "written" },
+						],
+					},
+					turnOf(2),
+				],
+			},
+			budgets({ tailTurns: 1, tailTokens: 600 }),
+		);
+		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
+		const blocks = tail?.messages.find((message) => message.role === "assistant")
+			?.content;
+		const passed = Array.isArray(blocks)
+			? (blocks.find((block) => block.type === "toolCall") as
+					| { arguments?: Record<string, unknown> }
+					| undefined)?.arguments
+			: undefined;
+
+		// The arguments the model produced are an object to the provider,
+		// whatever the Budget did to what is in them.
+		expect(typeof passed).toBe("object");
+		expect(passed?.path).toBe("/tmp/notes.md");
+		expect(String(passed?.content)).toContain("elided");
+		expect(String(passed?.content).length).toBeLessThan(20_000);
+	});
+
 	test("a recollection too large for the room left is shortened, not dropped", () => {
 		const pack = assemble(
 			{
