@@ -464,6 +464,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const pack = deps.assemble(
 				{
 					turns: current ? [...tail, current] : tail,
+					supplied: messages,
 					recalled: recalled.value.turns,
 					rejected: recalled.value.rejected,
 					recallMisses: recalled.value.misses,

@@ -57,6 +57,11 @@ export interface CallAccounting extends CallAddress {
 	 * model in use. Absent on records written before it was recorded.
 	 */
 	conceptsUnsearched?: number;
+	/**
+	 * How much of this Pack the harness supplied itself, and so could mark
+	 * for caching. Absent on records written before it was recorded.
+	 */
+	leadingTokens?: number;
 	/** The Pack ceiling in force for this Call. Absent on older records. */
 	ceiling?: number;
 	/**
@@ -313,6 +318,7 @@ export class MemoryAccounting implements AccountingStore {
 		call.rejected = pack.rejected;
 		call.unsearched = pack.unsearched;
 		call.conceptsUnsearched = pack.conceptsUnsearched;
+		call.leadingTokens = pack.leadingTokens;
 		call.ceiling = pack.ceiling;
 		call.beforeCeiling = pack.beforeCeiling;
 		call.memoryBackend = memoryBackend;

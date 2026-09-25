@@ -99,6 +99,11 @@ export interface CallView {
 	 * differently from a bundle with nothing relevant in it.
 	 */
 	conceptsUnsearched: number;
+	/**
+	 * How much of this Pack the harness supplied itself, and so could mark
+	 * for caching. Absent on records that predate it.
+	 */
+	leadingTokens?: number;
 	/** The Pack ceiling in force. Absent on records that predate it. */
 	ceiling?: number;
 	/** What the parts came to before the ceiling reduced them. */
@@ -250,6 +255,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		rejected: call.rejected ?? 0,
 		unsearched: call.unsearched ?? 0,
 		conceptsUnsearched: call.conceptsUnsearched ?? 0,
+		leadingTokens: call.leadingTokens,
 		ceiling: call.ceiling,
 		beforeCeiling: call.beforeCeiling,
 		compactionEpoch: call.compactionEpoch,

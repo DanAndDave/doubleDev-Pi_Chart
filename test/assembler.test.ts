@@ -104,10 +104,11 @@ describe("assemble", () => {
 	test("parts account for every message in the pack, in order", () => {
 		const turns = reconstructTurns(conversation(3));
 
-		// Every part populated at once, because this is the assertion the
-		// single-injector invariant rests on at the Pack level: a Pack's
-		// messages are exactly its parts' messages concatenated, so content
-		// no part contributed cannot be in it.
+		// Every part populated at once, with nothing supplied to lead with:
+		// a Pack that opens with an assembled part is its parts' messages
+		// concatenated, in part order. What survives a leading run is the
+		// weaker statement the next describe asserts — each part's messages
+		// carried once, wherever composition put them.
 		const pack = assemble(
 			{
 				turns,
@@ -141,6 +142,211 @@ describe("assemble", () => {
 		expect(
 			pack.parts.filter((part) => part.messages.length > 0).map((part) => part.source),
 		).toEqual(["recalled", "curated", "structure", "verbatim-tail", "current-turn"]);
+	});
+});
+
+describe("a pack the harness can cache", () => {
+	const everything = {
+		recalled: [
+			{ turnIndex: 9, turn: { index: 9, prompt: "older", messages: [] } },
+		],
+		concepts: [
+			{
+				conceptId: "decisions/caching",
+				text: "We cache.",
+				trust: "unverified" as const,
+				sectionIndex: 0,
+				sectionCount: 1,
+				stale: false,
+				distance: 0.2,
+			},
+		],
+		structure: [
+			{
+				symbol: { id: "assemble()", label: "assemble()", file: "src/a.ts", position: "L10" },
+				edges: [],
+				dropped: 0,
+			},
+		],
+	};
+	const wide = budgets({ tailTurns: 8, recallTurns: 2, docConcepts: 2, graphSymbols: 2 });
+
+	test("the harness's own messages lead, in the positions it sent them", () => {
+		const supplied = conversation(2);
+		const turns = reconstructTurns(supplied);
+
+		const pack = assemble({ turns, supplied, ...everything }, wide);
+
+		// The harness marks a returned array for caching only as far as the
+		// first message that differs from its own at that index (ADR-0005),
+		// so the run has to sit at index 0 and stay in the order it arrived.
+		const completed = supplied.slice(0, -1);
+		expect(pack.messages.slice(0, completed.length)).toEqual(completed);
+		expect(pack.messages[completed.length]?.content).toContain("[recalled from turn 9");
+	});
+
+	test("what the assembler added still comes before the prompt it is background for", () => {
+		const supplied = conversation(2);
+		const turns = reconstructTurns(supplied);
+
+		const pack = assemble({ turns, supplied, ...everything }, wide);
+		const sources = pack.messages.map((message) =>
+			typeof message.content === "string" ? message.content : "",
+		);
+
+		expect(sources[sources.length - 1]).toBe("current prompt");
+		expect(sources.findIndex((text) => text.includes("[curated knowledge"))).toBeLessThan(
+			sources.length - 1,
+		);
+	});
+
+	test("a message the assembler altered ends the run rather than breaking it", () => {
+		const supplied = conversation(3);
+		const turns = reconstructTurns(supplied);
+		// The Thread Store's copy of the second Turn, differing from what the
+		// harness sent — a shortened message reads the same way.
+		const second = turns[1];
+		if (second) {
+			second.messages = second.messages.map((message) => ({
+				...message,
+				content: `${message.content} (from the store)`,
+			}));
+		}
+
+		const pack = assemble({ turns, supplied, ...everything }, wide);
+		const texts = pack.messages.map((message) => message.content);
+
+		// The first Turn agrees and leads; the second does not and is carried
+		// after the assembled parts rather than in place of the harness's.
+		expect(texts.slice(0, 2)).toEqual(["prompt 1", "answer 1"]);
+		expect(texts.indexOf("prompt 2 (from the store)")).toBeGreaterThan(
+			texts.findIndex((text) => String(text).includes("[recalled from turn 9")),
+		);
+		expect(texts).not.toContain("prompt 2");
+	});
+
+	test("a tail that starts later than the harness's array leads with nothing", () => {
+		const supplied = conversation(4);
+		const turns = reconstructTurns(supplied);
+
+		// Two Turns of tail against four supplied: the pack's oldest message
+		// is the harness's fifth, so there is no index-0 agreement to find.
+		const pack = assemble(
+			{ turns, supplied, ...everything },
+			budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 2, graphSymbols: 2 }),
+		);
+
+		expect(pack.messages[0]?.content).toContain("[recalled from turn 9");
+		expect(pack.messages.map((message) => message.content)).toContain("prompt 4");
+	});
+
+	test("the run never ends between a tool call and its result", () => {
+		const supplied: HarnessMessage[] = [
+			{ role: "user", content: "read the file" },
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-1", name: "read" }],
+			},
+			{ role: "toolResult", toolCallId: "call-1", content: "x".repeat(8_000) },
+			{ role: "assistant", content: "done" },
+			{ role: "user", content: "current prompt" },
+		];
+		const turns = reconstructTurns(
+			JSON.parse(JSON.stringify(supplied)) as HarnessMessage[],
+		);
+
+		// A Budget the first Turn cannot fit whole, so elision shortens the
+		// result and leaves the call that issued it untouched: the run would
+		// otherwise end between the two, with assembled prose in the gap.
+		const pack = assemble(
+			{ turns, supplied, ...everything },
+			budgets({ tailTurns: 4, recallTurns: 2, docConcepts: 2, graphSymbols: 2, tailTokens: 500 }),
+		);
+		const calling = pack.messages.findIndex(
+			(message) =>
+				Array.isArray(message.content) &&
+				message.content.some((block) => block.type === "toolCall"),
+		);
+
+		// A provider refuses a window whose call is not answered by the very
+		// next message, so the run ends at a Turn boundary or not at all.
+		expect(calling).toBeGreaterThanOrEqual(0);
+		expect(pack.messages[calling + 1]?.toolCallId).toBe("call-1");
+	});
+
+	test("every part's messages are carried exactly once, wherever they sit", () => {
+		const supplied = conversation(2);
+		// Through the Thread Store's round trip, which is where a Pack's
+		// messages stop being the same objects as its parts'.
+		const turns = reconstructTurns(
+			JSON.parse(JSON.stringify(supplied)) as HarnessMessage[],
+		);
+
+		const pack = assemble({ turns, supplied, ...everything }, wide);
+		const fromParts = pack.parts.flatMap((part) => part.messages);
+
+		// By value: a Pack carries what its parts chose, once each, wherever
+		// composition put it. Content no part contributed cannot be in it,
+		// which is the single-injector invariant at the Pack level.
+		expect(pack.messages).toHaveLength(fromParts.length);
+		for (const message of fromParts) expect(pack.messages).toContainEqual(message);
+	});
+
+	test("the run hands back the harness's own objects, marker and all", () => {
+		const supplied = conversation(2);
+		// The harness hangs a property of its own on every message it owns,
+		// which nothing outside it can see the value of or reproduce.
+		const marker = Symbol("harness");
+		for (const message of supplied) {
+			(message as unknown as Record<symbol, unknown>)[marker] = { owned: true };
+		}
+		// The Thread Store's copies: the same messages, read back through
+		// JSON, which is where the marker is lost.
+		const turns = reconstructTurns(
+			JSON.parse(JSON.stringify(supplied)) as HarnessMessage[],
+		);
+
+		const pack = assemble({ turns, supplied, ...everything }, wide);
+
+		// A faithful copy is a message the harness cannot match, so the run
+		// is the harness's objects: same content, and recognisable.
+		expect(pack.messages[0]).toBe(supplied[0]);
+		expect(pack.messages[1]).toBe(supplied[1]);
+		expect(pack.leadingTokens).toBeGreaterThan(0);
+	});
+
+	test("a pack that leads with nothing says so", () => {
+		const supplied = conversation(2);
+		const turns = reconstructTurns(supplied);
+
+		const led = assemble({ turns, supplied, ...everything }, wide);
+		const unled = assemble({ turns, ...everything }, wide);
+
+		// The figure a cache reading is diagnosed with: what the harness
+		// could mark, rather than what it happened to cost.
+		expect(unled.leadingTokens).toBe(0);
+		expect(led.leadingTokens).toBe(approximateTokens(supplied.slice(0, -1)));
+		// And nothing else moved: the run decides an order, never what a
+		// part carries or what it is charged for.
+		expect(led.parts).toEqual(unled.parts);
+		expect(led.approximateTokens).toBe(unled.approximateTokens);
+		expect(led.budgets).toEqual(unled.budgets);
+	});
+
+	test("assembling the same inputs twice still gives the same pack", () => {
+		const supplied = conversation(2);
+
+		const first = assemble(
+			{ turns: reconstructTurns(supplied), supplied, ...everything },
+			wide,
+		);
+		const second = assemble(
+			{ turns: reconstructTurns(supplied), supplied, ...everything },
+			wide,
+		);
+
+		expect(first.messages).toEqual(second.messages);
+		expect(first.parts).toEqual(second.parts);
 	});
 });
 

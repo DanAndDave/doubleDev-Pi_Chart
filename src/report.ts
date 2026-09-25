@@ -262,6 +262,17 @@ export function renderCall(view: CallView): string {
 				`(${cached}% of the pack read from cache)`,
 		);
 	}
+
+	// What the cache figure above can be explained by: the harness marks a
+	// returned array only as far as the messages it sent itself, so a Pack
+	// that leads with little of its own is one no provider was offered much
+	// to cache.
+	if (view.leadingTokens !== undefined) {
+		lines.push(
+			`  prefix        ~${view.leadingTokens} tokens the harness sent itself, ` +
+				`carried unaltered at the head of the pack`,
+		);
+	}
 	return lines.join("\n");
 }
 

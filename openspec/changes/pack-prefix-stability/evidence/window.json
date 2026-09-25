@@ -1,0 +1,2729 @@
+{
+	"collected": "2026-09-25T01:17:44.003Z",
+	"conversations": [
+		{
+			"conversationId": "01a0d622-7af9-728b-9615-c29570b3494a",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7af9-728b-9615-c29570b3494a",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3765,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9106,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 35,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3905,
+							"floorTokens": 25835,
+							"cacheRead": 29598,
+							"cacheWrite": 0,
+							"inputTokens": 142,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 390,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 2,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 5508,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 0,
+							"inputTokens": 10851,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 775,
+									"conceptIds": [
+										"metrics/gross-margin",
+										"computations/gross-margin-period"
+									]
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 675,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5508,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7af9-728b-9615-c29570b3494a",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1018,
+							"packTokens": 4338,
+							"floorTokens": 25835,
+							"cacheRead": 29598,
+							"cacheWrite": 573,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1018,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4338,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7af9-728b-9615-c29570b3494a",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1322,
+							"packTokens": 4457,
+							"floorTokens": 25835,
+							"cacheRead": 30171,
+							"cacheWrite": 119,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1323,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 31,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4457,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7af9-728b-9615-c29570b3494a",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1409,
+							"packTokens": 4500,
+							"floorTokens": 25835,
+							"cacheRead": 30290,
+							"cacheWrite": 43,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1410,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 34,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4500,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"0:2": 1790299002169,
+				"0:0": 1790298983415,
+				"0:1": 1790298995773,
+				"2:0": 1790299027921,
+				"1:0": 1790299010744,
+				"3:0": 1790299038359
+			}
+		},
+		{
+			"conversationId": "01a0d622-7c28-72f1-834c-924839391444",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7c28-72f1-834c-924839391444",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3782,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9123,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 43,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 4364,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 0,
+							"inputTokens": 584,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 912,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4364,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c28-72f1-834c-924839391444",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 981,
+							"packTokens": 4437,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 655,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 981,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 42,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 1,
+							"tailSource": "thread-store",
+							"leadingTokens": 981,
+							"packTokens": 4857,
+							"floorTokens": 25835,
+							"cacheRead": 30270,
+							"cacheWrite": 0,
+							"inputTokens": 422,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 981,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 550,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4857,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c28-72f1-834c-924839391444",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1962,
+							"packTokens": 5160,
+							"floorTokens": 25835,
+							"cacheRead": 30270,
+							"cacheWrite": 723,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1962,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 41,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5160,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c28-72f1-834c-924839391444",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2397,
+							"packTokens": 5430,
+							"floorTokens": 25835,
+							"cacheRead": 30993,
+							"cacheWrite": 270,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2397,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5430,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"1:1": 1790299004718,
+				"0:1": 1790298988474,
+				"1:0": 1790299001574,
+				"0:0": 1790298982907,
+				"3:0": 1790299034821,
+				"2:0": 1790299021376
+			}
+		},
+		{
+			"conversationId": "01a0d622-7c61-74c4-8920-1dbe398f7d62",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7c61-74c4-8920-1dbe398f7d62",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3765,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9106,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 35,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3895,
+							"floorTokens": 25835,
+							"cacheRead": 29598,
+							"cacheWrite": 0,
+							"inputTokens": 132,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 377,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 2,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 5522,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 0,
+							"inputTokens": 10865,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 775,
+									"conceptIds": [
+										"metrics/gross-margin",
+										"computations/gross-margin-period"
+									]
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 811,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5522,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c61-74c4-8920-1dbe398f7d62",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1112,
+							"packTokens": 4303,
+							"floorTokens": 25835,
+							"cacheRead": 29598,
+							"cacheWrite": 538,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1112,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 1,
+							"tailSource": "thread-store",
+							"leadingTokens": 1112,
+							"packTokens": 4795,
+							"floorTokens": 25835,
+							"cacheRead": 30136,
+							"cacheWrite": 0,
+							"inputTokens": 494,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1112,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 818,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 2,
+							"tailSource": "thread-store",
+							"leadingTokens": 1112,
+							"packTokens": 4959,
+							"floorTokens": 25835,
+							"cacheRead": 30136,
+							"cacheWrite": 0,
+							"inputTokens": 658,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1112,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 1010,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 3,
+							"tailSource": "thread-store",
+							"leadingTokens": 1112,
+							"packTokens": 6445,
+							"floorTokens": 25835,
+							"cacheRead": 30120,
+							"cacheWrite": 0,
+							"inputTokens": 2160,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 643,
+									"conceptIds": [
+										"tables/orders",
+										"policies/revenue-recognition"
+									]
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1112,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 1432,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 4,
+							"tailSource": "thread-store",
+							"leadingTokens": 1112,
+							"packTokens": 7338,
+							"floorTokens": 25835,
+							"cacheRead": 30136,
+							"cacheWrite": 0,
+							"inputTokens": 3037,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1112,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 2807,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 7338,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c61-74c4-8920-1dbe398f7d62",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 4075,
+							"packTokens": 7964,
+							"floorTokens": 25835,
+							"cacheRead": 30136,
+							"cacheWrite": 3145,
+							"inputTokens": 518,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 354,
+									"conceptIds": [
+										"policies/margin-standard",
+										"computations/gross-margin-period"
+									]
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 4075,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 31,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 7964,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c61-74c4-8920-1dbe398f7d62",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 4360,
+							"packTokens": 8055,
+							"floorTokens": 25835,
+							"cacheRead": 33281,
+							"cacheWrite": 108,
+							"inputTokens": 501,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 329,
+									"conceptIds": [
+										"computations/revenue-ytd",
+										"metrics/revenue"
+									]
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 4361,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 34,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 8055,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"0:0": 1790298981537,
+				"1:3": 1790299032115,
+				"3:0": 1790299055478,
+				"0:1": 1790298990649,
+				"0:2": 1790299001672,
+				"1:4": 1790299041010,
+				"2:0": 1790299050844,
+				"1:0": 1790299008451,
+				"1:2": 1790299026776,
+				"1:1": 1790299018189
+			}
+		},
+		{
+			"conversationId": "01a0d622-7c8e-72f7-b312-deb49a02eab5",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7c8e-72f7-b312-deb49a02eab5",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3765,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9106,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 35,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3901,
+							"floorTokens": 25835,
+							"cacheRead": 29598,
+							"cacheWrite": 0,
+							"inputTokens": 138,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 391,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 2,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 5523,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 0,
+							"inputTokens": 10866,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 775,
+									"conceptIds": [
+										"metrics/gross-margin",
+										"computations/gross-margin-period"
+									]
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 819,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5523,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c8e-72f7-b312-deb49a02eab5",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1133,
+							"packTokens": 4309,
+							"floorTokens": 25835,
+							"cacheRead": 29598,
+							"cacheWrite": 544,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1133,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4309,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c8e-72f7-b312-deb49a02eab5",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1243,
+							"packTokens": 4380,
+							"floorTokens": 25835,
+							"cacheRead": 30142,
+							"cacheWrite": 71,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1243,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 31,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4380,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7c8e-72f7-b312-deb49a02eab5",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 1336,
+							"packTokens": 4432,
+							"floorTokens": 25835,
+							"cacheRead": 30213,
+							"cacheWrite": 52,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1337,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 34,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 3,
+							"callIndex": 1,
+							"tailSource": "thread-store",
+							"leadingTokens": 1336,
+							"packTokens": 4699,
+							"floorTokens": 25835,
+							"cacheRead": 30265,
+							"cacheWrite": 0,
+							"inputTokens": 269,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 1337,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 550,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4699,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"3:0": 1790299035180,
+				"0:2": 1790299001367,
+				"1:0": 1790299008085,
+				"0:1": 1790298993668,
+				"2:0": 1790299022915,
+				"0:0": 1790298981359,
+				"3:1": 1790299049469
+			}
+		},
+		{
+			"conversationId": "01a0d622-7ccf-765c-9d75-9872878ea56f",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7ccf-765c-9d75-9872878ea56f",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3782,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9123,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 43,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 4329,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 0,
+							"inputTokens": 549,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 867,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4329,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7ccf-765c-9d75-9872878ea56f",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 936,
+							"packTokens": 4402,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 620,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 936,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 42,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 1,
+							"tailSource": "thread-store",
+							"leadingTokens": 936,
+							"packTokens": 4838,
+							"floorTokens": 25835,
+							"cacheRead": 30235,
+							"cacheWrite": 0,
+							"inputTokens": 438,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 936,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 692,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4838,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7ccf-765c-9d75-9872878ea56f",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2048,
+							"packTokens": 5142,
+							"floorTokens": 25835,
+							"cacheRead": 30235,
+							"cacheWrite": 740,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2048,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 41,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5142,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7ccf-765c-9d75-9872878ea56f",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2432,
+							"packTokens": 5369,
+							"floorTokens": 25835,
+							"cacheRead": 30975,
+							"cacheWrite": 227,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2433,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5369,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"1:0": 1790299000659,
+				"1:1": 1790299005770,
+				"0:1": 1790298988186,
+				"0:0": 1790298981573,
+				"2:0": 1790299021957,
+				"3:0": 1790299036091
+			}
+		},
+		{
+			"conversationId": "01a0d622-7cd3-75c5-9da5-d6056fa07e09",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7cd3-75c5-9da5-d6056fa07e09",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3782,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9123,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 43,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 4266,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 0,
+							"inputTokens": 486,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 786,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4266,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7cd3-75c5-9da5-d6056fa07e09",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 855,
+							"packTokens": 4339,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 557,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 855,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 42,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 1,
+							"tailSource": "thread-store",
+							"leadingTokens": 855,
+							"packTokens": 4803,
+							"floorTokens": 25835,
+							"cacheRead": 30172,
+							"cacheWrite": 0,
+							"inputTokens": 466,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 855,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 759,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4803,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7cd3-75c5-9da5-d6056fa07e09",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2081,
+							"packTokens": 5138,
+							"floorTokens": 25835,
+							"cacheRead": 30172,
+							"cacheWrite": 799,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2082,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 41,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5138,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7cd3-75c5-9da5-d6056fa07e09",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2536,
+							"packTokens": 5443,
+							"floorTokens": 25835,
+							"cacheRead": 30971,
+							"cacheWrite": 305,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2537,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5443,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"0:0": 1790298984121,
+				"0:1": 1790298989945,
+				"1:0": 1790299001109,
+				"1:1": 1790299005250,
+				"2:0": 1790299020898,
+				"3:0": 1790299037576
+			}
+		},
+		{
+			"conversationId": "01a0d622-7d51-7359-af83-54da13c9daa8",
+			"turns": [
+				{
+					"conversationId": "01a0d622-7d51-7359-af83-54da13c9daa8",
+					"turnIndex": 0,
+					"calls": [
+						{
+							"turnIndex": 0,
+							"callIndex": 0,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3782,
+							"floorTokens": 25835,
+							"cacheRead": 20492,
+							"cacheWrite": 9123,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 43,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 1,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 3913,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 0,
+							"inputTokens": 133,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 250,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 2,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 4035,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 0,
+							"inputTokens": 255,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 443,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 0,
+							"callIndex": 3,
+							"tailSource": "harness-fallback",
+							"leadingTokens": 0,
+							"packTokens": 4160,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 0,
+							"inputTokens": 380,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 642,
+									"turnIndices": [
+										0
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4160,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7d51-7359-af83-54da13c9daa8",
+					"turnIndex": 1,
+					"calls": [
+						{
+							"turnIndex": 1,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 725,
+							"packTokens": 4233,
+							"floorTokens": 25835,
+							"cacheRead": 29615,
+							"cacheWrite": 451,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 725,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 42,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 1,
+							"tailSource": "thread-store",
+							"leadingTokens": 725,
+							"packTokens": 4362,
+							"floorTokens": 25835,
+							"cacheRead": 30066,
+							"cacheWrite": 0,
+							"inputTokens": 131,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 725,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 247,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 2,
+							"tailSource": "thread-store",
+							"leadingTokens": 725,
+							"packTokens": 4483,
+							"floorTokens": 25835,
+							"cacheRead": 30066,
+							"cacheWrite": 0,
+							"inputTokens": 252,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 725,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 436,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						},
+						{
+							"turnIndex": 1,
+							"callIndex": 3,
+							"tailSource": "thread-store",
+							"leadingTokens": 725,
+							"packTokens": 4608,
+							"floorTokens": 25835,
+							"cacheRead": 30066,
+							"cacheWrite": 0,
+							"inputTokens": 377,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 725,
+									"turnIndices": [
+										0
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 635,
+									"turnIndices": [
+										1
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 4608,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7d51-7359-af83-54da13c9daa8",
+					"turnIndex": 2,
+					"calls": [
+						{
+							"turnIndex": 2,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2257,
+							"packTokens": 5620,
+							"floorTokens": 25835,
+							"cacheRead": 30066,
+							"cacheWrite": 1387,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2257,
+									"turnIndices": [
+										0,
+										1
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 41,
+									"turnIndices": [
+										2
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 5620,
+					"floorTokens": 25835
+				},
+				{
+					"conversationId": "01a0d622-7d51-7359-af83-54da13c9daa8",
+					"turnIndex": 3,
+					"calls": [
+						{
+							"turnIndex": 3,
+							"callIndex": 0,
+							"tailSource": "thread-store",
+							"leadingTokens": 2771,
+							"packTokens": 6006,
+							"floorTokens": 25835,
+							"cacheRead": 31453,
+							"cacheWrite": 386,
+							"inputTokens": 2,
+							"parts": [
+								{
+									"source": "recalled",
+									"approximate": true,
+									"approximateTokens": 0,
+									"turnIndices": []
+								},
+								{
+									"source": "curated",
+									"approximate": true,
+									"approximateTokens": 0,
+									"conceptIds": []
+								},
+								{
+									"source": "structure",
+									"approximate": true,
+									"approximateTokens": 0,
+									"symbols": []
+								},
+								{
+									"source": "verbatim-tail",
+									"approximate": true,
+									"approximateTokens": 2771,
+									"turnIndices": [
+										0,
+										1,
+										2
+									]
+								},
+								{
+									"source": "current-turn",
+									"approximate": true,
+									"approximateTokens": 30,
+									"turnIndices": [
+										3
+									]
+								}
+							]
+						}
+					],
+					"packTokens": 6006,
+					"floorTokens": 25835
+				}
+			],
+			"recordedAt": {
+				"0:2": 1790298991491,
+				"0:3": 1790298993826,
+				"1:1": 1790299006290,
+				"1:2": 1790299008428,
+				"0:0": 1790298985484,
+				"1:0": 1790299003147,
+				"1:3": 1790299011104,
+				"2:0": 1790299032878,
+				"3:0": 1790299046656,
+				"0:1": 1790298988757
+			}
+		}
+	]
+}

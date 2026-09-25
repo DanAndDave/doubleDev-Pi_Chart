@@ -345,6 +345,15 @@ async function reportBaseline(): Promise<void> {
 					calls: turn.calls.map((call) => ({
 						turnIndex: call.turnIndex,
 						callIndex: call.callIndex,
+						// Where the tail came from: a tail read back from the
+						// Thread Store is the case where a cacheable prefix has
+						// to survive a round trip through the database, and a
+						// window that cannot tell it apart cannot say so.
+						tailSource: call.tailSource,
+						// How much of the Pack the harness supplied itself: the
+						// prefix it can mark, and so the ceiling on what any
+						// provider was ever offered to cache.
+						leadingTokens: call.leadingTokens,
 						packTokens: call.packTokens,
 						floorTokens: call.floorTokens,
 						cacheRead: call.cacheRead,
@@ -377,6 +386,8 @@ async function reportBaseline(): Promise<void> {
 	let write = 0;
 	let writingCalls = 0;
 	const reads = new Set<number>();
+	const byTailSource = new Map<string, number[]>();
+	const byPrefix = new Map<string, number[]>();
 
 	for (const conversation of window.conversations) {
 		const calls = inspectConversation(conversation.turns);
@@ -394,6 +405,29 @@ async function reportBaseline(): Promise<void> {
 			write += call.cacheWrite ?? 0;
 			if ((call.cacheWrite ?? 0) > 0) writingCalls++;
 			if (call.cacheRead !== undefined) reads.add(call.cacheRead);
+			if (call.cachedPackShare !== undefined) {
+				// Bucketed by size as well as presence, so a prefix too small
+				// to be worth a cache block would show as one: measured, it
+				// does not — what separates a cached Call from an uncached
+				// one is whether there was a prefix at all.
+				const prefix =
+					call.leadingTokens === undefined
+						? "unrecorded"
+						: call.leadingTokens === 0
+							? "none"
+							: call.leadingTokens < 1024
+								? "under 1024 tokens"
+								: "1024 tokens or more";
+				byPrefix.set(prefix, [
+					...(byPrefix.get(prefix) ?? []),
+					call.cachedPackShare,
+				]);
+				const source = call.tailSource ?? "unrecorded";
+				byTailSource.set(source, [
+					...(byTailSource.get(source) ?? []),
+					call.cachedPackShare,
+				]);
+			}
 		}
 
 		for (const [index, call] of governed.entries()) {
@@ -444,6 +478,22 @@ async function reportBaseline(): Promise<void> {
 		`\ncached pack share, all pairs: median ${pct(quantile(shares, 0.5))} ` +
 			`p25 ${pct(quantile(shares, 0.25))} p75 ${pct(quantile(shares, 0.75))}`,
 	);
+
+	// The tail is the only part that can lead a Pack, so where it came from
+	// is the one thing that can decide whether there was a prefix at all.
+	console.log("\ncached pack share by where the tail came from:");
+	for (const [source, bucket] of [...byTailSource].sort()) {
+		console.log(
+			`  ${source.padEnd(17)} n=${bucket.length} median ${pct(quantile(bucket, 0.5))}`,
+		);
+	}
+
+	console.log("\ncached pack share by the prefix the harness could mark:");
+	for (const [prefix, bucket] of [...byPrefix].sort()) {
+		console.log(
+			`  ${prefix.padEnd(19)} n=${bucket.length} median ${pct(quantile(bucket, 0.5))}`,
+		);
+	}
 
 	console.log("\nby call position within a turn:");
 	for (const [position, bucket] of [...positions].sort((a, b) => a[0] - b[0])) {

@@ -153,6 +153,7 @@ describeStore("retention", () => {
 			{
 				messages: [],
 				parts: [],
+				leadingTokens: 0,
 				budgets: { tail: 8, recall: 4, docs: 2, graph: 3 },
 				rejected: 0,
 				unsearched: 0,

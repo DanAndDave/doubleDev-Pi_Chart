@@ -179,6 +179,7 @@ The Thread Store holds two things, both keyed by Conversation, Turn, and Call.
 - `calls[].parts` — which part of the Assembler contributed what, counted locally and **approximate**. Never used for the pack-versus-Floor figures.
 - `calls[].tailSource` — `thread-store` or `harness-fallback`, so a Call assembled without the store is visible afterwards, for the Calls the store was there to record.
 - `calls[].unassembled` — set when assembly failed and the harness's own array was used for that Call.
+- `calls[].leadingTokens` — how much of the Pack the harness supplied itself and could therefore mark for caching. What a Call was charged says nothing about why without it.
 
 ## Develop
 
@@ -215,6 +216,14 @@ Recall into a Context Pack never leaves the current Conversation — that scopin
 
 It is a tool rather than a second recall tier on purpose: assembly stays deterministic, and a session that went looking elsewhere is readable in the transcript afterwards.
 
+## The order of a pack
+
+A Pack begins with the longest run of messages the harness itself supplied for that Call, carried unaltered and in its positions; then recalled Turns, curated knowledge and structure; then the rest of the verbatim tail; then the Turn in progress. Background still sits between the Turns already answered and the prompt it is background for — what passes it now are the completed Turns the harness already had. The run ends at a Turn boundary, so nothing assembled is ever carried between a tool call and its result.
+
+The reason is measured. The harness marks a returned array for caching only as far as the first message that is not its own at that index, so a Pack opening with an assembled part is cached not at all: **0.0%** of the Pack across 545 governed Calls, against **97.2%** ungoverned (ADR-0005). Leading with the run takes a governed Call carrying curated knowledge from **13,934** to **6,298** tokens charged at the provider's multipliers — about what an ungoverned Call costs, for a Pack a third the size (ADR-0006).
+
+Nothing is altered to lengthen the run. A message elision shortened, a Turn the Thread Store holds differently, a tail that starts later than the harness's array: each ends the run and is carried after it. A first Call has no completed Turn to lead with and caches nothing, which is the Call that fills the cache rather than reads it.
+
 ## Inspect a pack
 
 `/pack` in the harness shows what the last Call's Context Window was made of, including the parts that carried nothing and why:
@@ -234,7 +243,7 @@ Turn 6, call 0
 - `/pack <turn>` or `/pack <turn>.<call>` — any Call the Conversation recorded. A Turn alone is its last Call; an address that was never recorded is refused, naming what is recorded, rather than answered with a different Call
 - `/pack why <subject>`, or `/pack why <address> <subject>` — why content matching that subject was not carried: the candidates that were excluded, nearest first, each with its distance or size and the threshold or Budget that excluded it. A number is a Turn; anything else matches a Concept id or a symbol. A leading address is only an address when a subject follows it, so `/pack why 4` asks about Turn 4 and `/pack why 12 4` asks about Turn 4 as Turn 12 saw it
 - `/pack diff` — what entered and left since the Call before it; `/pack diff <a> <b>` compares two named Calls
-- `/pack` also says what each Call cost: `cache  20492 read, 0 written (0% of the pack read from cache)`. The share is of the Pack rather than of the window, because the Floor is most of a window and caches whatever the Pack does — a rate over the window reads about 70% on a Call where none of the Pack was cached at all (ADR-0005)
+- `/pack` also says what each Call cost: `cache  33281 read, 108 written (92% of the pack read from cache)`. The share is of the Pack rather than of the window, because the Floor is most of a window and caches whatever the Pack does — a rate over the window reads about 70% on a Call where none of the Pack was cached at all (ADR-0005) — and the `prefix` line beside it says how much of the Pack the harness sent itself, which is what a cache reading is explained by (ADR-0006)
 - `/pack summary` — the whole Conversation, with average Budget spend, how the estimate compared with the reported window sizes, where the harness compacted, and which Calls ran with the harness's memory backend not off
 - `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, `recall`, `docs`, `graph`. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens`, `docs-tokens`, `graph-tokens`, and `pack` for the whole pack's ceiling
 

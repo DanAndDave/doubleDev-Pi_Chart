@@ -147,6 +147,14 @@ export interface PackPart {
 export interface Pack {
 	messages: HarnessMessage[];
 	parts: PackPart[];
+	/**
+	 * How much of the Pack the harness supplied itself, and so can mark for
+	 * caching: the approximate size of the run this Pack leads with. Zero
+	 * when nothing the Assembler carried agreed with the harness's array at
+	 * its own index, which is what a Call with nothing cached looks like
+	 * from this side.
+	 */
+	leadingTokens: number;
 	/** The Budgets in force for this Call, whether or not a part used them. */
 	budgets: { tail: number; recall: number; docs: number; graph: number };
 	/**
@@ -249,6 +257,15 @@ export type AbsenceCause =
 export interface AssembleInput {
 	/** Turns to carry verbatim: the recent ones, current Turn last. */
 	turns: Turn[];
+	/**
+	 * The messages the harness supplied for this Call, in its own order.
+	 * Read only to decide how much of the tail can lead the Pack unaltered:
+	 * the harness caches a returned array as far as the first message that
+	 * differs from its own at that index, so a Pack that opens with an
+	 * assembled part is cached not at all (ADR-0005). Nothing is carried
+	 * from here that the Turns do not already hold.
+	 */
+	supplied?: HarnessMessage[];
 	/** Turns found by meaning, most relevant first. */
 	recalled?: RecalledTurn[];
 	/** How many candidates retrieval refused as not relevant enough. */
@@ -276,13 +293,16 @@ export interface AssembleInput {
 }
 
 /**
- * Builds the Context Pack for one Call: recalled Turns, then the verbatim
- * tail, then the Turn in progress. Pure — no I/O, no clock, no randomness —
- * so the same inputs always produce the same pack.
+ * Builds the Context Pack for one Call: the run of messages the harness
+ * already sent, the parts this Assembler composed, the rest of the verbatim
+ * tail, then the Turn in progress — see `compose` for why it opens that
+ * way. Pure — no I/O, no clock, no randomness — so the same inputs always
+ * produce the same pack.
  */
 export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	const {
 		turns,
+		supplied = [],
 		recalled = [],
 		rejected = 0,
 		recallMisses = [],
@@ -309,8 +329,9 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	const parts: PackPart[] = [];
 
-	// Recall goes first: it is background for the exchange that follows, and
-	// it is trimmed to its own budget so it can never crowd out the tail.
+	// Recall comes first among the parts this Assembler composes, all of
+	// which are background for the Turns that follow them, and it is
+	// trimmed to its own Budget so it can never crowd out the tail.
 	const carried = byCount.concat(current ? [current] : []);
 	const eligible = eligibleRecollections(recalled, carried);
 	const recollections = fit(
@@ -351,7 +372,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		shortened: recollections.shortened || undefined,
 	});
 
-	// Curated knowledge sits ahead of the exchange, like recall: it is
+	// Curated knowledge sits with recall, ahead of the newest Turns: it is
 	// background the agent is being given, not something it just said.
 	const curated = fit(concepts, config.docConcepts, config.docTokens, (hit) => [
 		asCuratedKnowledge(hit),
@@ -545,8 +566,13 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		},
 	});
 
+	const composed = compose(parts, supplied);
 	return {
-		messages: parts.flatMap((part) => part.messages),
+		messages: composed.messages,
+		// What the harness can recognise, in tokens rather than messages:
+		// what a cache reads back is measured in tokens, and a run of six
+		// short messages and a run of six long ones are not the same offer.
+		leadingTokens: approximateTokens(composed.leading),
 		parts,
 		budgets: {
 			tail: config.tailTurns,
@@ -561,6 +587,106 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		beforeCeiling,
 		approximateTokens: totalOf(parts),
 	};
+}
+
+/**
+ * The Pack's messages: the run of tail messages the harness itself sent,
+ * then the assembled parts, then whatever of the tail it did not send, then
+ * the Turn in progress.
+ *
+ * The harness caches a returned array only as far as the first message that
+ * is not its own at that index, so a Pack that opens with an assembled part
+ * offers no prefix to cache at all — measured at 0.0% of the Pack against
+ * 97.2% ungoverned (ADR-0005). Leading with the run is what gives it one.
+ *
+ * The run comes out of the tail because no other part can: recalled Turns,
+ * Concepts and structure are prose this Assembler wrote, and the Turn in
+ * progress is the prompt being answered and ends the Pack. Splitting the
+ * tail keeps it in order — the run is its oldest messages — so the
+ * assembled parts still sit between the Turns already answered and the
+ * prompt they are background for.
+ */
+function compose(
+	parts: PackPart[],
+	supplied: HarnessMessage[],
+): { messages: HarnessMessage[]; leading: HarnessMessage[] } {
+	const tail = parts.find((part) => part.source === "verbatim-tail");
+	const lead = tail ? leadingRun(tail.messages, supplied) : 0;
+	if (!tail || lead === 0) {
+		return { messages: parts.flatMap((part) => part.messages), leading: [] };
+	}
+
+	// The harness's own objects, not the equal-by-value copies the tail
+	// carries: the harness marks its messages with a property nothing
+	// outside it can reproduce, and a Pack that hands back a faithful copy
+	// is a Pack it does not recognise. Same content either way — that is
+	// what the comparison below established — so this costs nothing and is
+	// the difference between a cached prefix and none.
+	const leading = supplied.slice(0, lead);
+	const messages = [...leading];
+	for (const part of parts) {
+		if (part === tail) messages.push(...part.messages.slice(lead));
+		else messages.push(...part.messages);
+	}
+	return { messages, leading };
+}
+
+/**
+ * How many of the tail's first messages are the harness's own, in its own
+ * positions.
+ *
+ * By value rather than by identity: rebuilding a message costs nothing at
+ * the harness's comparison, while moving one costs everything. The run ends
+ * at the first disagreement and is never repaired by substituting a
+ * different message — where the tail carries something the harness did not
+ * send, shortened or read back from the Thread Store with an edit behind
+ * it, that message follows the run.
+ */
+function leadingRun(
+	carried: HarnessMessage[],
+	supplied: HarnessMessage[],
+): number {
+	const bound = Math.min(carried.length, supplied.length);
+	let run = 0;
+	while (run < bound) {
+		if (!sameMessage(carried[run], supplied[run])) break;
+		run++;
+	}
+	// Back to a Turn boundary, because assembled prose goes in the gap the
+	// run leaves: a tool call separated from its result is a window a
+	// provider refuses outright, which is what the tail is measured in
+	// Turns to prevent. A Turn starts at its prompt, so the run may end
+	// only where the next message carried is one.
+	while (run > 0 && run < carried.length && carried[run]?.role !== "user") {
+		run--;
+	}
+	return run;
+}
+
+/**
+ * Whether two messages say the same thing.
+ *
+ * Structural rather than `Bun.deepEquals`, which compares symbol
+ * properties: the harness hangs one on every message it owns, and a marker
+ * this side cannot see — or reproduce — is not a difference in what the
+ * message says. Missing and undefined are the same for the same reason: a
+ * field dropped by the Thread Store's JSON round trip carried nothing.
+ */
+function sameMessage(left: unknown, right: unknown): boolean {
+	if (left === right) return true;
+	if (typeof left !== "object" || typeof right !== "object") return false;
+	if (left === null || right === null) return false;
+	if (Array.isArray(left) || Array.isArray(right)) {
+		if (!Array.isArray(left) || !Array.isArray(right)) return false;
+		if (left.length !== right.length) return false;
+		return left.every((each, index) => sameMessage(each, right[index]));
+	}
+	const mine = left as Record<string, unknown>;
+	const theirs = right as Record<string, unknown>;
+	for (const key of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
+		if (!sameMessage(mine[key], theirs[key])) return false;
+	}
+	return true;
 }
 
 function totalOf(parts: PackPart[]): number {

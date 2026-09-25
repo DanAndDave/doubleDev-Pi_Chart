@@ -295,6 +295,16 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS concepts_unsearched INTEGER`,
 		],
 	},
+	{
+		version: 21,
+		statements: [
+			// How much of the Pack the harness supplied itself. What a Call
+			// was charged says nothing about why: a window read back from the
+			// cache and one paid for in full differ by what the harness could
+			// recognise, and nothing recorded that.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS leading_tokens INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -329,6 +339,7 @@ interface AccountingRow {
 	rejected: number | null;
 	unsearched: number | null;
 	concepts_unsearched: number | null;
+	leading_tokens: number | null;
 	ceiling: number | null;
 	before_ceiling: number | null;
 	compaction_epoch: number | null;
@@ -770,14 +781,14 @@ export class PostgresStore implements
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
 				 approximate_tokens, unassembled, tail_source, budgets, rejected,
-				 unsearched, concepts_unsearched, ceiling, before_ceiling,
-				 memory_backend)
+				 unsearched, concepts_unsearched, leading_tokens, ceiling,
+				 before_ceiling, memory_backend)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
 				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
-				${pack.unsearched}, ${pack.conceptsUnsearched}, ${pack.ceiling},
-				${pack.beforeCeiling},
+				${pack.unsearched}, ${pack.conceptsUnsearched}, ${pack.leadingTokens},
+				${pack.ceiling}, ${pack.beforeCeiling},
 				${memoryBackend}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
@@ -791,6 +802,7 @@ export class PostgresStore implements
 				rejected = EXCLUDED.rejected,
 				unsearched = EXCLUDED.unsearched,
 				concepts_unsearched = EXCLUDED.concepts_unsearched,
+				leading_tokens = EXCLUDED.leading_tokens,
 				ceiling = EXCLUDED.ceiling,
 				before_ceiling = EXCLUDED.before_ceiling,
 				memory_backend = EXCLUDED.memory_backend`;
@@ -886,8 +898,8 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected, unsearched, concepts_unsearched, ceiling,
-			       before_ceiling, compaction_epoch,
+			       rejected, unsearched, concepts_unsearched, leading_tokens,
+			       ceiling, before_ceiling, compaction_epoch,
 			       memory_backend, cache_read, cache_write, input_tokens
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
@@ -917,6 +929,7 @@ export class PostgresStore implements
 			rejected: row.rejected ?? undefined,
 			unsearched: row.unsearched ?? undefined,
 			conceptsUnsearched: row.concepts_unsearched ?? undefined,
+			leadingTokens: row.leading_tokens ?? undefined,
 			ceiling: row.ceiling ?? undefined,
 			beforeCeiling: row.before_ceiling ?? undefined,
 			compactionEpoch: row.compaction_epoch ?? undefined,

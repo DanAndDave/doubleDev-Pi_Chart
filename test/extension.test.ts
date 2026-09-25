@@ -661,6 +661,62 @@ describe("the verbatim tail", () => {
 		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
 	});
 
+	test("a pack leads with the messages the harness sent, then the retrieval", async () => {
+		const store = new MemoryTurnSource();
+		await store.ingest("conv-1", [
+			{
+				turnIndex: 0,
+				prompt: "earlier",
+				messages: [
+					{ role: "user", content: "earlier" },
+					{ role: "assistant", content: "answered" },
+				],
+				callCount: 1,
+				calls: [0, 0],
+			},
+		]);
+		const cm = harness({
+			turns: store,
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
+				searchConcepts: async () => ({
+					hits: [
+						{
+							conceptId: "decisions/caching",
+							text: "We cache.",
+							trust: "unverified" as const,
+							sectionIndex: 0,
+							sectionCount: 1,
+							stale: false,
+							distance: 0.2,
+						},
+					],
+					rejected: 0,
+					misses: [],
+					unsearched: 0,
+				}),
+			},
+			config: { docConcepts: 2, docMaxDistance: 0.5, docBundle: "/unused" },
+		});
+		const messages = [
+			{ role: "user", content: "earlier" },
+			{ role: "assistant", content: "answered" },
+			{ role: "user", content: "current" },
+		];
+
+		const result = await cm.context({ messages }, ctx());
+		await cm.settle();
+
+		// The harness caches a returned array as far as the first message it
+		// did not itself send, so its own two come back where it put them —
+		// even though this tail was read from the store, not from the array.
+		expect(result?.messages.slice(0, 2)).toEqual(messages.slice(0, 2));
+		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
+		expect(JSON.stringify(result?.messages[2])).toContain("curated knowledge");
+		expect(result?.messages[3]?.content).toBe("current");
+	});
+
 	test("falls back to the harness's own history when the store rejects", async () => {
 		const cm = harness({
 			turns: {

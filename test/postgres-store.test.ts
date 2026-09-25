@@ -7,6 +7,7 @@ import { SQL } from "bun";
 
 import { assemble } from "../src/assembler.ts";
 import { StubEmbedder } from "../src/embedder.ts";
+import { reconstructTurns } from "../src/turns.ts";
 import { readJournal } from "../src/journal.ts";
 import {
 	MIGRATION_VERSIONS,
@@ -111,6 +112,26 @@ describeStore("PostgresStore", () => {
 		// Read back per Call, because a Conversation spanning a model change
 		// has Calls on both sides of the repair.
 		expect(turn?.calls[0]?.conceptsUnsearched).toBe(5);
+	});
+
+	test("what the harness could recognise survives the write", async () => {
+		const supplied = [
+			{ role: "user", content: "earlier" },
+			{ role: "assistant", content: "answered" },
+			{ role: "user", content: "hi" },
+		];
+		const pack = assemble(
+			{ turns: reconstructTurns(supplied), supplied },
+			budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+
+		const [turn] = await store.readAccounting("conv-1");
+
+		// The figure that explains a cache line: what was charged says
+		// nothing about why without it.
+		expect(pack.leadingTokens).toBeGreaterThan(0);
+		expect(turn?.calls[0]?.leadingTokens).toBe(pack.leadingTokens);
 	});
 
 	test("accounting for a tool-using turn groups its calls", async () => {

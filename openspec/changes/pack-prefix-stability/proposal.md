@@ -15,10 +15,11 @@ One measurement isolates it. Four extensions differing only in what they hand ba
 - The Assembler's output begins with the longest run of messages the harness itself sent, unaltered and in place, so the harness has a prefix to mark. Everything assembled — recalled Turns, Concepts, structure — follows it.
 - Where the verbatim tail is drawn from the Thread Store or shortened by elision, it is not the harness's own message and cannot lead. The tail's composition therefore becomes part of the decision rather than an implementation detail: a Pack that reuses the harness's messages where they agree with the Store's keeps a cacheable prefix; one that always rebuilds does not.
 - A Pack's parts keep their identity and their Budgets. This changes where parts sit, not what they carry or what bounds them.
-- The claim the current order encodes — that retrieval is background for the Turn that follows — is what has to be argued against, not merely outspent. A pack whose background sits after the exchange is a different pack for the model, and no Journal figure reports what that does to an answer.
+- The claim the current order encodes — that retrieval is background for the Turn that follows — is what has to be argued against, not merely outspent. A pack whose background sits after the Turns already answered is a different pack for the model, and no Journal figure reports what that does to an answer.
 - The cache figures already recorded become the acceptance test: a governed Conversation's median cached Pack share must rise from 0.0%, measured by the script that established the baseline.
+- A Call records how much of its Pack the harness supplied itself, and `/pack` reports it beside the cache figure it explains. Without it a cached share is a number with no cause attached, and the measurement above cannot separate a Pack that led with nothing from one that led with something too small to matter.
 
-**Not in scope:** what is retrieved or how (`recall-fidelity`, `doc-authoring`); Budgets and the ceiling (`token-budgets`); the accounting columns and the `/pack` line, which shipped with `pack-order-cache`.
+**Not in scope:** what is retrieved or how (`recall-fidelity`, `doc-authoring`); Budgets and the ceiling (`token-budgets`); the cache figures themselves, which shipped with `pack-order-cache`.
 
 ## Capabilities
 
@@ -28,7 +29,7 @@ One measurement isolates it. Four extensions differing only in what they hand ba
 
 ## Impact
 
-- **Schema:** none. The columns this reads shipped with `pack-order-cache`.
+- **Schema:** one nullable `leading_tokens` column on `call_accounting`, through the existing migration list. The cache figures it explains shipped with `pack-order-cache`.
 - **Assembly:** the reduction order under the ceiling is stated in `context-assembly` and is independent of composition order; both must be re-stated together so a reader cannot confuse them.
 - **Risk:** a quality regression no cost figure would show. The measurement here is cheap and the quality argument is not, which is why this is its own change rather than a line in the one that measured.
 - **Blocked by:** nothing. `pack-order-cache` shipped the instrument, the baseline and ADR-0005.
