@@ -1,5 +1,5 @@
 // Store-backed: ranking by distance is the database's job, so a fake would
-// only prove our arithmetic. Needs `docker compose up -d` and CM_DATABASE_URL.
+// only prove our arithmetic. Needs `docker compose up -d` and PICHART_DATABASE_URL.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
@@ -19,7 +19,7 @@ function missing(): never {
 	throw new Error("nothing recorded");
 }
 
-const databaseUrl = process.env.CM_DATABASE_URL;
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
 /** Wide enough to admit everything: these cases are about ranking, not relevance. */

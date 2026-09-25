@@ -18,7 +18,7 @@ The functionality audit's last four items are documentation: a variable document
 
 ### Documentation describes today, and names the change that alters it
 
-The audit was written before `store-hygiene`, `recall-fidelity`, `doc-authoring` and `pack-order-cache` shipped, and three of its four items moved underneath it: `CM_PG_PORT` became readable, vector provenance arrived for Turns, and `ensureIdentities` acquired a sibling that writes far more deliberately. So each item is checked against the code at the moment of writing rather than against the audit's description of it, and where behaviour differs by branch — a declined Thread Store against an unreachable one — the README says which is which instead of collapsing them.
+The audit was written before `store-hygiene`, `recall-fidelity`, `doc-authoring` and `pack-order-cache` shipped, and three of its four items moved underneath it: `PICHART_PG_PORT` became readable, vector provenance arrived for Turns, and `ensureIdentities` acquired a sibling that writes far more deliberately. So each item is checked against the code at the moment of writing rather than against the audit's description of it, and where behaviour differs by branch — a declined Thread Store against an unreachable one — the README says which is which instead of collapsing them.
 
 ### The README cites symbols, never line numbers
 
@@ -26,7 +26,7 @@ A first draft cited `file:line` for each corrected claim. Line numbers in a user
 
 ### A code gap found while correcting a sentence is recorded, not fixed
 
-Writing the `CM_EMBED_MODEL` row turned up that Concept-section vectors carry no model provenance, so a same-width model swap leaves curated knowledge ranking one model's query against another's vectors — the failure `recall-fidelity` removed for Turns. The row states that as today's behaviour, and the finding goes to the audit for whoever plans next. Fixing it here would be a schema change inside a change that promised to touch no code.
+Writing the `PICHART_EMBED_MODEL` row turned up that Concept-section vectors carry no model provenance, so a same-width model swap leaves curated knowledge ranking one model's query against another's vectors — the failure `recall-fidelity` removed for Turns. The row states that as today's behaviour, and the finding goes to the audit for whoever plans next. Fixing it here would be a schema change inside a change that promised to touch no code.
 
 ## Risks / Trade-offs
 

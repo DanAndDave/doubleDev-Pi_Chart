@@ -24,7 +24,7 @@ import {
 	DEFAULT_TAIL_TURNS,
 	loadConfig,
 } from "../src/config.ts";
-import contextManager, {
+import piChart, {
 	register,
 	type Dependencies,
 } from "../src/extension.ts";
@@ -539,7 +539,7 @@ describe("the harness's own memory backend", () => {
 		});
 
 		await cm.sessionStart({}, ctx([], active));
-		await cm.commands["context-manager"]?.handler("", {});
+		await cm.commands["pi-chart"]?.handler("", {});
 
 		// Two surfaces, one condition, said the same way: a check reading
 		// "not reported" where the report read "active" would look like two
@@ -1495,7 +1495,7 @@ describe("the graph store in a session", () => {
 	function graphStore(options: { graph?: string; fails?: boolean } = {}) {
 		const refreshed: string[] = [];
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async (path) =>
 				path.endsWith("bin/graphify") ||
 				(options.graph !== undefined && path.endsWith("graph.json")),
@@ -1581,7 +1581,7 @@ describe("the graph store in a session", () => {
 
 	test("a failure to extract is reported and the session goes on", async () => {
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => undefined,
 			read: async () => graphJson,
@@ -1652,7 +1652,7 @@ describe("the graph store in a session", () => {
 	test("a turn is not delayed by the refresh that follows it", async () => {
 		const { promise: never } = Promise.withResolvers<void>();
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => 1,
 			read: async () => graphJson,
@@ -1677,7 +1677,7 @@ describe("the graph store in a session", () => {
 
 	test("a failed refresh leaves the previous graph readable", async () => {
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => 1,
 			read: async () => graphJson,
@@ -1731,7 +1731,7 @@ describe("the graph store in a session", () => {
 	test("structure from an edited file is marked in the pack", async () => {
 		// The extraction is older than the file the symbol lives in.
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async (path) => (path.endsWith("graph.json") ? 10 : 20),
 			read: async () => graphJson,
@@ -1752,7 +1752,7 @@ describe("the graph store in a session", () => {
 
 	test("structure from an untouched file is not marked", async () => {
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async (path) => (path.endsWith("graph.json") ? 20 : 10),
 			read: async () => graphJson,
@@ -1793,10 +1793,10 @@ describe("wiring a session that declined the thread store", () => {
 	/** The extension as the harness loads it, with no database configured. */
 	function loaded(url: string): Record<string, CommandDefinition> {
 		const commands: Record<string, CommandDefinition> = {};
-		const before = process.env.CM_DATABASE_URL;
-		process.env.CM_DATABASE_URL = url;
+		const before = process.env.PICHART_DATABASE_URL;
+		process.env.PICHART_DATABASE_URL = url;
 		try {
-			contextManager({
+			piChart({
 				on: () => {},
 				registerCommand: (name: string, command: CommandDefinition) => {
 					commands[name] = command;
@@ -1804,8 +1804,8 @@ describe("wiring a session that declined the thread store", () => {
 				registerTool: () => {},
 			} as unknown as ExtensionAPI);
 		} finally {
-			if (before === undefined) delete process.env.CM_DATABASE_URL;
-			else process.env.CM_DATABASE_URL = before;
+			if (before === undefined) delete process.env.PICHART_DATABASE_URL;
+			else process.env.PICHART_DATABASE_URL = before;
 		}
 		return commands;
 	}
@@ -1831,7 +1831,7 @@ describe("wiring a session that declined the thread store", () => {
 		// record of what happened cannot withdraw it.
 		const commands = loaded("");
 		const written = await said(
-			commands["context-manager"]?.handler("", {}) ?? Promise.resolve(),
+			commands["pi-chart"]?.handler("", {}) ?? Promise.resolve(),
 		);
 
 		expect(written).toContain("codebase graph");
@@ -2767,10 +2767,40 @@ describe("retention at the end of a session", () => {
 	});
 
 	test("an unusable retention age is refused with a reason", () => {
-		const config = loadConfig({ CM_RETAIN_DAYS: "a fortnight" });
+		const config = loadConfig({ PICHART_RETAIN_DAYS: "a fortnight" });
 
 		expect(config.retainDays).toBeUndefined();
-		expect(config.problems.join("\n")).toContain("CM_RETAIN_DAYS");
+		expect(config.problems.join("\n")).toContain("PICHART_RETAIN_DAYS");
+	});
+});
+
+describe("a setting written for the old name", () => {
+	test("is named, with what replaces it, and changes nothing", () => {
+		const config = loadConfig({ CM_TAIL_TURNS: "2", CM_DATABASE_URL: "postgres://x" });
+
+		// Read as configuration it would be two names for one setting; read
+		// as nothing at all it would be a session that looks configured and
+		// runs on defaults.
+		expect(config.tailTurns).toBe(DEFAULT_TAIL_TURNS);
+		expect(config.databaseUrl).not.toBe("postgres://x");
+		const said = config.problems.join("\n");
+		expect(said).toContain("CM_TAIL_TURNS is not read");
+		expect(said).toContain("PICHART_TAIL_TURNS");
+		expect(said).toContain("PICHART_DATABASE_URL");
+	});
+
+	test("a name nothing ever read is not promised a setting", () => {
+		const said = loadConfig({ CM_TAIL_TURN: "2" }).problems.join("\n");
+
+		// A typo told its setting is `PICHART_TAIL_TURN` is the silent
+		// default this report exists to prevent, with a confident name on it.
+		expect(said).toContain("CM_TAIL_TURN is not read");
+		expect(said).not.toContain("PICHART_TAIL_TURN.");
+		expect(said).toContain("named PICHART_*");
+	});
+
+	test("says nothing when nothing was left behind", () => {
+		expect(loadConfig({ PICHART_TAIL_TURNS: "2" }).problems).toEqual([]);
 	});
 });
 

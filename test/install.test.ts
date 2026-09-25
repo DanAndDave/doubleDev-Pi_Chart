@@ -3,9 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
 	defaultDatabaseUrl,
 	loadConfig,
+	SETTINGS,
 	type Config,
 } from "../src/config.ts";
 import { describeChecks, Installation, projectRoot } from "../src/install.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 function config(overrides: Partial<Config> = {}): Config {
 	return { ...loadConfig({}), ...overrides };
@@ -15,12 +18,17 @@ function installation(options: {
 	bun?: string;
 	reachable?: boolean;
 	bundle?: boolean;
+	/** Paths that exist, where a test needs to tell them apart. */
+	existing?: string[];
 	ran?: string[][];
 }): Installation {
 	return new Installation({
 		bun: async () => options.bun,
 		reachable: async () => options.reachable === true,
-		exists: async () => options.bundle === true,
+		exists: async (path) =>
+			options.existing === undefined
+				? options.bundle === true
+				: options.existing.includes(path),
 		root: "/work/project",
 		// The cwd is recorded too: it is what makes `docker compose` find
 		// this project's compose file, and nothing else would notice it go.
@@ -37,15 +45,56 @@ describe("what an unconfigured install does", () => {
 		expect(loadConfig({}).databaseUrl).toBe(defaultDatabaseUrl());
 	});
 
+	test("the settings list is what the code actually reads", async () => {
+		const root = projectRoot();
+		const read = new Set<string>();
+		for (const directory of ["src", "test", "scripts"]) {
+			const glob = new Bun.Glob("**/*.ts");
+			for await (const file of glob.scan({ cwd: join(root, directory), absolute: true })) {
+				const text = await Bun.file(file).text();
+				// Reads, not mentions: a test that quotes a name it expects
+				// nothing to read would otherwise look like a setting.
+				for (const match of text.matchAll(/\benv\.(PICHART_[A-Z0-9_]+)/g)) {
+					const name = match[1];
+					if (name) read.add(name);
+				}
+				for (const match of text.matchAll(/\benv\["(PICHART_[A-Z0-9_]+)"\]/g)) {
+					const name = match[1];
+					if (name) read.add(name);
+				}
+			}
+		}
+
+		// The list is what tells a variable written for the old name
+		// whether it still has a home, so a setting added without it would
+		// be reported as a name nothing reads.
+		expect([...read].sort()).toEqual([...SETTINGS].sort());
+	});
+
+	test("the default url and the compose file name the same store", async () => {
+		const compose = await Bun.file(join(projectRoot(), "compose.yaml")).text();
+		const url = new URL(defaultDatabaseUrl());
+
+		// Two files, one Postgres: a role renamed in one of them and not the
+		// other is a store that starts and cannot be reached.
+		// To the end of the line, or a role shortened to a prefix of itself
+		// passes the test that exists to catch exactly that.
+		expect(compose).toContain(`POSTGRES_USER: ${url.username}\n`);
+		expect(compose).toContain(`POSTGRES_PASSWORD: ${url.password}\n`);
+		expect(compose).toContain(`POSTGRES_DB: ${url.pathname.slice(1)}\n`);
+		// The port the compose file falls back to when PICHART_PG_PORT is unset.
+		expect(compose).toContain(`PICHART_PG_PORT:-${url.port}}:5432`);
+	});
+
 	test("the port compose was told to serve is the port the extension dials", () => {
-		// `compose.yaml` honours `CM_PG_PORT`; until now the extension read
+		// `compose.yaml` honours `PICHART_PG_PORT`; until now the extension read
 		// it nowhere and dialled 55432 while the container listened
 		// elsewhere, so nothing was recorded and nothing recalled.
-		expect(loadConfig({ CM_PG_PORT: "6543" }).databaseUrl).toContain(":6543/");
+		expect(loadConfig({ PICHART_PG_PORT: "6543" }).databaseUrl).toContain(":6543/");
 		expect(loadConfig({}).databaseUrl).toContain(":55432/");
 		// A configured URL still outranks the port.
 		expect(
-			loadConfig({ CM_PG_PORT: "6543", CM_DATABASE_URL: "postgres://x/y" })
+			loadConfig({ PICHART_PG_PORT: "6543", PICHART_DATABASE_URL: "postgres://x/y" })
 				.databaseUrl,
 		).toBe("postgres://x/y");
 	});
@@ -53,13 +102,13 @@ describe("what an unconfigured install does", () => {
 	test("a configured store still wins", () => {
 		const url = "postgres://elsewhere/db";
 
-		expect(loadConfig({ CM_DATABASE_URL: url }).databaseUrl).toBe(url);
+		expect(loadConfig({ PICHART_DATABASE_URL: url }).databaseUrl).toBe(url);
 	});
 
 	test("graph extraction is asked for, not assumed", () => {
 		// It writes a directory into the user's repository.
 		expect(loadConfig({}).graphExtract).toBe(false);
-		expect(loadConfig({ CM_GRAPH: "on" }).graphExtract).toBe(true);
+		expect(loadConfig({ PICHART_GRAPH: "on" }).graphExtract).toBe(true);
 	});
 });
 
@@ -175,6 +224,21 @@ describe("checking an installation", () => {
 		expect(checks.every((check) => check.fix === undefined)).toBe(true);
 	});
 
+	test("a bundle left where the old name put it is named, not moved", async () => {
+		const old = join(homedir(), ".context-manager", "bundle");
+		const checks = await installation({
+			bun: "/usr/bin/bun",
+			reachable: true,
+			existing: [old],
+		}).check(config(), "off");
+		const bundle = checks.find((check) => check.name === "doc bundle");
+
+		// The operator's own Concepts: named where they are, with the two
+		// ways to reach them, and left alone.
+		expect(bundle?.detail).toContain(old);
+		expect(bundle?.fix).toContain("PICHART_DOC_BUNDLE");
+	});
+
 	test("an absent bundle is reported without being a problem", async () => {
 		const checks = await installation({
 			bun: "/usr/bin/bun",
@@ -204,6 +268,25 @@ describe("setting an installation up", () => {
 		expect(ran).toEqual([
 			["docker", "compose", "up", "-d", "--wait", "/work/project"],
 		]);
+	});
+
+	test("does not create a bundle over the top of one the rename left", async () => {
+		const install = new Installation({
+			bun: async () => "/usr/bin/bun",
+			reachable: async () => true,
+			exists: async (path) => path === join(homedir(), ".context-manager", "bundle"),
+			root: "/work/project",
+			run: async () => ({ ok: true, output: "" }),
+		});
+
+		const done = await install.setup(config());
+		const bundle = done.find((check) => check.name === "doc bundle");
+
+		// An empty bundle created here reads as "ok" ever after, and the
+		// Concepts at the old default are never mentioned again.
+		expect(bundle?.detail).toContain(join(homedir(), ".context-manager", "bundle"));
+		expect(bundle?.fix).toContain("PICHART_DOC_BUNDLE");
+		expect(bundle?.detail).toStartWith("not created");
 	});
 
 	test("a docker that never returns is bounded", async () => {

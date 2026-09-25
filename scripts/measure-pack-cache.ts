@@ -13,8 +13,8 @@
  * spaced wider than the cache lifetime are dropped: a cold cache says
  * nothing about the order that filled it.
  *
- *     CM_DATABASE_URL=… bun scripts/measure-pack-cache.ts
- *     CM_DATABASE_URL=… bun scripts/measure-pack-cache.ts --export window.json
+ *     PICHART_DATABASE_URL=… bun scripts/measure-pack-cache.ts
+ *     PICHART_DATABASE_URL=… bun scripts/measure-pack-cache.ts --export window.json
  *     bun scripts/measure-pack-cache.ts window.json
  *
  * A scratch database is one `truncate` away from being the only copy of a
@@ -285,8 +285,8 @@ function slid(before: CallView, after: CallView): boolean {
 async function collect(): Promise<Window> {
 	if (from) return (await Bun.file(from).json()) as Window;
 
-	const url = process.env.CM_DATABASE_URL;
-	if (!url) throw new Error("CM_DATABASE_URL, or a window file to read, is required");
+	const url = process.env.PICHART_DATABASE_URL;
+	if (!url) throw new Error("PICHART_DATABASE_URL, or a window file to read, is required");
 	const sql = new SQL(url);
 	const store = PostgresStore.connect(url);
 	try {

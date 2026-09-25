@@ -1239,7 +1239,7 @@ function fitRecollection(
 			if (!shortenable(line)) return lineText(line);
 			return lineText(line, elideLine(line.payload, allocation[at++] ?? 0));
 		});
-		best = { ...recollection(header, shortened), cmShortened: true };
+		best = { ...recollection(header, shortened), piChartShortened: true };
 		if (approximateTokens([best]) <= allowance || room === 0) break;
 		room = Math.floor(room * 0.9) - 1;
 		if (room < 0) room = 0;

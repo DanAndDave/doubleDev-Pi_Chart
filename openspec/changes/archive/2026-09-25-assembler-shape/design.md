@@ -17,7 +17,7 @@ See `proposal.md` for what the code review found and why none of it is a defect.
 
 - Any behaviour change, except the three the marker forced and this design records below. A finding that cannot be taken without changing a Pack is dropped, not negotiated — and each of the three is measured against every Pack this machine can produce.
 - Touching what is selected, shortened, ranked, or reported.
-- Renaming settings or Accounting fields. `CM_TAIL_TOKENS`, `tokenBudget`, `withoutCeiling` and the rest are a published surface; this is internal shape only.
+- Renaming settings or Accounting fields. `PICHART_TAIL_TOKENS`, `tokenBudget`, `withoutCeiling` and the rest are a published surface; this is internal shape only.
 
 ## Decisions
 
@@ -32,7 +32,7 @@ interface Budget {
 
 `AssemblerConfig` carries four of them — `tail`, `recall`, `docs`, `graph` — plus `packTokens`, which is a Ceiling and not a Budget: it has no count dimension, and `CONTEXT.md` names it separately for that reason.
 
-**`Config` keeps its flat fields.** It is the environment's shape (`CM_TAIL_TURNS`, `CM_TAIL_TOKENS`), `setBudget`'s nine names index it, and `test/fixtures.ts:settings()` writes through it key by key. Nesting it would ripple into `install.ts`'s checks and the README for no gain. The conversion lives in one place: `extension.ts`'s `deps.config` → `AssemblerConfig` literal, which is exactly the nine-line restatement the review flagged, and which becomes four `Budget` literals.
+**`Config` keeps its flat fields.** It is the environment's shape (`PICHART_TAIL_TURNS`, `PICHART_TAIL_TOKENS`), `setBudget`'s nine names index it, and `test/fixtures.ts:settings()` writes through it key by key. Nesting it would ripple into `install.ts`'s checks and the README for no gain. The conversion lives in one place: `extension.ts`'s `deps.config` → `AssemblerConfig` literal, which is exactly the nine-line restatement the review flagged, and which becomes four `Budget` literals.
 
 `PackPart`, `RecordedPart` and `PartView` follow `AssemblerConfig`: one `budget?: Budget` where they carry `budget`/`tokenBudget` today. **This changes recorded Accounting JSONB**, so the reader must accept both shapes — see Migration.
 
@@ -87,7 +87,7 @@ Tasks 4.5–4.7 ask for the marker's arithmetic to be folded into `elide` and fo
 | Every Pack stays byte-identical | `assemble()` boundary over real Journal fixtures: serialise the Pack before and after, compare. This is the change's only real test, and it is a throwaway script, not a permanent one — its value expires when the change lands. |
 | Budgets bind as before, in both denominations | The existing `assemble()` tests, unchanged. If one needs editing to pass, the refactor changed behaviour and is wrong. |
 | Elision behaves as before | The existing shortening tests, moved to `test/elision.test.ts` with their assertions untouched. |
-| Accounting reads both shapes | Store boundary (`CM_DATABASE_URL`): write a row in the old shape by hand, read it through `readAccounting`, assert the view. |
+| Accounting reads both shapes | Store boundary (`PICHART_DATABASE_URL`): write a row in the old shape by hand, read it through `readAccounting`, assert the view. |
 | The inspector renders unchanged | The existing `report.test.ts`, unchanged. |
 
 The existing suite is the seam: a refactor that needs new behavioural tests is not a refactor. Three tests are new, and each is one of the three cases where this is not purely a refactor: an Accounting row in the old pair shape, one in the older count-only shape — whose size must stay absent rather than be read as a Budget of zero — and the message shortened for its metadata alone.

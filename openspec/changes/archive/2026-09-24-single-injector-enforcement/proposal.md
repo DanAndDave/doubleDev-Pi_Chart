@@ -4,7 +4,7 @@ Triage: ready-for-agent
 
 ## Why
 
-The `context-assembly` spec promises that "no content originating from the harness's memory backend SHALL appear in any Context Pack" (`openspec/specs/context-assembly/spec.md:84-91`). Nothing in `src/` makes that true. `session_start` asks the harness, remembers the answer and reports it (`src/extension.ts:263-287`); the `context` handler then assembles identically whether `memoryOff` is `true`, `false` or `undefined` (`:224-274`). `/context-manager` prints it as a failed check (`src/install.ts:91-101`), still advisory — the first `partial` row of the audit's Spec conformance table.
+The `context-assembly` spec promises that "no content originating from the harness's memory backend SHALL appear in any Context Pack" (`openspec/specs/context-assembly/spec.md:84-91`). Nothing in `src/` makes that true. `session_start` asks the harness, remembers the answer and reports it (`src/extension.ts:263-287`); the `context` handler then assembles identically whether `memoryOff` is `true`, `false` or `undefined` (`:224-274`). `/pi-chart` prints it as a failed check (`src/install.ts:91-101`), still advisory — the first `partial` row of the audit's Spec conformance table.
 
 So a user who ignores one stderr line runs a whole Conversation with two injectors. ADR-0003 is why the invariant exists: two systems injecting into one Context Window makes a bad Pack undiagnosable, and the setting is one key to reverse (`docs/adr/0003-deterministic-assembler.md:5`). Accounting attributes nothing to the contamination, so the diagnosis is gone afterwards too.
 

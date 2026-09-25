@@ -1,6 +1,6 @@
 // Store-backed: what a sweep writes, and what it refuses to write again.
 // Both are claims about real SQL — statements issued, rows left alone — so a
-// fake would only prove our arithmetic. Needs CM_DATABASE_URL.
+// fake would only prove our arithmetic. Needs PICHART_DATABASE_URL.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
@@ -10,7 +10,7 @@ import type { JournalTurn } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
-const databaseUrl = process.env.CM_DATABASE_URL;
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
 const HERE = "/repo";

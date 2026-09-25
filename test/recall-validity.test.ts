@@ -1,7 +1,7 @@
 // Store-backed: what makes a stored vector valid, and what a
 // Conversation-scoped recall guarantees to return. Both are claims about
 // real SQL over a real corpus, so a fake would only prove our arithmetic.
-// Needs CM_DATABASE_URL.
+// Needs PICHART_DATABASE_URL.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
@@ -17,7 +17,7 @@ import type { JournalTurn } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
-const databaseUrl = process.env.CM_DATABASE_URL;
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
 /** Wide enough to admit everything: these cases are not about relevance. */

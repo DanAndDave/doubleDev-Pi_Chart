@@ -12,8 +12,8 @@
    "norm_label": "assemble"
   },
   {
-   "id": "extension_contextmanager",
-   "label": "contextManager()",
+   "id": "extension_pichart",
+   "label": "piChart()",
    "file_type": "code",
    "source_file": "src/extension.ts",
    "source_location": "L520",
@@ -58,7 +58,7 @@
  ],
  "links": [
   {
-   "source": "extension_contextmanager",
+   "source": "extension_pichart",
    "target": "assembler_assemble",
    "relation": "calls",
    "confidence": "EXTRACTED",
@@ -96,7 +96,7 @@
    "source_file": "src/assembler.ts"
   },
   {
-   "source": "extension_contextmanager",
+   "source": "extension_pichart",
    "target": "ref_bun",
    "relation": "imports",
    "confidence": "EXTRACTED",

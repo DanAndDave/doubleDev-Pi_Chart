@@ -405,7 +405,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		// Asked once, here, and remembered: the answer cannot change within a
-		// Conversation, `context-manager` runs long after this with no way to
+		// Conversation, `pi-chart` runs long after this with no way to
 		// ask the harness itself, and every Call records what was observed.
 		//
 		// A `status` that throws is silence, not an answer — the same rule the
@@ -991,10 +991,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	if (pi.registerCommand) {
-		pi.registerCommand("context-manager", {
+		pi.registerCommand("pi-chart", {
 			description:
 				"Check what this extension needs and what is missing: " +
-				"`context-manager` to check, `context-manager setup` to start " +
+				"`pi-chart` to check, `pi-chart setup` to start " +
 				"the thread store",
 			handler: async (args, commandCtx) => {
 				const output = await manageInstall(args.trim());
@@ -1049,7 +1049,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			return `${describeChecks(done)}\n\nNow:\n${describeChecks(after)}`;
 		}
 		if (args !== "") {
-			return `Unknown command: ${args}. Use \`context-manager\` or \`context-manager setup\`.`;
+			return `Unknown command: ${args}. Use \`pi-chart\` or \`pi-chart setup\`.`;
 		}
 
 		return describeChecks(
@@ -1396,8 +1396,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		missingGraphReported = true;
 		reportSafely(
 			`Structure is configured (${deps.config.graphSymbols} symbols) but this ` +
-				`codebase has no graph; run with CM_GRAPH=on to derive one, or set ` +
-				`CM_GRAPH_SYMBOLS=0 to stop asking for it.`,
+				`codebase has no graph; run with PICHART_GRAPH=on to derive one, or set ` +
+				`PICHART_GRAPH_SYMBOLS=0 to stop asking for it.`,
 		);
 	}
 
@@ -1548,7 +1548,7 @@ function sleep(ms: number): Promise<void> {
 	return promise;
 }
 
-export default function contextManager(pi: ExtensionAPI): void {
+export default function piChart(pi: ExtensionAPI): void {
 	const config = loadConfig(process.env);
 
 	// Everything a Codebase alone can serve is unconditional: structure is
@@ -1588,7 +1588,7 @@ export default function contextManager(pi: ExtensionAPI): void {
 		// recalled, and the fix is one command away.
 		reportToStderr(
 			`Thread Store unreachable, so nothing is recorded or recalled. ` +
-				`Run \`/context-manager setup\` to start it. (${describe(error)})`,
+				`Run \`/pi-chart setup\` to start it. (${describe(error)})`,
 		);
 	});
 
@@ -1631,5 +1631,5 @@ function showToStdout(text: string): void {
 }
 
 function reportToStderr(message: string): void {
-	process.stderr.write(`[context-manager] ${message}\n`);
+	process.stderr.write(`[pi-chart] ${message}\n`);
 }

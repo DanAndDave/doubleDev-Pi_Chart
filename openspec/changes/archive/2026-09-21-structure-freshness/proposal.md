@@ -8,7 +8,7 @@ Triage: ready-for-agent
 
 Candidates are as narrow as the graph is old. `structureFor` passes `current.prompt` (`src/extension.ts:810`) and `reconstructTurns` fills `prompt` only from a `user` message (`src/turns.ts:18-22`), so on a tool-loop Call — most Calls of an agentic Turn — structure derives from a sentence written ten steps ago: "Fix this" after ten reads yields nothing, while the harness knows which files are in play. A path matches nothing either: `src/assembler.ts` tokenises to `src`, `assembler`, `ts`; `ts` is dropped for length and `assembler` never canonicalises to `assemble` (`src/symbols.ts:33-40,61-65`), though `GraphSymbol.file` is carried (`src/graph.ts:15`).
 
-Decline the Thread Store and the Graph Store is never constructed: `graph` is registered only on the Postgres branch (`src/extension.ts:961-980`), though neither it nor `symbolsInPlay` needs Postgres (`:822-841`). `CM_DATABASE_URL=""` is the documented way to decline a Store (`src/install.ts:78-79`), and `/context-manager` still prints `codebase graph  extraction on` for one that does not exist (`:113-118`).
+Decline the Thread Store and the Graph Store is never constructed: `graph` is registered only on the Postgres branch (`src/extension.ts:961-980`), though neither it nor `symbolsInPlay` needs Postgres (`:822-841`). `PICHART_DATABASE_URL=""` is the documented way to decline a Store (`src/install.ts:78-79`), and `/pi-chart` still prints `codebase graph  extraction on` for one that does not exist (`:113-118`).
 
 ## What Changes
 
@@ -31,7 +31,7 @@ Decline the Thread Store and the Graph Store is never constructed: `graph` is re
 
 ## Impact
 
-- **Schema and configuration:** none; `CM_GRAPH` still gates extraction.
+- **Schema and configuration:** none; `PICHART_GRAPH` still gates extraction.
 - **Assembly and performance:** one freshness `stat` per Call and candidates drawn from a Turn's messages; in exchange, index construction over every symbol and edge leaves the request path and refresh moves to `agent_end`.
 - **Sequencing:** no blockers — Graph Store and wiring only, so it runs in parallel with `token-budgets` and its dependants.
 - **Completes:** the audit's two partial rows for structure — context-assembly's "Structure around symbols in play" and graph-store's "Structure available without being asked for" — which fail on the same wiring.

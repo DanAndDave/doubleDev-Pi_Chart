@@ -44,7 +44,7 @@ Pinned because the research says the project ships rapidly and the schema is exp
 
 `graphify extract <path>` writes `<path>/graphify-out/`, with no option to redirect it. That is also the tool's intent: the directory is meant to be committed so a team shares one map.
 
-So the Graph Store does not fight it. The cost is honest and must be stated: pointing the context manager at a Codebase creates a directory in it. `CM_GRAPH=off` is the way to decline, and the README says so plainly rather than burying it.
+So the Graph Store does not fight it. The cost is honest and must be stated: pointing the context manager at a Codebase creates a directory in it. `PICHART_GRAPH=off` is the way to decline, and the README says so plainly rather than burying it.
 
 ### Trust is a field, not a flag
 
@@ -91,7 +91,7 @@ Symbols are recorded by label *and* location, because labels are not unique: thi
 
 ## Risks / Trade-offs
 
-- **A directory appears in the user's repository** → graphify's own convention, and the only way to use it; `CM_GRAPH=off` declines, and the README leads with it rather than hiding it.
+- **A directory appears in the user's repository** → graphify's own convention, and the only way to use it; `PICHART_GRAPH=off` declines, and the README leads with it rather than hiding it.
 - **Installing a Python package on first use is slow and surprising** → measured at 8 seconds, once per machine, in the background, reported when it happens, and skipped entirely when graphify is already present.
 - **A pinned version goes stale** → the adapter states what it requires and fails loudly when it is not met, which is the signal to move the pin.
 - **Name matching finds the wrong `handle`** → a Budget in symbols bounds the damage, and the pack inspector names what was carried, so a bad match is visible rather than mysterious.

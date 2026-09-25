@@ -14,7 +14,7 @@
  *
  * Run it with the project's Bun:
  *
- *     CM_BUN=$(which bun) bun scripts/measure-summary-placement.ts
+ *     PICHART_BUN=$(which bun) bun scripts/measure-summary-placement.ts
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -161,7 +161,7 @@ const repoConcepts = (await readBundle(repoRoot)) ?? [];
 const fixtureConcepts =
 	(await readBundle(join("test/fixtures/okf-acme-retail"))) ?? [];
 
-const embedder = new LocalEmbedder(process.env.CM_BUN);
+const embedder = new LocalEmbedder(process.env.PICHART_BUN);
 try {
 	const queries = [
 		...PROBES.map((probe) => probe.query),

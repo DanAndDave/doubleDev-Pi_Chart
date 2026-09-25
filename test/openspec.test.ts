@@ -1,5 +1,5 @@
 // Against the real OpenSpec CLI, which the Spec Store delegates to rather
-// than reimplements. Gated on CM_OPENSPEC=1 because it spawns processes.
+// than reimplements. Gated on PICHART_OPENSPEC=1 because it spawns processes.
 
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { SpecStore } from "../src/spec-store.ts";
 
-const describeReal = process.env.CM_OPENSPEC === "1" ? describe : describe.skip;
+const describeReal = process.env.PICHART_OPENSPEC === "1" ? describe : describe.skip;
 const TIMEOUT = 120_000;
 
 async function directory(): Promise<string> {

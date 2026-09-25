@@ -82,9 +82,9 @@ The listing wins because its order and wording are the author's judgement about 
 | --- | --- |
 | A Concept can be authored from inside a Conversation | `DocStore` boundary, fixture bundle in a temp directory. |
 | Authored knowledge carries machine provenance and cannot claim human review | `DocStore` for the write and the refusal; `parseConcept` for a review older than the change. |
-| A Concept authored during a Conversation is retrievable within it | Store boundary (`CM_DATABASE_URL`), stub embedder: write, re-index, retrieve, assert what was embedded. |
+| A Concept authored during a Conversation is retrievable within it | Store boundary (`PICHART_DATABASE_URL`), stub embedder: write, re-index, retrieve, assert what was embedded. |
 | A Concept's exclusions and sources travel with it | `DocStore` boundary for what open serves; `assemble()` for what reaches a Pack. |
-| A Concept is findable by what it says it is about | Model suite (`CM_EMBED=1`) over the measurement corpus — only the real model makes the claim true. |
+| A Concept is findable by what it says it is about | Model suite (`PICHART_EMBED=1`) over the measurement corpus — only the real model makes the claim true. |
 | A Concept that cannot be read is reported as unreadable | Extension tool boundary, temp bundle holding an unreadable and a non-conformant file. |
 | A Concept the listing omits is still reachable | `DocStore` boundary, fixture bundle whose listing names a subset. |
 | Packs carry curated knowledge under its own budget (modified) | `assemble()` boundary, synthetic multi-part hit. |

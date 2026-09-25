@@ -8,7 +8,7 @@ import {
 	StubEmbedder,
 } from "../src/embedder.ts";
 
-const BUN = process.env.CM_BUN ?? "bun";
+const BUN = process.env.PICHART_BUN ?? "bun";
 
 function cosine(a: number[], b: number[]): number {
 	let dot = 0;
@@ -80,7 +80,7 @@ describe("LocalEmbedder failure", () => {
 
 // Downloads and runs the pinned model, so it is gated: the stub proves the
 // mechanics, this proves the stub is not the only thing that works.
-const describeModel = process.env.CM_EMBED === "1" ? describe : describe.skip;
+const describeModel = process.env.PICHART_EMBED === "1" ? describe : describe.skip;
 
 describeModel("LocalEmbedder", () => {
 	test(

@@ -44,7 +44,7 @@ The hash is over the derived embed text, not the raw prompt and messages. Hashin
 
 ### A vector records the model the worker actually loaded
 
-The worker answers a handshake with the model id and width it loaded, so `CM_EMBED_MODEL` is recorded rather than inferred and `LocalEmbedder.dimensions` stops being the constant it claims to check (`src/embedder.ts:57`). `turns` gains `embedding_model`; `embedPending` selects rows whose model differs from the one in use, and `similarTurns` scores only matching rows.
+The worker answers a handshake with the model id and width it loaded, so `PICHART_EMBED_MODEL` is recorded rather than inferred and `LocalEmbedder.dimensions` stops being the constant it claims to check (`src/embedder.ts:57`). `turns` gains `embedding_model`; `embedPending` selects rows whose model differs from the one in use, and `similarTurns` scores only matching rows.
 
 A mismatch is pending work, not an error that fails a Turn: the Turn proceeds with fewer recollections while the background pass re-embeds. Loud is reserved for the condition — one report naming both models and the affected Turn count, so a swap is visible in the session that caused it.
 
@@ -76,15 +76,15 @@ Every hash differs and every `embedding_model` is null, so all 373 Turns here ar
 
 | Requirement | Seam |
 | --- | --- |
-| Ingested turns are embedded | Composition boundary for the shares, container-free; store boundary (`CM_DATABASE_URL`) over `test/fixtures/journal-tool-session.jsonl` for findability by conclusion and by action. |
+| Ingested turns are embedded | Composition boundary for the shares, container-free; store boundary (`PICHART_DATABASE_URL`) over `test/fixtures/journal-tool-session.jsonl` for findability by conclusion and by action. |
 | A stored vector is valid only for the content and the model that produced it | Store boundary: ingest, change the fixture, ingest again, assert re-embedding; a row stamped with another model asserted unranked and reported. |
-| A recall query is represented as a query, not as stored content | Model suite (`CM_EMBED=1`): distance to the genuinely matching Turn with and without the derivation, and the re-derived threshold. |
+| A recall query is represented as a query, not as stored content | Model suite (`PICHART_EMBED=1`): distance to the genuinely matching Turn with and without the derivation, and the re-derived threshold. |
 | Retrieval ranks turns by similarity to the prompt | Store boundary over a seeded multi-Conversation corpus: every qualifying Turn returned, order stable as the corpus grows, shortfall distinguishable from irrelevance. |
 | Packs carry the prompt and a verbatim tail | `assemble()` boundary with an orphaned `toolCall` fixture, plus the unchanged-tail comparison. |
 | A recollection carries the actions its turn took | `assemble()` boundary over the tool-session fixture: the `write(...)` and `read(...)` invocations the audit reproduced as missing. |
 
-`assemble()` is the target seam — pure, no container, no model — covering rendering and orphan refusal. Vector validity, re-embedding and the recall guarantee need the store-backed suite (`CM_DATABASE_URL`); only the query row needs the model suite (`CM_EMBED=1`). The default suite stays container-free, model-free and network-free; no row needs `CM_LIVE=1`, `CM_GRAPHIFY=1` or `CM_OPENSPEC=1`.
+`assemble()` is the target seam — pure, no container, no model — covering rendering and orphan refusal. Vector validity, re-embedding and the recall guarantee need the store-backed suite (`PICHART_DATABASE_URL`); only the query row needs the model suite (`PICHART_EMBED=1`). The default suite stays container-free, model-free and network-free; no row needs `PICHART_LIVE=1`, `PICHART_GRAPHIFY=1` or `PICHART_OPENSPEC=1`.
 
 ## Open Questions
 
-None. Three numbers are task 1's measurement: the per-message share budget, the re-derived relevance minimum, and today's `EXPLAIN` plan. Two wait on later evidence — whether the per-Conversation scan should return to ANN once a Conversation is long enough for the scan to be measurable, and whether `CM_EMBED_MODEL` should be refused rather than recorded.
+None. Three numbers are task 1's measurement: the per-message share budget, the re-derived relevance minimum, and today's `EXPLAIN` plan. Two wait on later evidence — whether the per-Conversation scan should return to ANN once a Conversation is long enough for the scan to be measurable, and whether `PICHART_EMBED_MODEL` should be refused rather than recorded.

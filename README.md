@@ -1,4 +1,4 @@
-# context-manager
+# Pi Chart
 
 Assembles a fresh Context Pack for every Turn of a coding agent, so the context window stops growing.
 
@@ -10,12 +10,12 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 
 - [omp](https://github.com/can1357/oh-my-pi) — the harness this loads into
 - Bun (pinned in `mise.toml`; `mise install` provides it)
-- Docker, for the Thread Store's Postgres. Without it the extension still runs and still governs the window: the verbatim tail falls back to whatever history the harness itself carries. What stops with the store is everything derived from it — recall, curated knowledge (its Concept index lives in the same Postgres), cross-Conversation search, and Accounting. Declining the store outright with `CM_DATABASE_URL=""` keeps Accounting for the Conversation in progress, so `/pack` still answers; a store that is configured and unreachable keeps none, and `/pack` answers only once it is back.
+- Docker, for the Thread Store's Postgres. Without it the extension still runs and still governs the window: the verbatim tail falls back to whatever history the harness itself carries. What stops with the store is everything derived from it — recall, curated knowledge (its Concept index lives in the same Postgres), cross-Conversation search, and Accounting. Declining the store outright with `PICHART_DATABASE_URL=""` keeps Accounting for the Conversation in progress, so `/pack` still answers; a store that is configured and unreachable keeps none, and `/pack` answers only once it is back.
 
 ## Install
 
 ```sh
-git clone <repo> context-manager && cd context-manager
+git clone <repo> pi-chart && cd pi-chart
 mise trust && mise install
 bun install
 omp install .
@@ -23,21 +23,30 @@ omp install .
 
 `mise trust` is required before the pinned Bun resolves in a fresh clone. `omp install .` links the extension for every session on the machine — there is no symlink to place and no path to configure.
 
+### Coming from `context-manager`
+
+This was called `context-manager` until it was called Pi Chart, and four things carry the old name on a machine that ran it:
+
+- **The plugin link.** The harness registers an extension by package name, so run `omp install .` again. Until you do, nothing loads and no session says anything.
+- **Settings.** Every `CM_*` is now `PICHART_*`. Nothing reads the old names; a session that finds one says so at startup and `/pi-chart` lists it, so a stale variable is visible rather than silently ignored.
+- **The bundle.** Concepts at `~/.context-manager/bundle` are yours, so nothing moves them. Both `/pi-chart` and `/pi-chart setup` name them and wait: move the directory to `~/.pi-chart/bundle`, or point `PICHART_DOC_BUNDLE` at where it is.
+- **The Thread Store.** `compose.yaml` names its own project now, so `/pi-chart setup` starts a fresh Postgres under the `pi_chart` role rather than a renamed container on a cluster that only answers to the old one. The old volume, `context-manager_thread-store-data`, is left alone; it holds a derived index the Journal rebuilds, so `docker volume rm context-manager_thread-store-data` is safe once you have re-ingested. `~/.context-manager/graphify` is a cache and can go the same way.
+
 Then, in any session:
 
 ```
-/context-manager setup
+/pi-chart setup
 ```
 
-That starts the Thread Store's Postgres and creates a bundle directory. Running `/context-manager` with no argument checks the installation instead and says what is missing, with the command that fixes each thing:
+That starts the Thread Store's Postgres and creates a bundle directory. Running `/pi-chart` with no argument checks the installation instead and says what is missing, with the command that fixes each thing:
 
 ```
   ok   embedder runtime  /home/you/.bun/bin/bun
   not  thread store      not reachable; turns are not recorded and nothing is recalled
-      run `context-manager setup`
+      run `pi-chart setup`
   ok   harness memory    off, as it must be
-  ok   doc bundle        none at /home/you/.context-manager/bundle; curated knowledge is simply empty
-  ok   codebase graph    extraction off; set CM_GRAPH=on to derive one
+  ok   doc bundle        none at /home/you/.pi-chart/bundle; curated knowledge is simply empty
+  ok   codebase graph    extraction off; set PICHART_GRAPH=on to derive one
 ```
 
 Nothing else is required. The embedder finds its own Bun, and the Thread Store defaults to what this project's `compose.yaml` serves. A store that is not running degrades rather than failing: the tail comes from the harness's own history, and recall, curated knowledge, cross-Conversation search and Accounting wait for the store to come back. Each Call says on stderr what it assembled without, and `/pack` records it for the Calls the store was there to record.
@@ -55,35 +64,35 @@ The extension checks this when a Conversation starts and reports loudly if it is
 
 Every setting below has a working default. They exist for tuning, not for setup.
 
-Each part of a pack is bounded twice — by a count of items and by a size in estimated tokens — and is trimmed to whichever binds first. A count says something a size cannot (`CM_TAIL_TURNS=0` means "only the current Turn"), and a size says what a count cannot: one Turn carrying six file reads costs two orders of magnitude more than one carrying a sentence.
+Each part of a pack is bounded twice — by a count of items and by a size in estimated tokens — and is trimmed to whichever binds first. A count says something a size cannot (`PICHART_TAIL_TURNS=0` means "only the current Turn"), and a size says what a count cannot: one Turn carrying six file reads costs two orders of magnitude more than one carrying a sentence.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
-| `CM_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
-| `CM_RECALL_MAX_DISTANCE` | `0.52` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: over 99 real Turns, a prompt asked in other words reaches its own Turn within 0.52 in 92% of cases and no off-topic text comes within it at all. |
-| `CM_DATABASE_URL` | this project's compose default | Thread Store connection. Empty declines the store deliberately; unreachable loses the same parts by accident. Either way the tail comes from the harness's own history and recall, curated knowledge and cross-Conversation search stop with it — declined keeps Accounting for the Conversation in progress, unreachable keeps none. |
-| `CM_BUN` | found | The Bun that runs the embedding worker. Located automatically — including under version managers, whose shims fail outside a directory they know. Set it only to override. |
-| `CM_EMBED_MODEL` | `Xenova/bge-small-en-v1.5` | The model the embedding worker loads. The schema stores one vector width, so a model of another width is refused by the embedding pass itself (`embedPending`), which reports the mismatch rather than writing vectors the index cannot rank; recall and curated knowledge stay empty until the width matches again. A same-width model is accepted, and both Stores record which model made each vector: a vector from another model is never ranked, and is embedded again by the pass that keeps the index in line. So a swap costs one re-embedding of the Turns and one of the Concept sections, in the background, and a search says how much of the index it could not see while that is happening rather than reading as a corpus with nothing relevant in it. Measured by `scripts/measure-model-swap.ts` between two 384-dimension models over the vendored bundle: 33 sections re-embedded in 3.0s, nothing on any pass after that, and the same five Concepts at the same distances once the swap is reversed. |
-| `CM_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
-| `CM_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
-| `CM_PG_PORT` | `55432` | The port of the default Thread Store URL, and the port `compose.yaml` publishes. Read only when `CM_DATABASE_URL` is unset: a URL you supply is the one dialled, port and all. |
-| `CM_DOC_BUNDLE` | `~/.context-manager/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
-| `CM_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
-| `CM_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
-| `CM_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
-| `CM_PACK_TOKENS` | `110000` | The whole pack's ceiling in estimated tokens. When the parts together exceed it they are reduced in a fixed order — structure, then curated knowledge, then the weakest recollections, then the oldest Turns of the tail. The current Turn is never dropped. Derived, not chosen: a 200,000-token window less this project's measured ~28,000 Floor, divided by the estimator's measured worst-case bias of 1.5. |
-| `CM_TAIL_TOKENS` | `25000` | Size Budget for the verbatim tail. Its most recent Turn is always kept, shortened if it cannot fit whole, because that Turn is what the current one is reasoning about. |
-| `CM_RECALL_TOKENS` | `8000` | Size Budget for recalled Turns. A Budget too small to hold one readable recollection carries none. |
-| `CM_DOC_TOKENS` | `5000` | Size Budget for curated knowledge. A Concept too large for it is dropped rather than shortened — the bundle holds others, and `walk_documentation` reaches the rest at no Budget. |
-| `CM_GRAPH_TOKENS` | `3000` | Size Budget for structure. |
-| `CM_PACK_WARN_SHARE` | `0.75` | The share of the ceiling at which the extension says a Conversation's packs are creeping up. Reported once per Conversation; a pack that cannot be brought under the ceiling at all is reported every time. |
-| `CM_TAIL_DEADLINE_MS` | `1500` | How long a Call waits for the verbatim tail before assembling without it. The tail is one indexed read — 47.9 ms at worst against this machine's 388-Turn store — so anything slower is a Store in trouble. |
-| `CM_RECALL_DEADLINE_MS` | `5000` | How long a Call waits for recall. Its worst measured read is 81.4 ms, most of it embedding the query, and a fresh embedder adds 350 ms loading the model. |
-| `CM_DOC_DEADLINE_MS` | `5000` | How long a Call waits for curated knowledge. |
-| `CM_GRAPH_DEADLINE_MS` | `5000` | How long a Call waits for structure. |
-| `CM_RETAIN_DAYS` | unset | Retire Turns that entered the Store longer ago than this, with their messages. Unset means nothing is ever removed: how long the Store keeps a Turn is your policy. Turns stored before arrival times were recorded have no age and are never retired, and Accounting survives whatever goes. |
-| `CM_EXPLAIN_CANDIDATES` | `12` | How many excluded candidates each part of a Call records by identity, so `/pack why` can name them. Measured: pooling this machine's 403 real Turns into one Conversation, the Turn a user would ask about sat as deep as rank 12 among the candidates, and a head of 5 would have named it in fewer than half the cases it was reachable at all. What is beyond the head is still counted. |
+| `PICHART_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
+| `PICHART_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
+| `PICHART_RECALL_MAX_DISTANCE` | `0.52` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: over 99 real Turns, a prompt asked in other words reaches its own Turn within 0.52 in 92% of cases and no off-topic text comes within it at all. |
+| `PICHART_DATABASE_URL` | this project's compose default | Thread Store connection. Empty declines the store deliberately; unreachable loses the same parts by accident. Either way the tail comes from the harness's own history and recall, curated knowledge and cross-Conversation search stop with it — declined keeps Accounting for the Conversation in progress, unreachable keeps none. |
+| `PICHART_BUN` | found | The Bun that runs the embedding worker. Located automatically — including under version managers, whose shims fail outside a directory they know. Set it only to override. |
+| `PICHART_EMBED_MODEL` | `Xenova/bge-small-en-v1.5` | The model the embedding worker loads. The schema stores one vector width, so a model of another width is refused by the embedding pass itself (`embedPending`), which reports the mismatch rather than writing vectors the index cannot rank; recall and curated knowledge stay empty until the width matches again. A same-width model is accepted, and both Stores record which model made each vector: a vector from another model is never ranked, and is embedded again by the pass that keeps the index in line. So a swap costs one re-embedding of the Turns and one of the Concept sections, in the background, and a search says how much of the index it could not see while that is happening rather than reading as a corpus with nothing relevant in it. Measured by `scripts/measure-model-swap.ts` between two 384-dimension models over the vendored bundle: 33 sections re-embedded in 3.0s, nothing on any pass after that, and the same five Concepts at the same distances once the swap is reversed. |
+| `PICHART_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
+| `PICHART_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
+| `PICHART_PG_PORT` | `55432` | The port of the default Thread Store URL, and the port `compose.yaml` publishes. Read only when `PICHART_DATABASE_URL` is unset: a URL you supply is the one dialled, port and all. |
+| `PICHART_DOC_BUNDLE` | `~/.pi-chart/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
+| `PICHART_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
+| `PICHART_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
+| `PICHART_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
+| `PICHART_PACK_TOKENS` | `110000` | The whole pack's ceiling in estimated tokens. When the parts together exceed it they are reduced in a fixed order — structure, then curated knowledge, then the weakest recollections, then the oldest Turns of the tail. The current Turn is never dropped. Derived, not chosen: a 200,000-token window less this project's measured ~28,000 Floor, divided by the estimator's measured worst-case bias of 1.5. |
+| `PICHART_TAIL_TOKENS` | `25000` | Size Budget for the verbatim tail. Its most recent Turn is always kept, shortened if it cannot fit whole, because that Turn is what the current one is reasoning about. |
+| `PICHART_RECALL_TOKENS` | `8000` | Size Budget for recalled Turns. A Budget too small to hold one readable recollection carries none. |
+| `PICHART_DOC_TOKENS` | `5000` | Size Budget for curated knowledge. A Concept too large for it is dropped rather than shortened — the bundle holds others, and `walk_documentation` reaches the rest at no Budget. |
+| `PICHART_GRAPH_TOKENS` | `3000` | Size Budget for structure. |
+| `PICHART_PACK_WARN_SHARE` | `0.75` | The share of the ceiling at which the extension says a Conversation's packs are creeping up. Reported once per Conversation; a pack that cannot be brought under the ceiling at all is reported every time. |
+| `PICHART_TAIL_DEADLINE_MS` | `1500` | How long a Call waits for the verbatim tail before assembling without it. The tail is one indexed read — 47.9 ms at worst against this machine's 388-Turn store — so anything slower is a Store in trouble. |
+| `PICHART_RECALL_DEADLINE_MS` | `5000` | How long a Call waits for recall. Its worst measured read is 81.4 ms, most of it embedding the query, and a fresh embedder adds 350 ms loading the model. |
+| `PICHART_DOC_DEADLINE_MS` | `5000` | How long a Call waits for curated knowledge. |
+| `PICHART_GRAPH_DEADLINE_MS` | `5000` | How long a Call waits for structure. |
+| `PICHART_RETAIN_DAYS` | unset | Retire Turns that entered the Store longer ago than this, with their messages. Unset means nothing is ever removed: how long the Store keeps a Turn is your policy. Turns stored before arrival times were recorded have no age and are never retired, and Accounting survives whatever goes. |
+| `PICHART_EXPLAIN_CANDIDATES` | `12` | How many excluded candidates each part of a Call records by identity, so `/pack why` can name them. Measured: pooling this machine's 403 real Turns into one Conversation, the Turn a user would ask about sat as deep as rank 12 among the candidates, and a head of 5 would have named it in fewer than half the cases it was reachable at all. What is beyond the head is still counted. |
 
 ## Recall
 
@@ -124,9 +133,9 @@ Authoring writes into the user's own bundle, which is usually under version cont
 
 The Graph Store answers structural questions — what calls this, what does it import — from a parse rather than from a search. No embedding is involved: a symbol's name is exact, and "what calls `parseConcept`?" has one correct answer.
 
-It uses [graphify](https://github.com/Graphify-Labs/graphify), installed at a pinned version into a private virtual environment under `~/.context-manager/graphify`, because this machine had no `uv`, `pipx` or `pip` and `python3 -m venv` is always there.
+It uses [graphify](https://github.com/Graphify-Labs/graphify), installed at a pinned version into a private virtual environment under `~/.pi-chart/graphify`, because this machine had no `uv`, `pipx` or `pip` and `python3 -m venv` is always there.
 
-**It writes into your repository, so it is off by default.** `graphify extract` creates `graphify-out/` in the Codebase and offers no way to redirect it; graphify intends that directory to be committed so a team shares one map, but that is not a thing to do to someone's repo unasked. `CM_GRAPH=on` opts in, and an existing extraction is read either way.
+**It writes into your repository, so it is off by default.** `graphify extract` creates `graphify-out/` in the Codebase and offers no way to redirect it; graphify intends that directory to be committed so a team shares one map, but that is not a thing to do to someone's repo unasked. `PICHART_GRAPH=on` opts in, and an existing extraction is read either way.
 
 Only what a parser established is carried. Three separate conditions, because each excludes something the others do not:
 
@@ -144,7 +153,7 @@ The symbols in play come from the whole current Turn, not its opening prompt: mo
 
 A symbol contributes at most twelve connections and says how many it left out, so one hub cannot swallow the Budget: measured over this repository, a neighbourhood is 72 tokens at the median and 305 at worst. Which twelve is decided by what the connection says: what calls, imports, inherits from or depends on a symbol before what it merely contains or has as a member. Measured over this repository's own graph before that ranking, 188 of 684 kept connections were membership and 29 of 57 over-sized symbols had real uses displaced by them.
 
-The Graph Store needs no Postgres: declining the Thread Store with `CM_DATABASE_URL=""` leaves structure and the Spec Store exactly as they were, and leaves the documentation bundle walkable and writable. What it takes with it is the Concept *index*, which lives in the same Postgres — so curated knowledge stops reaching a pack by meaning even though `walk_documentation` still reads every word of it.
+The Graph Store needs no Postgres: declining the Thread Store with `PICHART_DATABASE_URL=""` leaves structure and the Spec Store exactly as they were, and leaves the documentation bundle walkable and writable. What it takes with it is the Concept *index*, which lives in the same Postgres — so curated knowledge stops reaching a pack by meaning even though `walk_documentation` still reads every word of it.
 
 ## Stated intent
 
@@ -161,10 +170,10 @@ Nothing is created unasked. An `openspec/` tree is a claim about how a project i
 
 ```sh
 docker compose up -d
-export CM_DATABASE_URL=postgres://context_manager:context_manager@localhost:55432/thread_store
+export PICHART_DATABASE_URL=postgres://pi_chart:pi_chart@localhost:55432/thread_store
 ```
 
-The schema is created and migrated forward automatically on connect; there is no setup step. `CM_PG_PORT` moves the port, and moves it on both sides: `compose.yaml` publishes it and the default URL `loadConfig` builds dials it. It is read only when `CM_DATABASE_URL` is unset — a URL you supplied is the one dialled, port and all.
+The schema is created and migrated forward automatically on connect; there is no setup step. `PICHART_PG_PORT` moves the port, and moves it on both sides: `compose.yaml` publishes it and the default URL `loadConfig` builds dials it. It is read only when `PICHART_DATABASE_URL` is unset — a URL you supplied is the one dialled, port and all.
 
 ## What it records
 
@@ -188,18 +197,18 @@ bun test          # fast, deterministic, no container, no model, no network
 bun run typecheck
 
 # Store-backed: real SQL against the Compose database
-CM_DATABASE_URL=postgres://context_manager:context_manager@localhost:55432/thread_store \
+PICHART_DATABASE_URL=postgres://pi_chart:pi_chart@localhost:55432/thread_store \
   bun test test/postgres-store.test.ts
 
 # Live: real sessions against a real model
-CM_LIVE=1 bun test test/headless.test.ts
+PICHART_LIVE=1 bun test test/headless.test.ts
 
 # Model: exercises the pinned embedding model rather than the stub
-CM_EMBED=1 bun test test/embedder.test.ts
+PICHART_EMBED=1 bun test test/embedder.test.ts
 
 # Tools: against the real graphify and the real OpenSpec CLI
-CM_GRAPHIFY=1 bun test test/graphify.test.ts
-CM_OPENSPEC=1 bun test test/openspec.test.ts
+PICHART_GRAPHIFY=1 bun test test/graphify.test.ts
+PICHART_OPENSPEC=1 bun test test/openspec.test.ts
 ```
 
 Five suites are gated, each because a fake would prove the wrong thing. The store-backed tests need real Postgres because "the schema applies" and "SQL returns Turns in order" mean nothing against a stub. The live tests need a provider because they cover the claims that are only true when the harness and the model agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported. The model suite needs the pinned embedder because the stub shares tokens, so under it "by meaning" and "by wording" are the same claim. The tool suites need the real graphify and OpenSpec because they are the only evidence that `--code-only` still emits inferred edges, that `openspec init` does not damage an existing tree, and that a malformed change is diagnosed in OpenSpec's own words.
@@ -207,7 +216,7 @@ Five suites are gated, each because a fake would prove the wrong thing. The stor
 `test/fixtures/*.json` are message arrays captured from real sessions. Regenerate them with `test/capture-extension.ts`, which records what the harness passes to the `context` event and changes nothing:
 
 ```sh
-CM_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
+PICHART_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
 ```
 
 ## Reaching other conversations

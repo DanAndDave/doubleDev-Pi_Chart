@@ -515,14 +515,14 @@ describe("configuration of the threshold", () => {
 	});
 
 	test("a usable threshold is taken as given", () => {
-		expect(loadConfig({ CM_RECALL_MAX_DISTANCE: "0.35" }).recallMaxDistance).toBe(
+		expect(loadConfig({ PICHART_RECALL_MAX_DISTANCE: "0.35" }).recallMaxDistance).toBe(
 			0.35,
 		);
 	});
 
 	test("an unusable threshold falls back rather than disabling recall", () => {
 		for (const value of ["tight", "-1", "5", ""]) {
-			expect(loadConfig({ CM_RECALL_MAX_DISTANCE: value }).recallMaxDistance).toBe(
+			expect(loadConfig({ PICHART_RECALL_MAX_DISTANCE: value }).recallMaxDistance).toBe(
 				DEFAULT_RECALL_MAX_DISTANCE,
 			);
 		}

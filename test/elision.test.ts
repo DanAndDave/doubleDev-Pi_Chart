@@ -45,7 +45,7 @@ describe("shortening", () => {
 		expect(text).toContain("elided");
 		expect(text.startsWith("mmm")).toBe(true);
 		expect(text.endsWith("mmm")).toBe(true);
-		expect(shortened?.cmShortened).toBe(true);
+		expect(shortened?.piChartShortened).toBe(true);
 	});
 
 	test("dropped tool metadata is counted and named, not silently removed", () => {

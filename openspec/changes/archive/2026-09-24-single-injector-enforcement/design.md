@@ -56,7 +56,7 @@ The alternative — a separate table, or a session-level record — loses the jo
 
 The check happens at `session_start` and the answer does not change within a Conversation unless the user edits configuration mid-flight, which does not re-fire the event. Reporting per Call would emit one line per model request and train the user to ignore it; the existing single report is the right cadence, and the Accounting record is what makes it durable.
 
-`/context-manager` already prints the same condition as a failed check (`src/install.ts:91-101`) and stays as the on-demand view.
+`/pi-chart` already prints the same condition as a failed check (`src/install.ts:91-101`) and stays as the on-demand view.
 
 ### Nothing is measured about the memory payload itself
 
@@ -76,15 +76,15 @@ A tempting extra is to report how many tokens the backend's block costs. `floorT
 | No competing injection | `assemble()` boundary: a Pack's messages come only from the parts the Assembler composed. |
 | An active backend is reported | Extension boundary with a stub `ctx.memory.status` and a stub reporter. |
 | A backend that cannot be interrogated is unconfirmed | Extension boundary, `status` absent and `status` throwing. |
-| A contaminated conversation is diagnosable afterwards | Accounting boundary via `recordPack`, then the inspection API; store-backed (`CM_DATABASE_URL`) for the read-back. |
+| A contaminated conversation is diagnosable afterwards | Accounting boundary via `recordPack`, then the inspection API; store-backed (`PICHART_DATABASE_URL`) for the read-back. |
 | An active backend does not cost the turn | Extension boundary: assert a Pack is still returned and the Turn completes. |
 | A confirmed-off backend is silent | Extension boundary: assert no report and the recorded state. |
 | The state is retained for every call | Accounting boundary; store-backed for the read-back. |
 | Unconfirmed is distinguishable from off | Accounting boundary. |
-| Exposed calls can be listed for a conversation | Store boundary (`CM_DATABASE_URL`) over a Conversation whose state changes between Calls. |
+| Exposed calls can be listed for a conversation | Store boundary (`PICHART_DATABASE_URL`) over a Conversation whose state changes between Calls. |
 | Records written before this detail existed remain readable | Store boundary: read a row written without the column. |
 
-The extension boundary is the target seam — it is where the harness's answer arrives and where the report and the record are decided, and a stubbed `ctx.memory` needs no container, model, or network. Only the read-back rows need the store-backed suite; task 1's live confirmation needs `CM_LIVE=1` and a deliberately misconfigured harness.
+The extension boundary is the target seam — it is where the harness's answer arrives and where the report and the record are decided, and a stubbed `ctx.memory` needs no container, model, or network. Only the read-back rows need the store-backed suite; task 1's live confirmation needs `PICHART_LIVE=1` and a deliberately misconfigured harness.
 
 ## Open Questions
 

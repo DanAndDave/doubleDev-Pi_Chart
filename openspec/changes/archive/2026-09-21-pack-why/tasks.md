@@ -3,7 +3,7 @@
 - [x] 1.1 Over this machine's Journals, replay recall for each Turn's prompt and report at what rank the Turn a user would ask about appears among the candidates refused by the threshold, and record the figures
 - [x] 1.2 Choose how many rejected candidates to retain per part from those figures, and record why the bound is what it is and what the count beyond it costs to lose
 
-> 231 Journals, 403 Turns, pooled into one Conversation because no single Conversation here exceeds 16 Turns. Of the 140 Calls with a plausible asked-about Turn beyond the tail's reach, it was carried in 20, refused in 2, and never a candidate in 118; where it was a candidate its rank ran 1–12. The bound is **12** (`CM_EXPLAIN_CANDIDATES`), which is also recall's over-fetch; a head of 5 would have named it in 10 of the 22 reachable cases. Figures and the two side-findings are in `design.md`.
+> 231 Journals, 403 Turns, pooled into one Conversation because no single Conversation here exceeds 16 Turns. Of the 140 Calls with a plausible asked-about Turn beyond the tail's reach, it was carried in 20, refused in 2, and never a candidate in 118; where it was a candidate its rank ran 1–12. The bound is **12** (`PICHART_EXPLAIN_CANDIDATES`), which is also recall's over-fetch; a head of 5 would have named it in 10 of the 22 reachable cases. Figures and the two side-findings are in `design.md`.
 
 ## 2. The rejected-candidate ledger
 

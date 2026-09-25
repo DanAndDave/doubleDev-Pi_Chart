@@ -13,7 +13,7 @@
 **Non-Goals:**
 
 - The width refusal: already enforced before anything is written.
-- Choosing or pinning a model; `CM_EMBED_MODEL` is the operator's.
+- Choosing or pinning a model; `PICHART_EMBED_MODEL` is the operator's.
 - Changing ranking, thresholds, or what a search returns once the candidates are the right ones.
 
 ## Decisions
@@ -44,7 +44,7 @@ Inside the `nearest` CTE, beside `embedding IS NOT NULL`, so the nearest-neighbo
 
 | Requirement | Seam |
 | --- | --- |
-| A vector from another model is never a hit | Store boundary (`CM_DATABASE_URL`), two stub embedders naming different models. |
+| A vector from another model is never a hit | Store boundary (`PICHART_DATABASE_URL`), two stub embedders naming different models. |
 | A section left behind by a model change is repaired | Store boundary: index under one model, re-index under another, count what was embedded. |
 | An unchanged corpus under an unchanged model embeds nothing | Store boundary: the existing idempotence test, which must keep passing. |
 | What the search could not see is reported | Store boundary: assert the count, not the identities. |

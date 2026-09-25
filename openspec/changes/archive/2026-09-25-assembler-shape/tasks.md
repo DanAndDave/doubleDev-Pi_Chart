@@ -34,7 +34,7 @@
 
   `assemblerConfig(config)` in `src/config.ts`, where the settings live;
   `extension.ts` calls it. The settings stay flat because that is what the
-  environment is — `CM_TAIL_TURNS` and `CM_TAIL_TOKENS` are two variables
+  environment is — `PICHART_TAIL_TURNS` and `PICHART_TAIL_TOKENS` are two variables
   and `pack budget` names nine of them.
 
 - [x] 2.3 Carry `budget?: Budget` on `PackPart`, `RecordedPart` and `PartView` in place of the `budget`/`tokenBudget` pair
@@ -201,8 +201,8 @@
 - [x] 5.3 Run the default, store-backed and live suites and the type checker, and confirm `openspec validate assembler-shape` passes
 
   `bunx tsc --noEmit` clean; 547 default tests pass; 685 with
-  `CM_DATABASE_URL` set; `openspec validate --all --strict` passes. Live: a
-  governed Conversation with `CM_TAIL_TOKENS=1200` carried a shortened tail
+  `PICHART_DATABASE_URL` set; `openspec validate --all --strict` passes. Live: a
+  governed Conversation with `PICHART_TAIL_TOKENS=1200` carried a shortened tail
   (`verbatim-tail ~1135 tokens (1 of 8, content shortened)`) beside two
   Concepts, and answered from the bundle.
 

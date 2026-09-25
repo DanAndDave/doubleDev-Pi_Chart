@@ -16,7 +16,7 @@ interface Request {
 	identify?: boolean;
 }
 
-const model = process.env.CM_EMBED_MODEL ?? PINNED_MODEL;
+const model = process.env.PICHART_EMBED_MODEL ?? PINNED_MODEL;
 const extract = await pipeline("feature-extraction", model);
 
 for await (const line of console) {

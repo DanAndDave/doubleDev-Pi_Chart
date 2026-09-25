@@ -32,7 +32,7 @@ function store(options: {
 	const present = new Set(options.present ?? []);
 	const extracted = [...present].some((each) => each.endsWith("graph.json"));
 	const graphStore = new GraphStore({
-		home: "/home/test/.context-manager/graphify",
+		home: "/home/test/.pi-chart/graphify",
 		exists: async (path) => [...present].some((each) => path.endsWith(each)),
 		changedAt: async () =>
 			options.changedAt ? options.changedAt() : extracted ? 1 : undefined,
@@ -66,7 +66,7 @@ describe("obtaining graphify", () => {
 		expect(ran[0]?.args).toEqual([
 			"-m",
 			"venv",
-			"/home/test/.context-manager/graphify",
+			"/home/test/.pi-chart/graphify",
 		]);
 		expect(ran[1]?.args).toContain(`graphifyy==${PINNED_GRAPHIFY}`);
 	});
@@ -216,7 +216,7 @@ describe("reading a codebase's graph", () => {
 	test("an unchanged extraction is parsed once", async () => {
 		let reads = 0;
 		const graphStore = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => 42,
 			read: async () => {
@@ -239,7 +239,7 @@ describe("reading a codebase's graph", () => {
 		let reads = 0;
 		let at = 1;
 		const graphStore = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => at,
 			read: async () => {
@@ -273,7 +273,7 @@ describe("reading a codebase's graph", () => {
 	test("an unreadable graph is reported once, not re-parsed every call", async () => {
 		let reads = 0;
 		const graphStore = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => 7,
 			read: async () => {
@@ -302,7 +302,7 @@ describe("reading a codebase's graph", () => {
 	});
 	test("the indexes are built with the parse, not per call", async () => {
 		const graphStore = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => 42,
 			read: async () => FIXTURE,
@@ -325,7 +325,7 @@ describe("reading a codebase's graph", () => {
 	test("a changed extraction invalidates the indexes with the parse", async () => {
 		let at = 1;
 		const graphStore = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => at,
 			read: async () => FIXTURE,
@@ -346,7 +346,7 @@ describe("how old the structure is", () => {
 	/** A Store whose files have the ages a test gives them. */
 	function aged(ages: Record<string, number | undefined>): GraphStore {
 		return new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async (path) => {
 				for (const [file, at] of Object.entries(ages)) {
@@ -385,7 +385,7 @@ describe("how old the structure is", () => {
 	test("each file is examined once however many symbols name it", async () => {
 		let examined = 0;
 		const store = new GraphStore({
-			home: "/home/test/.context-manager/graphify",
+			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async () => {
 				examined++;

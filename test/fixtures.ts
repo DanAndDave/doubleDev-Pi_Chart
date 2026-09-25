@@ -62,7 +62,7 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 
 /**
  * The names the settings use, which is what a test says what it means in:
- * `CM_TAIL_TURNS` and `CM_TAIL_TOKENS` are two variables, so a test
+ * `PICHART_TAIL_TURNS` and `PICHART_TAIL_TOKENS` are two variables, so a test
  * bounding one of them should not have to write a Budget literal.
  */
 interface FlatBudgets {

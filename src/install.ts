@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { mkdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
@@ -54,6 +55,9 @@ export function projectRoot(): string {
 	return dirname(import.meta.dir);
 }
 
+/** Where a bundle sits if it was made before this was called pi-chart. */
+const BUNDLE_BEFORE_THE_RENAME = join(homedir(), ".context-manager", "bundle");
+
 export class Installation {
 	private readonly run: RunCommand;
 	private readonly exists: (path: string) => Promise<boolean>;
@@ -104,7 +108,7 @@ export class Installation {
 				: answers
 					? url
 					: "not reachable; turns are not recorded and nothing is recalled",
-			fix: answers || declined ? undefined : "run `context-manager setup`",
+			fix: answers || declined ? undefined : "run `pi-chart setup`",
 		});
 		// The same three states the report at a Conversation's start
 		// distinguishes, in the same words: a check that read "not reported"
@@ -128,13 +132,30 @@ export class Installation {
 					: "set `memory: {backend: off}` in ~/.omp/agent/config.yml",
 		});
 
+		// What the settings themselves say. One stderr line at session start
+		// is easy to miss, and this is the surface an operator is told to
+		// run when something is not working.
+		for (const problem of config.problems) {
+			checks.push({ name: "settings", ok: false, detail: problem });
+		}
+
 		const bundle = await this.exists(config.docBundle);
+		// A bundle under the directory this project used to be named after
+		// is the operator's own writing, so nothing moves it: it is named,
+		// with the two ways to reach it, and left where they put it.
+		const stranded = !bundle && (await this.exists(BUNDLE_BEFORE_THE_RENAME));
 		checks.push({
 			name: "doc bundle",
 			ok: true,
 			detail: bundle
 				? config.docBundle
-				: `none at ${config.docBundle}; curated knowledge is simply empty`,
+				: stranded
+					? `none at ${config.docBundle}, but one at ` +
+						`${BUNDLE_BEFORE_THE_RENAME} from before this was called pi-chart`
+					: `none at ${config.docBundle}; curated knowledge is simply empty`,
+			fix: stranded
+				? `move it to ${config.docBundle}, or set PICHART_DOC_BUNDLE to where it is`
+				: undefined,
 		});
 
 		checks.push({
@@ -145,7 +166,7 @@ export class Installation {
 				? "unavailable; no graph store in this session"
 				: config.graphExtract
 					? "extraction on; graphify-out/ is written into this codebase"
-					: "extraction off; set CM_GRAPH=on to derive one",
+					: "extraction off; set PICHART_GRAPH=on to derive one",
 			fix: structure ? undefined : "report this: the graph store should always be available",
 		});
 
@@ -184,12 +205,26 @@ export class Installation {
 		});
 
 		if (!(await this.exists(config.docBundle))) {
-			await mkdir(join(config.docBundle, "decisions"), { recursive: true });
-			done.push({
-				name: "doc bundle",
-				ok: true,
-				detail: `created ${config.docBundle}`,
-			});
+			// An empty bundle created here would make the check below read
+			// "ok", and the Concepts at the old default would go unmentioned
+			// for good. Setup is where an operator is looking, so this is
+			// where it is said — and nothing is created over the top of it.
+			if (await this.exists(BUNDLE_BEFORE_THE_RENAME)) {
+				done.push({
+					name: "doc bundle",
+					ok: true,
+					detail: `not created: there is one at ${BUNDLE_BEFORE_THE_RENAME} ` +
+						`from before this was called pi-chart`,
+					fix: `move it to ${config.docBundle}, or set PICHART_DOC_BUNDLE to where it is`,
+				});
+			} else {
+				await mkdir(join(config.docBundle, "decisions"), { recursive: true });
+				done.push({
+					name: "doc bundle",
+					ok: true,
+					detail: `created ${config.docBundle}`,
+				});
+			}
 		}
 
 		return done;

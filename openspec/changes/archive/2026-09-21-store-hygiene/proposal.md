@@ -19,11 +19,11 @@ Nothing else is bounded either. No Store call in the `context` handler has a dea
 - Every Store call on the `context` path gets a deadline; missing it is treated as an unavailable Store — reported, pack assembled without it.
 - `runProcess` gains a timeout that kills the process tree and reports it, so `graphify extract` and `docker compose up -d --wait` cannot hang.
 - An unfindable Journal is reported, and ingest states how many Turns it stored, so zero is visible.
-- The Thread Store's connection pool is closed when the extension shuts down. `contextManager` never closes it (`src/extension.ts:950,977-979`) while `PostgresStore.close` exists and is used elsewhere (`src/install.ts:195`), so a session leaks its pool for as long as it lives. **Observed, not inferred:** a 16.5-hour session of this repo held 200 established sockets on port 55432 and the store refused every new connection with `FATAL: sorry, too many clients already`, which blocked `token-budgets`' own store-backed task. Ownership sits here because this ticket already governs when a Store is reached for and when it is given up.
-- **BREAKING** `loadConfig` builds the default database URL from `CM_PG_PORT` when `CM_DATABASE_URL` is unset (`src/config.ts:80-81,95-117`); today `compose.yaml:10` honours it while the extension dials 55432.
+- The Thread Store's connection pool is closed when the extension shuts down. `piChart` never closes it (`src/extension.ts:950,977-979`) while `PostgresStore.close` exists and is used elsewhere (`src/install.ts:195`), so a session leaks its pool for as long as it lives. **Observed, not inferred:** a 16.5-hour session of this repo held 200 established sockets on port 55432 and the store refused every new connection with `FATAL: sorry, too many clients already`, which blocked `token-budgets`' own store-backed task. Ownership sits here because this ticket already governs when a Store is reached for and when it is given up.
+- **BREAKING** `loadConfig` builds the default database URL from `PICHART_PG_PORT` when `PICHART_DATABASE_URL` is unset (`src/config.ts:80-81,95-117`); today `compose.yaml:10` honours it while the extension dials 55432.
 - `searchConcepts`' inner `nearest` CTE gains `, identity ASC` (`src/postgres-store.ts:925-932`) — the tiebreak `similarTurns` already has (`:496,406`).
 
-**Not in scope:** what a Turn is embedded as and the vector-validity columns (`recall-fidelity`); token ceilings (`token-budgets`); Graph Store wiring and freshness (`structure-freshness`); the README's `CM_PG_PORT` wording (`audit-docs-debt`).
+**Not in scope:** what a Turn is embedded as and the vector-validity columns (`recall-fidelity`); token ceilings (`token-budgets`); Graph Store wiring and freshness (`structure-freshness`); the README's `PICHART_PG_PORT` wording (`audit-docs-debt`).
 
 ## Capabilities
 
@@ -36,7 +36,7 @@ Nothing else is bounded either. No Store call in the `context` handler has a dea
 ## Impact
 
 - **Schema:** `turns.ingested_at`, nullable so existing rows migrate without an invented time. Retention adds the first `DELETE` against `turns` and `turn_messages`.
-- **Configuration:** `CM_PG_PORT` becomes live, breaking a setup that set it and relied on it being ignored; a per-Store deadline; a retention age, unset.
+- **Configuration:** `PICHART_PG_PORT` becomes live, breaking a setup that set it and relied on it being ignored; a per-Store deadline; a retention age, unset.
 - **Performance:** sweep cost drops to the new Turns; a deadline trades a stalled Turn for a missing part.
 - **Migration:** Turns already relabelled cannot be repaired — the true Codebase was never recorded. Fixing the write stops the loss without undoing it.
 - **Completes:** the `thread-store` incremental-ingest and Codebase-provenance scenarios, today satisfied in letter only. **Unblocks:** recency ranking and age-based pruning.

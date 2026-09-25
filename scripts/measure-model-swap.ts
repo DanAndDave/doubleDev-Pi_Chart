@@ -17,7 +17,7 @@
  * Needs a Postgres with pgvector, and truncates the Concept index it points
  * at, so point it at a scratch database rather than one holding anything:
  *
- *     CM_BUN=$(which bun) CM_DATABASE_URL=postgresql://... \
+ *     PICHART_BUN=$(which bun) PICHART_DATABASE_URL=postgresql://... \
  *         bun scripts/measure-model-swap.ts
  */
 import { SQL } from "bun";
@@ -33,25 +33,25 @@ const QUERY = "how is gross margin calculated for a period";
 const LIMIT = 5;
 const MAX_DISTANCE = 0.6;
 
-const url = process.env.CM_DATABASE_URL;
-if (!url) throw new Error("set CM_DATABASE_URL to a scratch database");
+const url = process.env.PICHART_DATABASE_URL;
+if (!url) throw new Error("set PICHART_DATABASE_URL to a scratch database");
 
 /**
- * One model in one process: the embedder's worker reads `CM_EMBED_MODEL`
+ * One model in one process: the embedder's worker reads `PICHART_EMBED_MODEL`
  * when it loads, which is also how an operator changes it.
  */
 async function withModel<T>(
 	model: string,
 	work: (store: PostgresStore, embedder: LocalEmbedder) => Promise<T>,
 ): Promise<T> {
-	if (process.env.CM_EMBED_MODEL !== model) {
+	if (process.env.PICHART_EMBED_MODEL !== model) {
 		const child = Bun.spawn(
 			[process.execPath, import.meta.path, ...process.argv.slice(2)],
-			{ env: { ...process.env, CM_EMBED_MODEL: model }, stdio: ["inherit", "inherit", "inherit"] },
+			{ env: { ...process.env, PICHART_EMBED_MODEL: model }, stdio: ["inherit", "inherit", "inherit"] },
 		);
 		process.exit(await child.exited);
 	}
-	const embedder = new LocalEmbedder(process.env.CM_BUN);
+	const embedder = new LocalEmbedder(process.env.PICHART_BUN);
 	const store = PostgresStore.connect(url ?? "", embedder);
 	try {
 		return await work(store, embedder);

@@ -10,7 +10,7 @@
 - [x] 2.1 Stop the ingest conflict clause from writing a Turn's Codebase, and verify a Turn ingested from one Codebase and re-ingested from a subdirectory of it still reads with the first
 - [x] 2.2 Verify a Turn stored for the first time by a later ingest records the Codebase that ingest ran from
 - [x] 2.3 Verify a Turn stored with no Codebase reads with it absent rather than failing, and is not backfilled by a later ingest
-- [x] 2.4 Verify `recall_across_conversations` reports the Codebase a Turn was first stored with after a re-ingest from elsewhere — held through `searchAll`, which is what `recall_across_conversations` reports from: after a re-ingest from `src/`, the Turns still come back with `/home/user/dev/context-manager`
+- [x] 2.4 Verify `recall_across_conversations` reports the Codebase a Turn was first stored with after a re-ingest from elsewhere — held through `searchAll`, which is what `recall_across_conversations` reports from: after a re-ingest from `src/`, the Turns still come back with `/home/user/dev/pi-chart`
 
 ## 3. Incremental ingest
 
@@ -28,7 +28,7 @@
 
 ## 5. Retention
 
-- [x] 5.1 Add the retention age to configuration, unset by default, and verify an unusable value is refused with a reason rather than silently disabling or enabling retention — `CM_RETAIN_DAYS`, unset by default. An unusable value is refused *and said aloud* through `Config.problems`, reported at session start: treating it as unset would leave someone believing their Store is bounded, and treating it as a number would delete history on a typo
+- [x] 5.1 Add the retention age to configuration, unset by default, and verify an unusable value is refused with a reason rather than silently disabling or enabling retention — `PICHART_RETAIN_DAYS`, unset by default. An unusable value is refused *and said aloud* through `Config.problems`, reported at session start: treating it as unset would leave someone believing their Store is bounded, and treating it as a number would delete history on a typo
 - [x] 5.2 Remove Turns older than the configured age with their messages, and verify Turns within the age remain retrievable in the tail and by recall
 - [x] 5.3 Verify nothing is removed when no retention age is configured, however old the Turns
 - [x] 5.4 Verify a Turn with no arrival time is left in place by retention
@@ -37,7 +37,7 @@
 
 ## 6. Deadlines on the context path
 
-- [x] 6.1 Add a per-Store deadline to configuration with task 1.2's defaults, and verify each Store's deadline is settable independently — `CM_TAIL_DEADLINE_MS`, `CM_RECALL_DEADLINE_MS`, `CM_DOC_DEADLINE_MS`, `CM_GRAPH_DEADLINE_MS`, each independent, defaulting to task 1.2's figures
+- [x] 6.1 Add a per-Store deadline to configuration with task 1.2's defaults, and verify each Store's deadline is settable independently — `PICHART_TAIL_DEADLINE_MS`, `PICHART_RECALL_DEADLINE_MS`, `PICHART_DOC_DEADLINE_MS`, `PICHART_GRAPH_DEADLINE_MS`, each independent, defaulting to task 1.2's figures
 - [x] 6.2 Bound the tail and the three retrievals by their deadlines, and verify a Store that never answers costs its part while the Turn proceeds — the four per-Store helpers each race their own call; the wait is injected (`deps.after`) so no test spends the time
 - [x] 6.3 Verify a missed deadline is reported as a missed deadline, distinguishably from a Store that refused the connection, and that Accounting shows the part absent — "did not answer within 5000ms" against "Recall unavailable", and the part is simply absent from the Pack, which is what Accounting records
 - [x] 6.4 Verify one Store missing its deadline leaves the parts served by the others carried
@@ -55,7 +55,7 @@
 
 - [x] 8.1 Return the number of Turns stored from ingest and report it from the sweep, and verify a Journal yielding none is distinguishable from one never read — a Journal that was read and held nothing reports that it holds no turns; one that could not be found reports the miss; a Journal with Turns reports how many were stored
 - [x] 8.2 Report a Journal that cannot be found, naming the Conversation and the root searched, and verify the Turn still proceeds on the harness's own history
-- [x] 8.3 Build the default database URL from `CM_PG_PORT` when `CM_DATABASE_URL` is unset, and verify the port set for Compose is the port the extension dials, with 55432 when neither is set — code only: the README's `CM_PG_PORT` sentence is `audit-docs-debt`'s, and its task 1.1 reads this resolution before rewording it. The variable is now read, so its wording is the "kept and scoped to the default URL" branch
+- [x] 8.3 Build the default database URL from `PICHART_PG_PORT` when `PICHART_DATABASE_URL` is unset, and verify the port set for Compose is the port the extension dials, with 55432 when neither is set — code only: the README's `PICHART_PG_PORT` sentence is `audit-docs-debt`'s, and its task 1.1 reads this resolution before rewording it. The variable is now read, so its wording is the "kept and scoped to the default URL" branch
 - [x] 8.4 Add the identity tiebreak to the Concept candidate set, and verify a query against a corpus larger than the candidate set selects the same Concepts in the same order across repeated retrieval and across an index rebuild — `, identity ASC, section_index ASC` in the inner `nearest` CTE. Held against 60 Concepts saying the same thing, a candidate window cutting through the ties, and a `REINDEX` between retrievals; red without the tiebreak
 
 ## 9. Resource lifecycle
@@ -67,6 +67,6 @@
 ## 10. Verification
 
 - [x] 10.1 Ingest one of this machine's real Journals twice and confirm the second sweep writes only the highest Turn rather than every message, reporting the statement count against the recorded 3,371 — first sweep 49 statements for 16 Turns, **second sweep 1 statement and nothing written**, against the recorded 3,371
-- [x] 10.2 Resume that Conversation from a subdirectory and confirm its historical Turns still report the original Codebase through `recall_across_conversations` — re-ingested from `src/`, every historical Turn still reports `/home/user/dev/context-manager` through `searchAll`
+- [x] 10.2 Resume that Conversation from a subdirectory and confirm its historical Turns still report the original Codebase through `recall_across_conversations` — re-ingested from `src/`, every historical Turn still reports `/home/user/dev/pi-chart` through `searchAll`
 - [x] 10.3 Run with a configured retention age against a scratch Store, confirm old dated Turns and their messages leave, undatable Turns and Accounting remain, then run with retention unset and confirm nothing leaves — eight Turns backdated 90 days: retention at 30 removed 8 with every message (no orphans), left the 8 within the age, left the undatable Turn in place, and the Accounting recorded for a removed Turn still reads back. With retention unset nothing was removed
-- [x] 10.4 Run the default, store-backed, model, graphify, OpenSpec and live suites and the type checker, and confirm `openspec validate store-hygiene` passes — default 404 pass, store-backed 506 pass, model suite (`CM_EMBED=1`) 35 pass, `CM_GRAPHIFY=1` 4 pass, `CM_OPENSPEC=1` 7 pass, `CM_LIVE=1` 4 pass / 1 skip, `tsc` clean, `openspec validate store-hygiene` passes
+- [x] 10.4 Run the default, store-backed, model, graphify, OpenSpec and live suites and the type checker, and confirm `openspec validate store-hygiene` passes — default 404 pass, store-backed 506 pass, model suite (`PICHART_EMBED=1`) 35 pass, `PICHART_GRAPHIFY=1` 4 pass, `PICHART_OPENSPEC=1` 7 pass, `PICHART_LIVE=1` 4 pass / 1 skip, `tsc` clean, `openspec validate store-hygiene` passes

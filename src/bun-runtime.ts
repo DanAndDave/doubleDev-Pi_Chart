@@ -6,12 +6,12 @@ import { join } from "node:path";
  * Where the embedding worker's Bun comes from.
  *
  * The worker runs out of process because the harness's bundled runtime
- * cannot load the model's native dependencies. That left `CM_BUN` as a
+ * cannot load the model's native dependencies. That left `PICHART_BUN` as a
  * setting every user had to get right, and getting it wrong failed in the
  * least helpful way available: recall and curated knowledge went quiet
  * while everything else carried on.
  *
- * So it is found rather than configured. `CM_BUN` still wins when set.
+ * So it is found rather than configured. `PICHART_BUN` still wins when set.
  */
 
 /** Places a Bun ends up, in the order worth trying. */
@@ -22,7 +22,7 @@ function candidates(
 	const home = env.HOME ?? homedir();
 	const found: string[] = [];
 
-	const configured = env.CM_BUN?.trim();
+	const configured = env.PICHART_BUN?.trim();
 	if (configured) found.push(configured);
 
 	// The process running us, when that is already a Bun: the cheapest
@@ -138,7 +138,7 @@ async function search(
 	for (const candidate of candidates(env, running)) {
 		// A directory is an install root to search; anything else is a Bun
 		// to try. Deciding by what the path spells rather than what it is
-		// discarded a configured `CM_BUN` that happened to live under a
+		// discarded a configured `PICHART_BUN` that happened to live under a
 		// version manager — which is most of them.
 		if (await isDirectory(candidate)) {
 			for (const version of await versioned(candidate)) {

@@ -12,7 +12,7 @@ afterEach(() => {
 
 describe("finding a bun to run the embedder", () => {
 	test("finds one on this machine without being told", async () => {
-		// The whole point: `CM_BUN` was a setting everyone had to get right,
+		// The whole point: `PICHART_BUN` was a setting everyone had to get right,
 		// and getting it wrong silenced recall rather than failing.
 		expect(await findBun({ HOME: process.env.HOME })).toBeDefined();
 	});
@@ -44,7 +44,7 @@ describe("finding a bun to run the embedder", () => {
 		forgetBun();
 
 		const found = await findBun({
-			CM_BUN: join(bin, "bun"),
+			PICHART_BUN: join(bin, "bun"),
 			HOME: process.env.HOME,
 		});
 
@@ -55,7 +55,7 @@ describe("finding a bun to run the embedder", () => {
 		// Which is what a version-manager shim does outside a directory it
 		// knows: it exits non-zero rather than being absent.
 		const found = await findBun({
-			CM_BUN: "/nonexistent/bun",
+			PICHART_BUN: "/nonexistent/bun",
 			HOME: process.env.HOME,
 		});
 
@@ -78,7 +78,7 @@ describe("finding a bun to run the embedder", () => {
 
 		// A directory names a set of installs to search, which is how a
 		// version manager's root is treated.
-		const found = await findBun({ CM_BUN: root, HOME: process.env.HOME });
+		const found = await findBun({ PICHART_BUN: root, HOME: process.env.HOME });
 
 		expect(found).toContain("1.10.0");
 	});
@@ -93,7 +93,7 @@ describe("finding a bun to run the embedder", () => {
 
 	test("a failure is not remembered, so installing bun can help", async () => {
 		const nowhere = await mkdtemp(join(tmpdir(), "cm-bun-none-"));
-		const env = { CM_BUN: join(nowhere, "bun"), HOME: nowhere, PATH: nowhere };
+		const env = { PICHART_BUN: join(nowhere, "bun"), HOME: nowhere, PATH: nowhere };
 		// A machine with no Bun, which the tests cannot otherwise be on.
 		const noBun = "/usr/bin/node";
 

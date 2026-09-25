@@ -30,7 +30,7 @@ The measurement that justifies it is in `docs/audits/2026-09-16-functionality-au
 
 A count Budget is not wrong, it is insufficient. "Eight Turns" is meaningful to a person, cheap to reason about, and already tuned by evidence. The failure is that it is the *only* dimension. So each part carries both, and is trimmed to whichever binds first.
 
-The alternative — replacing counts with tokens — loses a property worth keeping: `CM_TAIL_TURNS=0` is how a user says "only the current Turn", and there is no token value that expresses it.
+The alternative — replacing counts with tokens — loses a property worth keeping: `PICHART_TAIL_TURNS=0` is how a user says "only the current Turn", and there is no token value that expresses it.
 
 ### Enforcement lives in `assemble()`, after the count slice
 
@@ -81,7 +81,7 @@ Task 1 derived them from this machine's 219 Journals rather than asserting them.
 
 Whole-message estimation cuts the systematic bias from 1.35× to 1.15×, and it still under-counts on 93% of Calls, so the headroom factor is the p90, rounded up: **1.5**.
 
-The ceiling then follows from a window the operator is likely to have and a Floor this project has measured: `(200,000 − 28,000) / 1.5` → **`CM_PACK_TOKENS` = 110,000** estimated tokens. Per-part Budgets, in estimated tokens: **tail 25,000, recall 8,000, docs 5,000, graph 3,000** — 41,000 together, which leaves the current Turn 69,000 before ceiling reduction touches it. That allowance covers 97.4% of the 381 real Turns measured here (p95 is 14,785 and p98 is 76,132), so reduction of the current Turn stays the rare case it should be.
+The ceiling then follows from a window the operator is likely to have and a Floor this project has measured: `(200,000 − 28,000) / 1.5` → **`PICHART_PACK_TOKENS` = 110,000** estimated tokens. Per-part Budgets, in estimated tokens: **tail 25,000, recall 8,000, docs 5,000, graph 3,000** — 41,000 together, which leaves the current Turn 69,000 before ceiling reduction touches it. That allowance covers 97.4% of the 381 real Turns measured here (p95 is 14,785 and p98 is 76,132), so reduction of the current Turn stays the rare case it should be.
 
 **The tail Budget retains the most recent Turn even when that Turn alone exceeds it.** Measured while choosing the number: on the audited Conversation the newest completed Turn is 74,216 estimated tokens against a 25,000 tail Budget, so a drop-only rule would empty the tail on exactly the Conversation where working state matters most. The delta already answers this — a tool result too large for its Budget is carried shortened — so the fill rule is: take the most recent Turns that fit, and if none fits, keep the newest with its tool results elided. That is what makes "the most recent Turns SHALL remain" true rather than vacuous. With it, that Conversation's Pack at its last Turn is 34,495 estimated tokens where it previously reached 983,339.
 

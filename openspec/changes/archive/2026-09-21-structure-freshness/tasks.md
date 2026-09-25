@@ -72,16 +72,16 @@
 - [x] 8.3 Report once when a structure Budget is configured and no graph can be reached, naming why, and verify a Codebase with a graph reports nothing
 - [x] 8.4 Report structure in the install check from the Store that exists rather than from configuration alone, and verify it reads unavailable with no Store, declined when extraction is off, and on otherwise
 
-> The shared literal carries `graph`, `walk`, `specs`, `codebase`, `report` and `show`; only the Thread-Store-backed members are conditional. 8.2 is what the whole extension suite already exercises — its harness has no database — and the live run below assembled structure with `CM_DATABASE_URL=""` throughout.
+> The shared literal carries `graph`, `walk`, `specs`, `codebase`, `report` and `show`; only the Thread-Store-backed members are conditional. 8.2 is what the whole extension suite already exercises — its harness has no database — and the live run below assembled structure with `PICHART_DATABASE_URL=""` throughout.
 
 ## 9. Verification
 
 - [x] 9.1 Run a live session that edits a file and then asks about a symbol in it, and confirm the Pack carries the edited file's structure with no older-than-Codebase mark
 - [x] 9.2 Run a live session whose Turn reads several files without naming a symbol, and confirm `/pack` shows structure for those files
-- [x] 9.3 Run a session with `CM_DATABASE_URL=""` and confirm `/context-manager` reports the Graph Store honestly and `/pack` shows the structure part
-- [x] 9.4 Run the default and tool-gated suites (`CM_GRAPHIFY=1`) and the type checker, and confirm `openspec validate structure-freshness` passes
+- [x] 9.3 Run a session with `PICHART_DATABASE_URL=""` and confirm `/pi-chart` reports the Graph Store honestly and `/pack` shows the structure part
+- [x] 9.4 Run the default and tool-gated suites (`PICHART_GRAPHIFY=1`) and the type checker, and confirm `openspec validate structure-freshness` passes
 
-> A three-Turn live session over a copy of this project's `src/`, with `CM_DATABASE_URL=""` and `CM_GRAPH=on`, asked at the end of each Turn to quote back every `[codebase structure:` line it had been given.
+> A three-Turn live session over a copy of this project's `src/`, with `PICHART_DATABASE_URL=""` and `PICHART_GRAPH=on`, asked at the end of each Turn to quote back every `[codebase structure:` line it had been given.
 >
 > **9.1** Turn 1 appended `probeLiveStructure()` to `src/shares.ts`; Turn 2 was given `[codebase structure: shares() (src/shares.ts:L15)]` **and** `[codebase structure: probeLiveStructure() (src/shares.ts:L43)]`, unmarked — a symbol that did not exist when the Conversation began.
 >

@@ -18,12 +18,12 @@ import {
 } from "../src/embedder.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
-const databaseUrl = process.env.CM_DATABASE_URL;
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 // The stub embedder shares tokens, so under it "by meaning" and "by wording"
 // are the same claim. Only the real model can tell them apart.
 const describeModel =
-	databaseUrl && process.env.CM_EMBED === "1" ? describe : describe.skip;
+	databaseUrl && process.env.PICHART_EMBED === "1" ? describe : describe.skip;
 const AT = new Date("2026-09-16T00:00:00Z");
 
 function concept(
@@ -854,7 +854,7 @@ describeModel("retrieval under the real model", () => {
 	test(
 		"a concept is found by a query that shares its meaning, not its words",
 		async () => {
-			const embedder = new LocalEmbedder(process.env.CM_BUN ?? "bun");
+			const embedder = new LocalEmbedder(process.env.PICHART_BUN ?? "bun");
 			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
 			try {
 				await store.migrate();
@@ -895,7 +895,7 @@ describeModel("retrieval under the real model", () => {
 	test(
 		"the concept that states its subject beats the one that leaves it implicit",
 		async () => {
-			const embedder = new LocalEmbedder(process.env.CM_BUN ?? "bun");
+			const embedder = new LocalEmbedder(process.env.PICHART_BUN ?? "bun");
 			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
 			const body =
 				"## Decision\n\n`retain_days` defaults to 90. The sweep runs " +
@@ -947,7 +947,7 @@ describeModel("retrieval under the real model", () => {
 	test(
 		"the part of a concept a query is about is the part retrieved",
 		async () => {
-			const embedder = new LocalEmbedder(process.env.CM_BUN ?? "bun");
+			const embedder = new LocalEmbedder(process.env.PICHART_BUN ?? "bun");
 			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
 			try {
 				await store.migrate();

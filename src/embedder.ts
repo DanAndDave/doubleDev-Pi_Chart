@@ -4,7 +4,7 @@ import { findBun } from "./bun-runtime.ts";
  * What a loaded embedder is: which model, and how wide its vectors are.
  *
  * Reported by the thing that loaded the model rather than declared beside
- * it, because `CM_EMBED_MODEL` can replace the pinned model at startup and
+ * it, because `PICHART_EMBED_MODEL` can replace the pinned model at startup and
  * a declared constant would then describe a model nothing is running. Every
  * stored vector records this, so two vector spaces can never be ranked
  * against one another.
@@ -110,7 +110,7 @@ export class LocalEmbedder implements Embedder {
 	private handshake?: Promise<EmbedderIdentity>;
 
 	constructor(
-		/** Where Bun is. Found when unset, so `CM_BUN` is a rescue, not a step. */
+		/** Where Bun is. Found when unset, so `PICHART_BUN` is a rescue, not a step. */
 		private readonly runtime?: string,
 		/** How long one batch may take, including first-use model load. */
 		private readonly timeoutMs = 120_000,
@@ -121,7 +121,7 @@ export class LocalEmbedder implements Embedder {
 
 	/**
 	 * What the worker actually loaded, asked of the worker rather than
-	 * assumed: `CM_EMBED_MODEL` can replace the pinned model, and the width
+	 * assumed: `PICHART_EMBED_MODEL` can replace the pinned model, and the width
 	 * is measured from a vector the loaded model produced.
 	 */
 	async identity(): Promise<EmbedderIdentity> {
@@ -225,7 +225,7 @@ export class LocalEmbedder implements Embedder {
 		if (!runtime) {
 			throw new Error(
 				"no Bun found to run the embedder. Install Bun " +
-					"(https://bun.sh) or set CM_BUN to its path",
+					"(https://bun.sh) or set PICHART_BUN to its path",
 			);
 		}
 

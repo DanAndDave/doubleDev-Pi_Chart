@@ -506,7 +506,7 @@ export class DocStore {
 			before?.concept.status === "deprecated" ? "deprecated" : "draft",
 		);
 		document.set("generated", {
-			by: `context-manager@${hostname()}`,
+			by: `pi-chart@${hostname()}`,
 			at: now.toISOString(),
 		});
 		if (draft.exclusions) document.set("not", draft.exclusions);

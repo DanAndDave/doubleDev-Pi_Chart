@@ -1,7 +1,7 @@
 // Live seam. These exercise the three claims that are only true if the
 // harness and the provider agree: that a pack reaches the model, that the
 // journal keeps what the model never saw, and that window sizes are reported.
-// They call a real model, so they run only under CM_LIVE=1.
+// They call a real model, so they run only under PICHART_LIVE=1.
 
 import { describe, expect, test } from "bun:test";
 import { cp, mkdtemp } from "node:fs/promises";
@@ -15,8 +15,8 @@ import { inspectConversation } from "../src/inspection.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import { journalText, runHeadless } from "./harness.ts";
 
-const live = process.env.CM_LIVE === "1";
-const databaseUrl = process.env.CM_DATABASE_URL;
+const live = process.env.PICHART_LIVE === "1";
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeLive = live ? describe : describe.skip;
 // Accounting now lives in the Thread Store, so reading it back needs both a
 // real model and a real database.
@@ -36,10 +36,10 @@ const TIMEOUT = 240_000;
 async function forgetfulConversation() {
 	const cwd = await mkdtemp(join(tmpdir(), "cm-live-"));
 	const env: Record<string, string> = {
-		CM_TAIL_TURNS: "0",
-		CM_RECALL_TURNS: "0",
+		PICHART_TAIL_TURNS: "0",
+		PICHART_RECALL_TURNS: "0",
 	};
-	if (databaseUrl) env.CM_DATABASE_URL = databaseUrl;
+	if (databaseUrl) env.PICHART_DATABASE_URL = databaseUrl;
 
 	const first = await runHeadless({
 		cwd,
@@ -169,15 +169,15 @@ describeStore("curated knowledge against a live model", () => {
 				`What is the value of SETTLEMENT_CLOSE? Answer with just the value, ` +
 				`or exactly UNKNOWN if you do not know.`;
 			const env: Record<string, string> = {
-				CM_DATABASE_URL: databaseUrl ?? "",
-				CM_DOC_BUNDLE: bundle,
-				CM_RECALL_TURNS: "0",
+				PICHART_DATABASE_URL: databaseUrl ?? "",
+				PICHART_DOC_BUNDLE: bundle,
+				PICHART_RECALL_TURNS: "0",
 			};
-			if (process.env.CM_BUN) env.CM_BUN = process.env.CM_BUN;
+			if (process.env.PICHART_BUN) env.PICHART_BUN = process.env.PICHART_BUN;
 
 			// Indexed here, awaited, so the runs below measure retrieval
 			// rather than whether background indexing happened to finish.
-			const embedder = new LocalEmbedder(process.env.CM_BUN);
+			const embedder = new LocalEmbedder(process.env.PICHART_BUN);
 			const indexer = PostgresStore.connect(databaseUrl ?? "", embedder);
 			try {
 				await indexer.migrate();
@@ -197,8 +197,8 @@ describeStore("curated knowledge against a live model", () => {
 				extensions: [EXTENSION],
 				env: {
 					...env,
-					CM_DOC_CONCEPTS: "0",
-					CM_DOC_BUNDLE: await mkdtemp(join(tmpdir(), "cm-live-nobundle-")),
+					PICHART_DOC_CONCEPTS: "0",
+					PICHART_DOC_BUNDLE: await mkdtemp(join(tmpdir(), "cm-live-nobundle-")),
 				},
 			});
 			expect(withoutDocs.stdout).not.toContain(secret);
@@ -254,7 +254,7 @@ async function freshCodebase(): Promise<string> {
 }
 
 const describeGraph =
-	live && databaseUrl && process.env.CM_GRAPHIFY === "1"
+	live && databaseUrl && process.env.PICHART_GRAPHIFY === "1"
 		? describe
 		: describe.skip;
 
@@ -264,11 +264,11 @@ describeGraph("codebase structure against a live model", () => {
 		async () => {
 			const cwd = await freshCodebase();
 			const env: Record<string, string> = {
-				CM_DATABASE_URL: databaseUrl ?? "",
-				CM_RECALL_TURNS: "0",
-				CM_DOC_CONCEPTS: "0",
+				PICHART_DATABASE_URL: databaseUrl ?? "",
+				PICHART_RECALL_TURNS: "0",
+				PICHART_DOC_CONCEPTS: "0",
 			};
-			if (process.env.CM_BUN) env.CM_BUN = process.env.CM_BUN;
+			if (process.env.PICHART_BUN) env.PICHART_BUN = process.env.PICHART_BUN;
 
 			// Extracted here and awaited, so the run measures retrieval
 			// rather than whether background extraction finished in time.

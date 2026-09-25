@@ -374,11 +374,11 @@ describe("the symbols a turn is working with", () => {
 
 	test("a symbol the prompt names outranks a file's other symbols", () => {
 		const found = turn(
-			"what calls contextManager?",
+			"what calls piChart?",
 			read("src/assembler.ts"),
 		);
 
-		expect(found[0]?.label).toBe("contextManager()");
+		expect(found[0]?.label).toBe("piChart()");
 		expect(found.map((symbol) => symbol.label)).toContain("assemble()");
 	});
 
@@ -407,9 +407,9 @@ describe("the symbols a turn is working with", () => {
 			role: "toolResult",
 			content: "unusedHelper ".repeat(20_000),
 		};
-		const found = turn("what calls contextManager?", noise, read("src/assembler.ts"));
+		const found = turn("what calls piChart?", noise, read("src/assembler.ts"));
 
-		expect(found[0]?.label).toBe("contextManager()");
+		expect(found[0]?.label).toBe("piChart()");
 		expect(found.map((symbol) => symbol.label)).toContain("assemble()");
 	});
 
@@ -463,7 +463,7 @@ describe("a file in play", () => {
 		const relative = forPath("src/assembler.ts");
 
 		expect(forPath("./src/assembler.ts")).toEqual(relative);
-		expect(forPath("/home/user/dev/context-manager/src/assembler.ts")).toEqual(
+		expect(forPath("/home/user/dev/pi-chart/src/assembler.ts")).toEqual(
 			relative,
 		);
 	});
@@ -577,7 +577,7 @@ describe("the neighbourhood of a symbol", () => {
 
 		const described = (around?.edges ?? []).map(describeEdge);
 		expect(described).toHaveLength(2);
-		expect(described.join("\n")).toContain("contextManager() (src/extension.ts:L520)");
+		expect(described.join("\n")).toContain("piChart() (src/extension.ts:L520)");
 		expect(described.join("\n")).toContain("approximateTokens()");
 	});
 

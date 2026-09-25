@@ -40,7 +40,7 @@ Each part records its nearest excluded candidates, distance ascending, the remai
 | …where it was never a candidate at all | 118 |
 | Its rank among the candidates, where it was one (22) | 1, 1, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 7, 9, 9, 9, 9, 10, 10, 10, 12 |
 
-A head of 5 names that Turn in 10 of the 22 reachable cases; a head of 12 names all 22. **The bound is 12, `CM_EXPLAIN_CANDIDATES`**, which is also the width of recall's own over-fetch (`recallTurns + tailTurns`) and so the widest excluded set any part produces under the defaults — curated over-fetches 4, structure 6. Losing the remainder costs nothing at the defaults and costs the tail of the distribution for whoever raises a count Budget, which is why the count beyond the head is still recorded.
+A head of 5 names that Turn in 10 of the 22 reachable cases; a head of 12 names all 22. **The bound is 12, `PICHART_EXPLAIN_CANDIDATES`**, which is also the width of recall's own over-fetch (`recallTurns + tailTurns`) and so the widest excluded set any part produces under the defaults — curated over-fetches 4, structure 6. Losing the remainder costs nothing at the defaults and costs the tail of the distribution for whoever raises a count Budget, which is why the count beyond the head is still recorded.
 
 Two findings ride along. The refused set is empty on 131 of the 140 Calls: on a corpus this homogeneous the relevance threshold refuses almost nothing, and what a part does not carry it lost to a count Budget — so a ledger recording only relevance refusals would explain 6% of these Calls. And the asked-about Turn was outside the candidate set entirely in 118 of 140: what bounds explainability is the over-fetch, not the ledger. Widening the over-fetch is a change to what is retrieved, which this slice is not.
 
@@ -97,7 +97,7 @@ Recording the epoch per Call rather than a boolean is a departure from "one Call
 | A harness compaction is visible in the record | Pure `inspection.ts`/`report.ts` boundary, plus that same fixture end to end. |
 | The estimate is reconciled against the reported window | Pure `inspection.ts`/`report.ts` boundary over a Call carrying both figures, and the unmeasured case. |
 
-The target seam is the pure `inspection.ts`/`report.ts` boundary over recorded Accounting: it sees every view this slice adds and needs no container, model, network or harness. Only the ledger read-back, the retained bound, the curated near misses and addressing over a real Conversation need the store-backed suite (`CM_DATABASE_URL`); compaction detection needs only a Journal fixture. The model and tool-gated suites are untouched; task 9 needs `CM_LIVE=1`.
+The target seam is the pure `inspection.ts`/`report.ts` boundary over recorded Accounting: it sees every view this slice adds and needs no container, model, network or harness. Only the ledger read-back, the retained bound, the curated near misses and addressing over a real Conversation need the store-backed suite (`PICHART_DATABASE_URL`); compaction detection needs only a Journal fixture. The model and tool-gated suites are untouched; task 9 needs `PICHART_LIVE=1`.
 
 ## Open Questions
 

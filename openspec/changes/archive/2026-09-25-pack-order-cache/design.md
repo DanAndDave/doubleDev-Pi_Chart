@@ -76,7 +76,7 @@ No capability states a composition order: `openspec/specs/context-assembly/spec.
 | The cached share of a Pack is derived against the Floor | Inspection boundary, pure, over recorded Accounting. |
 | The baseline reports hit rate against position, head change and tail slide | Script over real Journals joined to Accounting — not a permanent test. |
 
-`measurementsOf` is the target seam: the highest seam that sees a branch entry, pure, needing no container and no model. Only the recording and read-back rows need `CM_DATABASE_URL`; nothing needs `CM_EMBED=1`, `CM_LIVE=1`, `CM_GRAPHIFY=1` or `CM_OPENSPEC=1`, so the default suite stays container-free, model-free and network-free. A measurement slice earns instrumentation tests and no behavioural tests, because no behaviour changes. The baseline is a script beside `scripts/measure-doc-threshold.ts`, the way the audit's figures were derived: re-runnable, not asserted.
+`measurementsOf` is the target seam: the highest seam that sees a branch entry, pure, needing no container and no model. Only the recording and read-back rows need `PICHART_DATABASE_URL`; nothing needs `PICHART_EMBED=1`, `PICHART_LIVE=1`, `PICHART_GRAPHIFY=1` or `PICHART_OPENSPEC=1`, so the default suite stays container-free, model-free and network-free. A measurement slice earns instrumentation tests and no behavioural tests, because no behaviour changes. The baseline is a script beside `scripts/measure-doc-threshold.ts`, the way the audit's figures were derived: re-runnable, not asserted.
 
 ## Open Questions
 

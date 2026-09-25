@@ -2,7 +2,7 @@
 
 The Thread Store works and is unguarded. Ingest is idempotent per row but not incremental: every sweep reads the whole Journal and drives one awaited statement per message, untransacted (`src/postgres-store.ts:303-357`, `src/extension.ts:772-774`) — 25,069 statements across sixteen Turns on the worst Journal here, 3,371 in the final sweep. That same `DO UPDATE` lets `EXCLUDED` win the Codebase (`:330`) while the caller always passes `process.cwd()` (`src/extension.ts:974`), so resuming from a subdirectory rewrites the provenance `cross-conversation-search` exists to report.
 
-Nothing else is bounded. No Store call on the `context` path carries a deadline (`src/extension.ts:305-317`); `runProcess` has no timeout and no kill (`src/process.ts:17-33`), and a promise nobody settles also suppresses its caller's failure report. An unfindable Journal returns silently (`src/extension.ts:767-775`) from a one-root glob (`src/journal.ts:87-96`). No migration gives `turns` a timestamp (`src/postgres-store.ts:51-215`), nothing deletes outside `pruneConcepts` and `truncate()`, and `CM_PG_PORT` is honoured by `compose.yaml:10` and read by nothing in `src/` (`src/config.ts:80-81,95-117`).
+Nothing else is bounded. No Store call on the `context` path carries a deadline (`src/extension.ts:305-317`); `runProcess` has no timeout and no kill (`src/process.ts:17-33`), and a promise nobody settles also suppresses its caller's failure report. An unfindable Journal returns silently (`src/extension.ts:767-775`) from a one-root glob (`src/journal.ts:87-96`). No migration gives `turns` a timestamp (`src/postgres-store.ts:51-215`), nothing deletes outside `pruneConcepts` and `truncate()`, and `PICHART_PG_PORT` is honoured by `compose.yaml:10` and read by nothing in `src/` (`src/config.ts:80-81,95-117`).
 
 Evidence: `docs/audits/2026-09-16-functionality-audit.md:121,131,133,143,145,157-159`. `token-budgets` has landed, so a Pack has a ceiling and Accounting records why a part carried less; this slice bounds the Stores that fill it. See `proposal.md` and the three delta specs.
 
@@ -57,7 +57,7 @@ Set on insert, `DEFAULT now()`, nullable, with no `UPDATE` in the migration. An 
 
 ### Retention ships off, deletes Turns, and leaves Accounting
 
-A configured age (`CM_RETAIN_DAYS`, unset) removes Turns older than it and their messages by cascade. A null `ingested_at` is exempt — an undatable Turn cannot be judged old. `call_accounting` is untouched, so "what did this Call send" outlives the Turn; Accounting is a few numbers per Call against a Turn's full JSONB and vector, and the size problem is not in Accounting.
+A configured age (`PICHART_RETAIN_DAYS`, unset) removes Turns older than it and their messages by cascade. A null `ingested_at` is exempt — an undatable Turn cannot be judged old. `call_accounting` is untouched, so "what did this Call send" outlives the Turn; Accounting is a few numbers per Call against a Turn's full JSONB and vector, and the size problem is not in Accounting.
 
 Off by default because retention length is policy about someone else's history, and blocking on it would leave the Store both unbounded and undatable. The sweep runs at `session_shutdown` beside ingest, never on the `context` path.
 
@@ -75,7 +75,7 @@ Positional rather than an options object because `RunCommand` has three implemen
 
 ### The default connection URL derives its port from the environment
 
-`DEFAULT_DATABASE_URL` becomes a function of the environment, substituting `CM_PG_PORT` and defaulting to 55432. **BREAKING** for a setup that set it and relied on it being ignored. Deleting `CM_PG_PORT` from the documentation instead loses: `compose.yaml:10` honours it, so the two halves of setup would still disagree about which port exists. The README wording is `audit-docs-debt`'s and follows this.
+`DEFAULT_DATABASE_URL` becomes a function of the environment, substituting `PICHART_PG_PORT` and defaulting to 55432. **BREAKING** for a setup that set it and relied on it being ignored. Deleting `PICHART_PG_PORT` from the documentation instead loses: `compose.yaml:10` honours it, so the two halves of setup would still disagree about which port exists. The README wording is `audit-docs-debt`'s and follows this.
 
 ### The Concept candidate set is totally ordered
 
@@ -97,14 +97,14 @@ Final ingest or retention and resource cleanup need `try`/`finally` or equivalen
 - **A deadline turns a slow Store into a missing part** → the trade the audit asks for: a part named absent beats a Turn that never returns.
 - **Killing a child can leave a half-written index** → `graphify extract` writes its output at the end, so a kill leaves the previous index; re-extraction is `structure-freshness`'.
 - **Retention deletes history someone wanted** → off unless configured, undatable Turns exempt, Accounting kept, and the Journal is still the record (ADR-0002): retention discards an index, never history.
-- **`CM_PG_PORT` becoming live breaks a working setup** → only one that set it, which today means one dialling 55432 while its container listened elsewhere. A setup that set it and worked was not using it.
+- **`PICHART_PG_PORT` becoming live breaks a working setup** → only one that set it, which today means one dialling 55432 while its container listened elsewhere. A setup that set it and worked was not using it.
 - **Shutdown can now surface a cleanup failure** → attempt every close, preserve the primary sweep failure when one exists, and report cleanup failures rather than skipping remaining resources.
 
 ## Testing seams
 
 | Requirement | Seam |
 | --- | --- |
-| The Journal is ingested into the store — Codebase set once | Store boundary (`CM_DATABASE_URL`): ingest, ingest again from a subdirectory, read the Codebase back. |
+| The Journal is ingested into the store — Codebase set once | Store boundary (`PICHART_DATABASE_URL`): ingest, ingest again from a subdirectory, read the Codebase back. |
 | The Journal is ingested into the store — resume adds only what is new, and an unflushed final Turn is corrected | Store boundary with a counting `sql` tag passed to the constructor (`src/postgres-store.ts:267-270`): statements per second ingest against Turns added; then a truncated Turn re-ingested whole. |
 | Every turn records when it was ingested | Store boundary: read the arrival time, re-ingest and assert it unchanged, a row with none reads absent. |
 | Retention bounds the store only when it is configured | Store boundary: backdated arrival times, retention on and off, Accounting read back after. |
@@ -114,7 +114,7 @@ Final ingest or retention and resource cleanup need `try`/`finally` or equivalen
 | A store that misses its deadline — a program that hangs is stopped | `runProcess` boundary against a short-lived real child that outlives its deadline, plus the injected `RunCommand` for the Graph and Spec Stores. |
 | Store resources are released when a session ends | Extension dependency boundary with injected closers: shutdown closes Store and embedder, still closes after final sweep failure, and repeated start/shutdown returns connection use to baseline. |
 
-The store boundary is the target seam: provenance, incremental cost, arrival time, retention, candidate ordering, and connection lifetime are all statements about what real SQL did. The default suite stays container-free, model-free and network-free — the deadline rows use an injected Store and clock, the Journal-miss row a stub finder and reporter, the lifecycle row injected closers, the process row a child that sleeps. The store rows need `CM_DATABASE_URL`; candidate ordering also needs `CM_EMBED=1`. Verification adds `CM_GRAPHIFY=1`, `CM_OPENSPEC=1` — both Stores' `RunCommand` signature changes — and `CM_LIVE=1`.
+The store boundary is the target seam: provenance, incremental cost, arrival time, retention, candidate ordering, and connection lifetime are all statements about what real SQL did. The default suite stays container-free, model-free and network-free — the deadline rows use an injected Store and clock, the Journal-miss row a stub finder and reporter, the lifecycle row injected closers, the process row a child that sleeps. The store rows need `PICHART_DATABASE_URL`; candidate ordering also needs `PICHART_EMBED=1`. Verification adds `PICHART_GRAPHIFY=1`, `PICHART_OPENSPEC=1` — both Stores' `RunCommand` signature changes — and `PICHART_LIVE=1`.
 
 ## Open Questions
 

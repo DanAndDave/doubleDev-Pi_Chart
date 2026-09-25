@@ -28,7 +28,7 @@ import { approximateTokens } from "./tokens.ts";
  * tool result the harness's `details` can rival the content it summarises.
  */
 const ELISION = (tokens: number, alsoDropped: number) =>
-	`\n… [context-manager elided ~${tokens} tokens from the middle of this` +
+	`\n… [pi-chart elided ~${tokens} tokens from the middle of this` +
 	`${alsoDropped > 0 ? " content, and its tool metadata" : " content"}]\n`;
 
 /**
@@ -39,7 +39,7 @@ const ELISION = (tokens: number, alsoDropped: number) =>
  * way as well as a tool's output.
  */
 const ELIDED_WHOLE = (tokens: number) =>
-	`… [context-manager elided ~${tokens} tokens here]`;
+	`… [pi-chart elided ~${tokens} tokens here]`;
 
 /**
  * The marker for content carried whole that lost only what travelled
@@ -48,7 +48,7 @@ const ELIDED_WHOLE = (tokens: number) =>
  * middle went that is still there.
  */
 const METADATA_ONLY = (tokens: number) =>
-	`\n… [context-manager dropped ~${tokens} tokens of tool metadata; this content is whole]\n`;
+	`\n… [pi-chart dropped ~${tokens} tokens of tool metadata; this content is whole]\n`;
 
 /** What else went with the text, beside the characters it may spend. */
 interface Elision {
@@ -207,7 +207,7 @@ function shortenText(
 		const candidate: HarnessMessage = {
 			...withoutDetails,
 			content,
-			cmShortened: true,
+			piChartShortened: true,
 		};
 		const tokens = approximateTokens([candidate]);
 		best = { message: candidate, tokens };
@@ -263,7 +263,7 @@ function shortenPayloads(
 	});
 
 	if (!shortened) return { message, tokens: cost, shortened: false };
-	const result: HarnessMessage = { ...message, content: kept, cmShortened: true };
+	const result: HarnessMessage = { ...message, content: kept, piChartShortened: true };
 	return { message: result, tokens: approximateTokens([result]), shortened: true };
 }
 

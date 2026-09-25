@@ -8,7 +8,7 @@ The early Turns of a Conversation are unreachable. The whole-Conversation path a
 
 What returns is unfaithful. `asRecollection` renders `${role}: ${messageText(message)}` and drops textless lines (`src/assembler.ts:570-574`), so an assistant `toolCall` becomes `"assistant: "` and vanishes while its `toolResult` survives whole. Reproduced against `test/fixtures/journal-tool-session.jsonl`: file contents come back, the `write(...)` and `read(...)` invocations do not.
 
-Two silent corruptions sit underneath. `embedPending` selects `WHERE embedding IS NULL` (`src/postgres-store.ts:318`) and ingest's `DO UPDATE` never nulls it (`:271-301`), so a Turn embedded from a truncated Journal line keeps that vector. And `CM_EMBED_MODEL` overrides the pinned model (`src/embedder-worker.ts:17`) while only width is checked (`src/embedder.ts:57`, `src/postgres-store.ts:308-313`) and no vector records its producer: any other 384-dimension model mixes two vector spaces in one table and ranking turns arbitrary.
+Two silent corruptions sit underneath. `embedPending` selects `WHERE embedding IS NULL` (`src/postgres-store.ts:318`) and ingest's `DO UPDATE` never nulls it (`:271-301`), so a Turn embedded from a truncated Journal line keeps that vector. And `PICHART_EMBED_MODEL` overrides the pinned model (`src/embedder-worker.ts:17`) while only width is checked (`src/embedder.ts:57`, `src/postgres-store.ts:308-313`) and no vector records its producer: any other 384-dimension model mixes two vector spaces in one table and ranking turns arbitrary.
 
 ## What Changes
 
@@ -36,6 +36,6 @@ Two silent corruptions sit underneath. `embedPending` selects `WHERE embedding I
 - **Migration:** every Turn re-embedded once — 373 Turns here, batched 32 against the embedder's 120 s budget (`src/embedder.ts:66`), off the request path.
 - **Assembly:** recollections grow: tool calls are text not carried before. Hence the block on `token-budgets` — the clamp must exist first.
 - **Performance:** one hash per Turn per ingest. No `hnsw.ef_search` or `hnsw.iterative_scan` is set, because nothing needs them once the Conversation-scoped read is exact.
-- **Configuration:** `CM_EMBED_MODEL` becomes a recorded choice, not a silent one. Documenting it stays with `audit-docs-debt`.
+- **Configuration:** `PICHART_EMBED_MODEL` becomes a recorded choice, not a silent one. Documenting it stays with `audit-docs-debt`.
 - **Triage:** the audit marked the ANN plan choice `[INFERENCE]`; task 1.1 settled it with `EXPLAIN` against a seeded corpus, and the change sidesteps the approximate path rather than asserting a plan for it.
 - **Unblocks:** `store-hygiene`. Completes the recall half of the defect the audit pairs with pack size.

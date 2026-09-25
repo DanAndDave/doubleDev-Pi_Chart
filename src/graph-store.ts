@@ -78,7 +78,7 @@ export class GraphStore {
 	constructor(options: GraphStoreOptions = {}) {
 		this.run = options.run ?? runProcess;
 		this.home =
-			options.home ?? join(homedir(), ".context-manager", "graphify");
+			options.home ?? join(homedir(), ".pi-chart", "graphify");
 		this.read = options.read ?? readText;
 		this.exists = options.exists ?? pathExists;
 		this.makeDirectory = options.makeDirectory ?? makeDirectory;

@@ -98,9 +98,9 @@
 - [x] 4.1 Run the default and store-backed suites and the type checker, and confirm `openspec validate concept-vector-provenance` passes
 
   `bunx tsc --noEmit` clean; 534 default tests pass; 671 pass with
-  `CM_DATABASE_URL` set; `openspec validate --all --strict` passes.
+  `PICHART_DATABASE_URL` set; `openspec validate --all --strict` passes.
 
-- [x] 4.2 Under the real model, index a bundle, swap `CM_EMBED_MODEL` to another model of the same width, and confirm the index repairs itself and search returns the same Concepts afterwards
+- [x] 4.2 Under the real model, index a bundle, swap `PICHART_EMBED_MODEL` to another model of the same width, and confirm the index repairs itself and search returns the same Concepts afterwards
 
   `scripts/measure-model-swap.ts`, over the vendored `okf-acme-retail`
   bundle (9 Concepts, 33 sections) asking "how is gross margin calculated
@@ -131,7 +131,7 @@
   indexing pass re-embedded nothing, because no text had changed.
 
   Confirmed in a governed Conversation, not only by the instrument: with
-  the bundle indexed under the pinned model and `CM_EMBED_MODEL` set to
+  the bundle indexed under the pinned model and `PICHART_EMBED_MODEL` set to
   `Xenova/all-MiniLM-L6-v2`, the Conversation printed "8 concepts are held
   only as vectors from another embedding model" once, its first Call
   recorded `concepts_unsearched = 8`, and `/pack` rendered "curated
@@ -140,7 +140,7 @@
   carried 2 Concepts — `metrics/gross-margin` and
   `computations/gross-margin-period` — with nothing unsearched.
 
-- [x] 4.3 Confirm the README's `CM_EMBED_MODEL` row is now true of both Stores, and correct the sentence `audit-docs-debt` had to write about the Concept index
+- [x] 4.3 Confirm the README's `PICHART_EMBED_MODEL` row is now true of both Stores, and correct the sentence `audit-docs-debt` had to write about the Concept index
 
   The row now says both Stores record the model, that a swap costs one
   background re-embedding on each side, and that a search says how much of

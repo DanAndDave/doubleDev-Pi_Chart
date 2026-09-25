@@ -499,7 +499,7 @@ describe("what an agent may not write", () => {
 			body: "# Definition\n\nThe head and the tail survive with a marker.",
 		});
 
-		expect(written?.generated?.by).toContain("context-manager@");
+		expect(written?.generated?.by).toContain("pi-chart@");
 		expect(written?.generated?.at).toBe(AT.toISOString());
 		expect(written?.status).toBe("draft");
 		expect(written?.trust).toBe("unverified");

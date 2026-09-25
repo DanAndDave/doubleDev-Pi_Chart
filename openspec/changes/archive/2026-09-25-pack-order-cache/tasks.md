@@ -76,7 +76,7 @@
 >
 > **6.2** The captured Journal fixture's Calls reconcile to the token — asserted in the default suite, not only in the script — and a sweep over an already-ingested Conversation writes no cost at all, so re-ingest costs what ticket 3 measured.
 >
-> **6.3** 531 default tests pass; 662 with `CM_DATABASE_URL`; `tsc` clean; `openspec validate pack-order-cache --strict` passes under `skip_specs`. Thirteen mutations were applied to the new instrumentation — usage dropped from each of the two walks, the cost unrecorded, a missing price recorded as zero, the share taken against the window instead of the Pack, the cost unwritten, erased by a re-measurement, or dropped on read, an unmeasured Call rendered as cached, a share nobody could derive rendered as zero, the backfill inventing rows for Calls this system never assembled, and the backfill running on an unchanged Conversation — and every one failed a test.
+> **6.3** 531 default tests pass; 662 with `PICHART_DATABASE_URL`; `tsc` clean; `openspec validate pack-order-cache --strict` passes under `skip_specs`. Thirteen mutations were applied to the new instrumentation — usage dropped from each of the two walks, the cost unrecorded, a missing price recorded as zero, the share taken against the window instead of the Pack, the cost unwritten, erased by a re-measurement, or dropped on read, an unmeasured Call rendered as cached, a share nobody could derive rendered as zero, the backfill inventing rows for Calls this system never assembled, and the backfill running on an unchanged Conversation — and every one failed a test.
 
 ## 7. Review
 

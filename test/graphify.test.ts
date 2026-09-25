@@ -1,5 +1,5 @@
 // Against the real tool. graphify is a Python package this installs into a
-// private environment, so these run only under CM_GRAPHIFY=1.
+// private environment, so these run only under PICHART_GRAPHIFY=1.
 
 import { describe, expect, test } from "bun:test";
 import { cp, mkdtemp, writeFile } from "node:fs/promises";
@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { GraphStore } from "../src/graph-store.ts";
 import { neighbourhoods, symbolsInPlay } from "../src/symbols.ts";
 
-const describeReal = process.env.CM_GRAPHIFY === "1" ? describe : describe.skip;
+const describeReal = process.env.PICHART_GRAPHIFY === "1" ? describe : describe.skip;
 const TIMEOUT = 600_000;
 
 /** This repository's own source, in a directory the test may write to. */

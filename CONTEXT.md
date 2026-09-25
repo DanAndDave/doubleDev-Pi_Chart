@@ -1,4 +1,4 @@
-# Context Manager
+# Pi Chart
 
 A context manager for coding agents. Four durable stores hold what the agent knows; an assembler rebuilds the agent's context window from them on every turn, so nothing accumulates that the next turn does not need.
 

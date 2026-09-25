@@ -101,8 +101,8 @@ export interface Config {
  * The settings as the Assembler wants them: one Budget per part, rather
  * than the pairs the environment names.
  *
- * The environment keeps the pairs because that is what it is — `CM_TAIL_TURNS`
- * and `CM_TAIL_TOKENS` are two variables, and `pack budget` names nine of
+ * The environment keeps the pairs because that is what it is — `PICHART_TAIL_TURNS`
+ * and `PICHART_TAIL_TOKENS` are two variables, and `pack budget` names nine of
  * them — so the two shapes meet here, once, instead of at every reader.
  */
 export function assemblerConfig(config: Config): AssemblerConfig {
@@ -132,13 +132,13 @@ export const DEFAULT_DOC_CONCEPTS = 2;
 export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 /**
- * What `compose.yaml` serves, on the port it was told to serve. `CM_PG_PORT`
+ * What `compose.yaml` serves, on the port it was told to serve. `PICHART_PG_PORT`
  * is honoured by the Compose file, so the extension has to dial the same
  * port or setup's two halves disagree about which store exists.
  */
 export const DEFAULT_PG_PORT = 55432;
 export function defaultDatabaseUrl(port: number = DEFAULT_PG_PORT): string {
-	return `postgres://context_manager:context_manager@localhost:${port}/thread_store`;
+	return `postgres://pi_chart:pi_chart@localhost:${port}/thread_store`;
 }
 export const DEFAULT_TAIL_TOKENS = 25_000;
 export const DEFAULT_RECALL_TOKENS = 8_000;
@@ -162,47 +162,103 @@ export const DEFAULT_PACK_WARN_SHARE = 0.75;
 export const DEFAULT_TAIL_DEADLINE_MS = 1_500;
 export const DEFAULT_RETRIEVAL_DEADLINE_MS = 5_000;
 
+/**
+ * Every setting this reads, by name, so a variable written for the old
+ * name can be told whether it still has a home.
+ *
+ * Listed rather than derived, because a variable is read at the point it
+ * is used and there is nowhere else to derive it from; `test/install.test.ts`
+ * checks the list against what `src/` actually reads, so it cannot drift.
+ */
+export const SETTINGS: readonly string[] = [
+	"PICHART_BUN",
+	"PICHART_CAPTURE_FILE",
+	"PICHART_DATABASE_URL",
+	"PICHART_DOC_BUNDLE",
+	"PICHART_DOC_CONCEPTS",
+	"PICHART_DOC_DEADLINE_MS",
+	"PICHART_DOC_MAX_DISTANCE",
+	"PICHART_DOC_TOKENS",
+	"PICHART_EMBED",
+	"PICHART_EMBED_MODEL",
+	"PICHART_EXPLAIN_CANDIDATES",
+	"PICHART_GRAPH",
+	"PICHART_GRAPHIFY",
+	"PICHART_GRAPH_DEADLINE_MS",
+	"PICHART_GRAPH_SYMBOLS",
+	"PICHART_GRAPH_TOKENS",
+	"PICHART_LIVE",
+	"PICHART_OPENSPEC",
+	"PICHART_PACK_TOKENS",
+	"PICHART_PACK_WARN_SHARE",
+	"PICHART_PG_PORT",
+	"PICHART_RECALL_DEADLINE_MS",
+	"PICHART_RECALL_MAX_DISTANCE",
+	"PICHART_RECALL_TOKENS",
+	"PICHART_RECALL_TURNS",
+	"PICHART_RETAIN_DAYS",
+	"PICHART_SPECS",
+	"PICHART_TAIL_DEADLINE_MS",
+	"PICHART_TAIL_TOKENS",
+	"PICHART_TAIL_TURNS",
+];
+
 export function loadConfig(env: Record<string, string | undefined>): Config {
 	const problems: string[] = [];
+	// Nothing reads a `CM_` variable. A session started with one would run
+	// on defaults while looking configured, which is the undiagnosable
+	// failure ADR-0003 forbids — so it is named, with what replaces it, and
+	// it is said plainly that it does nothing.
+	for (const name of Object.keys(env).sort()) {
+		if (!name.startsWith("CM_")) continue;
+		const replacement = `PICHART_${name.slice("CM_".length)}`;
+		// Only where there is one to name: a variable nothing ever read is
+		// told the prefix, not a setting that does not exist either.
+		problems.push(
+			SETTINGS.includes(replacement)
+				? `${name} is not read: this is pi-chart now, and the setting is ${replacement}.`
+				: `${name} is not read: this is pi-chart now, and its settings are named PICHART_*.`,
+		);
+	}
 	return {
 		problems,
-		tailTurns: count(env.CM_TAIL_TURNS, DEFAULT_TAIL_TURNS),
-		recallTurns: count(env.CM_RECALL_TURNS, DEFAULT_RECALL_TURNS),
+		tailTurns: count(env.PICHART_TAIL_TURNS, DEFAULT_TAIL_TURNS),
+		recallTurns: count(env.PICHART_RECALL_TURNS, DEFAULT_RECALL_TURNS),
 		recallMaxDistance: distance(
-			env.CM_RECALL_MAX_DISTANCE,
+			env.PICHART_RECALL_MAX_DISTANCE,
 			DEFAULT_RECALL_MAX_DISTANCE,
 		),
-		docConcepts: count(env.CM_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
-		graphSymbols: count(env.CM_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
-		graphExtract: env.CM_GRAPH === "on",
-		specsVerify: env.CM_SPECS !== "off",
-		docMaxDistance: distance(env.CM_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
+		docConcepts: count(env.PICHART_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
+		graphSymbols: count(env.PICHART_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
+		graphExtract: env.PICHART_GRAPH === "on",
+		specsVerify: env.PICHART_SPECS !== "off",
+		docMaxDistance: distance(env.PICHART_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl:
-			env.CM_DATABASE_URL ??
-			defaultDatabaseUrl(count(env.CM_PG_PORT, DEFAULT_PG_PORT)),
+			env.PICHART_DATABASE_URL ??
+			defaultDatabaseUrl(count(env.PICHART_PG_PORT, DEFAULT_PG_PORT)),
 		docBundle:
-			env.CM_DOC_BUNDLE ?? join(homedir(), ".context-manager", "bundle"),
-		tailTokens: count(env.CM_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),
-		recallTokens: count(env.CM_RECALL_TOKENS, DEFAULT_RECALL_TOKENS),
-		docTokens: count(env.CM_DOC_TOKENS, DEFAULT_DOC_TOKENS),
-		graphTokens: count(env.CM_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
-		packTokens: count(env.CM_PACK_TOKENS, DEFAULT_PACK_TOKENS),
+			env.PICHART_DOC_BUNDLE ?? join(homedir(), ".pi-chart", "bundle"),
+		tailTokens: count(env.PICHART_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),
+		recallTokens: count(env.PICHART_RECALL_TOKENS, DEFAULT_RECALL_TOKENS),
+		docTokens: count(env.PICHART_DOC_TOKENS, DEFAULT_DOC_TOKENS),
+		graphTokens: count(env.PICHART_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
+		packTokens: count(env.PICHART_PACK_TOKENS, DEFAULT_PACK_TOKENS),
 		explainCandidates: count(
-			env.CM_EXPLAIN_CANDIDATES,
+			env.PICHART_EXPLAIN_CANDIDATES,
 			DEFAULT_EXPLAIN_CANDIDATES,
 		),
-		packWarnShare: share(env.CM_PACK_WARN_SHARE, DEFAULT_PACK_WARN_SHARE),
-		tailDeadlineMs: count(env.CM_TAIL_DEADLINE_MS, DEFAULT_TAIL_DEADLINE_MS),
+		packWarnShare: share(env.PICHART_PACK_WARN_SHARE, DEFAULT_PACK_WARN_SHARE),
+		tailDeadlineMs: count(env.PICHART_TAIL_DEADLINE_MS, DEFAULT_TAIL_DEADLINE_MS),
 		recallDeadlineMs: count(
-			env.CM_RECALL_DEADLINE_MS,
+			env.PICHART_RECALL_DEADLINE_MS,
 			DEFAULT_RETRIEVAL_DEADLINE_MS,
 		),
-		docDeadlineMs: count(env.CM_DOC_DEADLINE_MS, DEFAULT_RETRIEVAL_DEADLINE_MS),
+		docDeadlineMs: count(env.PICHART_DOC_DEADLINE_MS, DEFAULT_RETRIEVAL_DEADLINE_MS),
 		graphDeadlineMs: count(
-			env.CM_GRAPH_DEADLINE_MS,
+			env.PICHART_GRAPH_DEADLINE_MS,
 			DEFAULT_RETRIEVAL_DEADLINE_MS,
 		),
-		retainDays: days(env.CM_RETAIN_DAYS, problems),
+		retainDays: days(env.PICHART_RETAIN_DAYS, problems),
 	};
 }
 
@@ -296,7 +352,7 @@ function days(
 	const parsed = Number.parseInt(raw, 10);
 	if (!Number.isFinite(parsed) || parsed <= 0 || String(parsed) !== raw.trim()) {
 		problems.push(
-			`CM_RETAIN_DAYS is "${raw}", which is not a number of days above zero. ` +
+			`PICHART_RETAIN_DAYS is "${raw}", which is not a number of days above zero. ` +
 				`Retention stays off.`,
 		);
 		return undefined;

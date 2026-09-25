@@ -6,7 +6,7 @@
  * The corpus is this repository's own decisions and glossary, turned into
  * Concepts. Run it with the project's Bun:
  *
- *     CM_BUN=$(which bun) bun scripts/measure-doc-threshold.ts
+ *     PICHART_BUN=$(which bun) bun scripts/measure-doc-threshold.ts
  */
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -74,7 +74,7 @@ const root = join(tmpdir(), "cm-threshold-corpus");
 await buildCorpus(root);
 const concepts = (await readBundle(root)) ?? [];
 
-const embedder = new LocalEmbedder(process.env.CM_BUN);
+const embedder = new LocalEmbedder(process.env.PICHART_BUN);
 try {
 	const sections = concepts.flatMap(splitConcept);
 	const wholes = concepts

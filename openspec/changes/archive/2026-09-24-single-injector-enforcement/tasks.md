@@ -48,7 +48,7 @@
 ## 6. The spec edit
 
 - [x] 6.1 Record in `docs/adr/` that the invariant is enforced by detection and disclosure because the injection lands in the Floor, citing the live confirmation from task 1 rather than the documentation alone
-- [x] 6.2 Verify `/context-manager` still reports the same condition on demand and its wording agrees with the session-start report
+- [x] 6.2 Verify `/pi-chart` still reports the same condition on demand and its wording agrees with the session-start report
 
 > `docs/adr/0004-single-injector-enforced-by-disclosure.md`, carrying the measured figures from task 1. The check and the report now say the same thing in the same words, asserted end to end through the registered command.
 
@@ -62,7 +62,7 @@
 >
 > **7.2** omp never stays silent — `status()` answered in all four configurations tried, including `hindsight` pointed at a dead port, which reports itself active with "does not expose structured status". So the unconfirmed path was exercised live by withholding `ctx.memory` the way a harness without the capability would: the report appeared, the Turn answered `steady`, and the Call reads `memory_backend = unconfirmed`. Both runs were repeated against the reviewed code.
 >
-> **7.3** 494 default tests pass; 614 with `CM_DATABASE_URL` against a scratch Postgres 18.6 with pgvector; `tsc` clean; `openspec validate single-injector-enforcement --strict` passes. Sixteen mutations were applied to the new mechanisms — silence read as off, a backend named without an `active` flag read as off, a throwing `status` read as off, the state dropped at each of its six hops, the report repeated per Call, an active backend rounded to healthy in the check, the Call view and the Conversation summary hiding it, and a message smuggled into a Pack past its parts — and every one failed a test.
+> **7.3** 494 default tests pass; 614 with `PICHART_DATABASE_URL` against a scratch Postgres 18.6 with pgvector; `tsc` clean; `openspec validate single-injector-enforcement --strict` passes. Sixteen mutations were applied to the new mechanisms — silence read as off, a backend named without an `active` flag read as off, a throwing `status` read as off, the state dropped at each of its six hops, the report repeated per Call, an active backend rounded to healthy in the check, the Call view and the Conversation summary hiding it, and a message smuggled into a Pack past its parts — and every one failed a test.
 
 ## 8. Review
 

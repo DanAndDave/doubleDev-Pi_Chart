@@ -1,6 +1,6 @@
 // Store-backed: when a Turn arrived, what retention removes, and what a
 // session gives back. All three are claims about real rows and real
-// connections. Needs CM_DATABASE_URL.
+// connections. Needs PICHART_DATABASE_URL.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
@@ -9,7 +9,7 @@ import { StubEmbedder } from "../src/embedder.ts";
 import type { JournalTurn } from "../src/journal.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
-const databaseUrl = process.env.CM_DATABASE_URL;
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
 function turn(index: number): JournalTurn {

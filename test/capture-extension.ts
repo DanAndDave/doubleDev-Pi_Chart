@@ -1,6 +1,6 @@
 // Development-time extension: records the message array the harness hands to
 // the `context` event, so fixtures come from real sessions rather than from a
-// guess at the shape. Writes to CM_CAPTURE_FILE and changes nothing.
+// guess at the shape. Writes to PICHART_CAPTURE_FILE and changes nothing.
 
 import { appendFileSync } from "node:fs";
 
@@ -16,7 +16,7 @@ interface CaptureAPI {
 }
 
 export default function captureExtension(pi: CaptureAPI): void {
-	const target = process.env.CM_CAPTURE_FILE;
+	const target = process.env.PICHART_CAPTURE_FILE;
 	if (!target) return;
 
 	pi.on("context", async (event) => {

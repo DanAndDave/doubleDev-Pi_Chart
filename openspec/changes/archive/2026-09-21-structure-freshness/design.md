@@ -51,7 +51,7 @@ Symbols are indexed by `file` beside the name index, and a path-shaped token mat
 
 ### One `Dependencies` literal, with only store-backed members conditional
 
-`contextManager` builds two literals and the no-database branch omits `graph` (`src/extension.ts:927-946,961-983`). It becomes one: `graph`, `walk`, `specs`, `codebase`, `report` and `show` unconditional, `turns` and `accounting` from the in-memory implementations without a database. `docs`, `bundle`, `ingest`, `recall`, `search`, `embed`, `ready` and `close` stay conditional — the Doc Store's index lives in Postgres; the Graph Store needs none. `check` then reports structure from what exists rather than from `config.graphExtract` alone (`src/install.ts:112-118`), so it cannot print `extraction on` for a Store never constructed, while a declined extraction still reads as declined (`:78-79`).
+`piChart` builds two literals and the no-database branch omits `graph` (`src/extension.ts:927-946,961-983`). It becomes one: `graph`, `walk`, `specs`, `codebase`, `report` and `show` unconditional, `turns` and `accounting` from the in-memory implementations without a database. `docs`, `bundle`, `ingest`, `recall`, `search`, `embed`, `ready` and `close` stay conditional — the Doc Store's index lives in Postgres; the Graph Store needs none. `check` then reports structure from what exists rather than from `config.graphExtract` alone (`src/install.ts:112-118`), so it cannot print `extraction on` for a Store never constructed, while a declined extraction still reads as declined (`:78-79`).
 
 ## Risks / Trade-offs
 
@@ -65,7 +65,7 @@ Symbols are indexed by `file` beside the name index, and a path-shaped token mat
 
 | Requirement | Seam |
 | --- | --- |
-| The graph keeps up with the Codebase | Extension boundary: assert `refresh` is invoked at `agent_end` against a stub Store; `CM_GRAPHIFY=1` for the incremental-cost claim on an unchanged tree. |
+| The graph keeps up with the Codebase | Extension boundary: assert `refresh` is invoked at `agent_end` against a stub Store; `PICHART_GRAPHIFY=1` for the incremental-cost claim on an unchanged tree. |
 | Structure older than the Codebase is disclosed as such | Graph Store boundary over a temporary Codebase with controlled modification times, including a file that cannot be read. |
 | The symbols in play are those the Turn is working with | `symbolsInPlay` pure boundary over the fixture graph, with a Turn carrying tool calls and results. |
 | A truncated neighbourhood keeps its most informative connections | `neighbourhoods` pure boundary over a fixture hub symbol with more members than the cap. |
@@ -73,7 +73,7 @@ Symbols are indexed by `file` beside the name index, and a path-shaped token mat
 | Packs carry the structure around the symbols in play | `assemble()` boundary for the part, extension boundary for the Turn-wide trigger on a later Call. |
 | A pack declares structure older than the Codebase | `assemble()` boundary: a marked and an unmarked neighbourhood in one Pack. |
 
-`symbolsInPlay`/`neighbourhoods` is the target seam: pure, and where candidate widening, path matching and truncation order are observable. Only the incremental-re-extraction row needs `CM_GRAPHIFY=1`; none needs `CM_DATABASE_URL`, `CM_EMBED=1` or `CM_OPENSPEC=1`, and `CM_LIVE=1` serves only the last task group.
+`symbolsInPlay`/`neighbourhoods` is the target seam: pure, and where candidate widening, path matching and truncation order are observable. Only the incremental-re-extraction row needs `PICHART_GRAPHIFY=1`; none needs `PICHART_DATABASE_URL`, `PICHART_EMBED=1` or `PICHART_OPENSPEC=1`, and `PICHART_LIVE=1` serves only the last task group.
 
 ## Open Questions
 

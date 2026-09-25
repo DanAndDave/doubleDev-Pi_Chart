@@ -1,5 +1,5 @@
 // Store-backed seam. These need a real Postgres — `docker compose up -d` and
-// CM_DATABASE_URL — because "the schema applies" and "SQL returns turns in
+// PICHART_DATABASE_URL — because "the schema applies" and "SQL returns turns in
 // order" mean nothing against a fake.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
@@ -16,7 +16,7 @@ import {
 import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
 import { budgets } from "./fixtures.ts";
 
-const databaseUrl = process.env.CM_DATABASE_URL;
+const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
 let store: PostgresStore;
