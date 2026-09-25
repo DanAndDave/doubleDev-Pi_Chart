@@ -262,6 +262,19 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE concept_sections ADD COLUMN IF NOT EXISTS exclusions JSONB`,
 		],
 	},
+	{
+		version: 18,
+		statements: [
+			// What the window cost, as the provider reported it. Recorded
+			// beside the sizes it is charged against, because a Pack's size
+			// says nothing about whether the model paid to read it again.
+			// Nullable and never backfilled: a Call the provider priced
+			// nothing for is unmeasured, and zero would read as free.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS cache_read INTEGER`,
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS cache_write INTEGER`,
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS input_tokens INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -299,6 +312,9 @@ interface AccountingRow {
 	before_ceiling: number | null;
 	compaction_epoch: number | null;
 	memory_backend: MemoryBackendState | null;
+	cache_read: number | null;
+	cache_write: number | null;
+	input_tokens: number | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -784,13 +800,17 @@ export class PostgresStore implements
 			const floor = measurement.snapshot.nonMessageTokens;
 			const packTokens = measurement.snapshot.promptTokens - floor;
 			const epoch = measurement.snapshot.compactionEpoch ?? null;
+			const cacheRead = measurement.usage?.cacheRead ?? null;
+			const cacheWrite = measurement.usage?.cacheWrite ?? null;
+			const input = measurement.usage?.input ?? null;
 			await this.sql`
 				INSERT INTO call_accounting
 					(conversation_id, turn_index, call_index, pack_tokens, floor_tokens,
-					 compaction_epoch)
+					 compaction_epoch, cache_read, cache_write, input_tokens)
 				VALUES (
 					${conversationId}, ${measurement.turnIndex}, ${measurement.callIndex},
-					${packTokens}, ${floor}, ${epoch}
+					${packTokens}, ${floor}, ${epoch}, ${cacheRead}, ${cacheWrite},
+					${input}
 				)
 				ON CONFLICT (conversation_id, turn_index, call_index)
 				DO UPDATE SET
@@ -799,9 +819,42 @@ export class PostgresStore implements
 					-- Kept where the new snapshot has none: a harness that
 					-- stops reporting the epoch has not un-compacted the
 					-- Conversation, and overwriting it with null would erase
-					-- the one record that a compaction happened.
+					-- the one record that a compaction happened. The cost
+					-- figures keep the same rule, for the same reason: a
+					-- provider that stops pricing a Call has not made the
+					-- Call it already priced free.
 					compaction_epoch = coalesce(
-						EXCLUDED.compaction_epoch, call_accounting.compaction_epoch)`;
+						EXCLUDED.compaction_epoch, call_accounting.compaction_epoch),
+					cache_read = coalesce(
+						EXCLUDED.cache_read, call_accounting.cache_read),
+					cache_write = coalesce(
+						EXCLUDED.cache_write, call_accounting.cache_write),
+					input_tokens = coalesce(
+						EXCLUDED.input_tokens, call_accounting.input_tokens)`;
+		}
+	}
+
+	async recordCosts(
+		conversationId: string,
+		measurements: Measurement[],
+	): Promise<void> {
+		for (const measurement of measurements) {
+			const usage = measurement.usage;
+			if (!usage) continue;
+			// UPDATE, never INSERT: the Journal keeps abandoned branches and
+			// numbers its Calls by walking the file, so an address it names
+			// that Accounting does not hold belongs to a Call this system
+			// never assembled. A row invented for it would carry a cost with
+			// no Pack beside it, which is the one thing the join this feeds
+			// cannot survive.
+			await this.sql`
+				UPDATE call_accounting
+				SET cache_read = coalesce(${usage.cacheRead ?? null}, cache_read),
+					cache_write = coalesce(${usage.cacheWrite ?? null}, cache_write),
+					input_tokens = coalesce(${usage.input ?? null}, input_tokens)
+				WHERE conversation_id = ${conversationId}
+					AND turn_index = ${measurement.turnIndex}
+					AND call_index = ${measurement.callIndex}`;
 		}
 	}
 
@@ -810,7 +863,7 @@ export class PostgresStore implements
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
 			       rejected, unsearched, ceiling, before_ceiling, compaction_epoch,
-			       memory_backend
+			       memory_backend, cache_read, cache_write, input_tokens
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -842,6 +895,9 @@ export class PostgresStore implements
 			beforeCeiling: row.before_ceiling ?? undefined,
 			compactionEpoch: row.compaction_epoch ?? undefined,
 			memoryBackend: row.memory_backend ?? undefined,
+			cacheRead: row.cache_read ?? undefined,
+			cacheWrite: row.cache_write ?? undefined,
+			inputTokens: row.input_tokens ?? undefined,
 		}));
 
 		return groupByTurn(conversationId, calls);

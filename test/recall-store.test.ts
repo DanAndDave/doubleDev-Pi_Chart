@@ -291,6 +291,77 @@ describeStore("per-part detail round-trips", () => {
 		expect(calls[0]?.compacted).toBe(false);
 	});
 
+	test("what the window cost survives a round trip, beside what it held", async () => {
+		const at = { turnIndex: 0, callIndex: 0 };
+		await store.recordMeasurements("conv-1", [
+			{
+				...at,
+				snapshot: { promptTokens: 29328, nonMessageTokens: 25588 },
+				usage: { input: 4, cacheRead: 20488, cacheWrite: 8836 },
+			},
+		]);
+
+		const [call] = inspectConversation(await store.readAccounting("conv-1"));
+
+		expect(call?.cacheRead).toBe(20488);
+		expect(call?.cacheWrite).toBe(8836);
+		expect(call?.inputTokens).toBe(4);
+		// Read below the Floor: the Floor is the head of the prefix, so
+		// nothing beyond it can have been read from cache. 69.9% against
+		// the window, none against the Pack.
+		expect(call?.cachedPackShare).toBe(0);
+	});
+
+	test("a call the provider priced nothing for records nothing", async () => {
+		await store.recordMeasurements("conv-1", [
+			{
+				turnIndex: 0,
+				callIndex: 0,
+				snapshot: { promptTokens: 900, nonMessageTokens: 200 },
+			},
+		]);
+
+		const [call] = inspectConversation(await store.readAccounting("conv-1"));
+
+		// Absent, not zero: a window nobody priced did not cost nothing.
+		expect(call?.packTokens).toBe(700);
+		expect(call?.cacheRead).toBeUndefined();
+		expect(call?.cachedPackShare).toBeUndefined();
+	});
+
+	test("a re-measured call keeps the cost a later snapshot omits", async () => {
+		const at = { turnIndex: 1, callIndex: 0 };
+		await store.recordMeasurements("conv-1", [
+			{
+				...at,
+				snapshot: { promptTokens: 900, nonMessageTokens: 200 },
+				usage: { input: 10, cacheRead: 800, cacheWrite: 90 },
+			},
+		]);
+		await store.recordMeasurements("conv-1", [
+			{ ...at, snapshot: { promptTokens: 950, nonMessageTokens: 200 } },
+		]);
+
+		const [call] = inspectConversation(await store.readAccounting("conv-1"));
+
+		expect(call?.cacheRead).toBe(800);
+		expect(call?.packTokens).toBe(750);
+	});
+
+	test("accounting written before the cost columns still reads", async () => {
+		await store["sql"]`
+			INSERT INTO call_accounting
+				(conversation_id, turn_index, call_index, pack_tokens, floor_tokens)
+			VALUES ('conv-1', 0, 0, 700, 200)`;
+
+		const [call] = inspectConversation(await store.readAccounting("conv-1"));
+
+		expect(call?.packTokens).toBe(700);
+		expect(call?.cacheRead).toBeUndefined();
+		expect(call?.cacheWrite).toBeUndefined();
+		expect(call?.inputTokens).toBeUndefined();
+	});
+
 	test("which calls ran with a second injector survives a round trip", async () => {
 		const pack = (prompt: string) =>
 			assemble(

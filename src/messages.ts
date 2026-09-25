@@ -25,6 +25,26 @@ export interface ContextSnapshot {
 	compactionEpoch?: number;
 }
 
+/**
+ * What the provider charged for a Call, in the three parts that add up to
+ * the window it was sent: tokens read from the prompt cache, tokens written
+ * into it, and tokens neither — `input + cacheRead + cacheWrite` equals
+ * `promptTokens`. Asserted on every Call of the captured Journal in
+ * `test/extension.test.ts`, and checked across a machine's whole corpus by
+ * `scripts/measure-pack-cache.ts --journals`.
+ *
+ * Named rather than carried whole: `totalTokens` is redundant against the
+ * three, and `cost` is provider pricing, which is not what a Context Window
+ * is measured in.
+ */
+export interface CallUsage {
+	input?: number;
+	cacheRead?: number;
+	cacheWrite?: number;
+	totalTokens?: number;
+	[key: string]: unknown;
+}
+
 export interface HarnessMessage {
 	role: string;
 	content?: string | ContentBlock[];
@@ -33,7 +53,7 @@ export interface HarnessMessage {
 	toolCallId?: string;
 	toolName?: string;
 	isError?: boolean;
-	usage?: { totalTokens?: number; [key: string]: unknown };
+	usage?: CallUsage;
 	contextSnapshot?: ContextSnapshot;
 	[key: string]: unknown;
 }

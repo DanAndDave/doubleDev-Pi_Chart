@@ -56,7 +56,12 @@ import {
 	renderSearch,
 	renderSummary,
 } from "./report.ts";
-import { findJournal, readJournal, SESSION_ROOT } from "./journal.ts";
+import {
+	findJournal,
+	readJournal,
+	SESSION_ROOT,
+	type JournalTurn,
+} from "./journal.ts";
 import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
 import type {
 	BranchEntry,
@@ -610,13 +615,29 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 	async function runSweep(conversationId: string): Promise<void> {
 		if (!deps.ingest) return;
+		let ingested: JournalTurn[] | undefined;
 		try {
-			await ingestJournal(conversationId, deps.ingest, deps.codebase);
+			ingested = await ingestJournal(conversationId, deps.ingest, deps.codebase);
 		} catch (error) {
 			deps.report(`Ingest failed: ${describe(error)}`);
 			return;
 		}
 		reportModelSwap();
+		// Its own phase, and its own failure: a diagnostic figure that
+		// cannot be written must not stop recall catching up, and must not
+		// be reported as an ingest that failed. Only what ingest just
+		// stored is walked, so a sweep over an unchanged Conversation still
+		// costs what ticket 3 measured — nothing.
+		if (ingested) {
+			try {
+				await deps.accounting.recordCosts(
+					conversationId,
+					measurementsOfJournal(ingested),
+				);
+			} catch (error) {
+				deps.report(`Recording what calls cost failed: ${describe(error)}`);
+			}
+		}
 		try {
 			await deps.embed?.(conversationId);
 		} catch (error) {
@@ -1229,11 +1250,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * recorded, nothing recalled, and every setup check passing. It is now
 	 * a report naming the Conversation and where it was looked for.
 	 */
+	/**
+	 * Brings the Thread Store in line with the Journal, and says what it
+	 * stored: the Turns just written, so their Calls' costs can be read
+	 * from the same record, or nothing where the Store was already current.
+	 */
 	async function ingestJournal(
 		conversationId: string,
 		sink: TurnSink,
 		codebase?: string,
-	): Promise<void> {
+	): Promise<JournalTurn[] | undefined> {
 		const path = await (deps.findJournal ?? findJournal)(conversationId);
 		if (!path) {
 			reportSafely(
@@ -1255,6 +1281,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		if (stored > 0) {
 			deps.report(`Ingested ${stored} turn${stored === 1 ? "" : "s"}.`);
 		}
+		return stored > 0 ? recorded : undefined;
 	}
 
 	/**
@@ -1431,7 +1458,15 @@ function currentPrompt(messages: HarnessMessage[]): string | undefined {
 	return undefined;
 }
 
-/** Every window size the harness has reported, addressed to its Call. */
+/**
+ * Every window size the harness has reported, addressed to its Call, with
+ * what the provider charged for it.
+ *
+ * Both sit on the same branch entry — the assistant message the Call
+ * produced — so the cost is read on the walk that already numbers the
+ * window, rather than on a second pass or on the request path, where a
+ * Call's cost does not exist yet.
+ */
 function measurementsOf(branch: BranchEntry[]): Measurement[] {
 	const measurements: Measurement[] = [];
 	let turnIndex = -1;
@@ -1447,8 +1482,33 @@ function measurementsOf(branch: BranchEntry[]): Measurement[] {
 			turnIndex: Math.max(turnIndex, 0),
 			callIndex,
 			snapshot,
+			usage: entry.message?.usage,
 		});
 		callIndex++;
+	}
+	return measurements;
+}
+
+/**
+ * Every window the Journal recorded, addressed to its Call.
+ *
+ * The same walk `measurementsOf` makes over the live branch, over the record
+ * on disk instead: `readJournal` already numbers each message to the Call it
+ * belongs to, and a snapshot is what ends one.
+ */
+function measurementsOfJournal(turns: JournalTurn[]): Measurement[] {
+	const measurements: Measurement[] = [];
+	for (const turn of turns) {
+		for (const [index, message] of turn.messages.entries()) {
+			const snapshot = message.contextSnapshot;
+			if (!snapshot) continue;
+			measurements.push({
+				turnIndex: turn.turnIndex,
+				callIndex: turn.calls[index] ?? 0,
+				snapshot,
+				usage: message.usage,
+			});
+		}
 	}
 	return measurements;
 }

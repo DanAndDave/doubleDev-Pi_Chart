@@ -704,6 +704,90 @@ describe("a call's competing injector", () => {
 	});
 });
 
+describe("what a call's window cost", () => {
+	const measured = async (
+		usage?: { input: number; cacheRead: number; cacheWrite: number },
+	): Promise<CallView> => {
+		const store = new MemoryAccounting();
+		const at = { turnIndex: 0, callIndex: 0 };
+		await store.recordPack(
+			"conv-1",
+			at,
+			assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 })),
+			"thread-store",
+			"off",
+		);
+		await store.recordMeasurements("conv-1", [
+			{ ...at, snapshot: { promptTokens: 29328, nonMessageTokens: 25588 }, usage },
+		]);
+		const [turn] = await store.readAccounting("conv-1");
+		const call = turn?.calls[0];
+		if (!call) throw new Error("nothing recorded");
+		return inspectCall(call);
+	};
+
+	test("the share is of the pack, not of the window", async () => {
+		const readBelowTheFloor = await measured({
+			input: 4,
+			cacheRead: 20488,
+			cacheWrite: 8836,
+		});
+		const readPastTheFloor = await measured({
+			input: 4,
+			cacheRead: 27458,
+			cacheWrite: 1866,
+		});
+
+		// 20,488 of 29,328 is 69.9% of the window and none of the pack: the
+		// Floor alone is 25,588, and the Floor is the head of the prefix, so
+		// nothing beyond it can have been read from cache.
+		expect(readBelowTheFloor.cachedPackShare).toBe(0);
+		expect(renderCall(readBelowTheFloor)).toContain(
+			"0% of the pack read from cache",
+		);
+		// 27,458 leaves 1,870 above the Floor, of a 3,740-token pack.
+		expect(readPastTheFloor.cachedPackShare).toBe(0.5);
+		expect(renderCall(readPastTheFloor)).toContain("50% of the pack");
+	});
+
+	test("a call the provider priced nothing for reads as unmeasured", async () => {
+		const view = await measured();
+
+		// Not zero: a window nobody priced did not cost nothing, and a zero
+		// here would read as a pack that was never cached.
+		expect(view.cachedPackShare).toBeUndefined();
+		expect(renderCall(view)).toContain("cache         not reported");
+		expect(renderCall(view)).not.toContain("0% of the pack");
+	});
+
+	test("a priced call with no pack to measure says so", async () => {
+		const store = new MemoryAccounting();
+		const at = { turnIndex: 0, callIndex: 0 };
+		await store.recordPack(
+			"conv-1",
+			at,
+			assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 })),
+			"thread-store",
+			"off",
+		);
+		// A window the harness reports as all Floor: priced, with nothing to
+		// take the price against.
+		await store.recordMeasurements("conv-1", [
+			{
+				...at,
+				snapshot: { promptTokens: 25588, nonMessageTokens: 25588 },
+				usage: { input: 4, cacheRead: 20488, cacheWrite: 5096 },
+			},
+		]);
+		const [turn] = await store.readAccounting("conv-1");
+		const view = inspectCall(turn?.calls[0] ?? missing());
+
+		expect(view.cachedPackShare).toBeUndefined();
+		expect(renderCall(view)).toContain("share of the pack unmeasured");
+		expect(renderCall(view)).not.toContain("0% of the pack");
+	});
+});
+
 function missing(): never {
 	throw new Error("nothing recorded");
 }

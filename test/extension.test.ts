@@ -8,6 +8,7 @@ import { DocStore } from "../src/doc-store.ts";
 import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
 import { SpecStore } from "../src/spec-store.ts";
 import { Installation } from "../src/install.ts";
+import { readJournal } from "../src/journal.ts";
 
 import {
 	MemoryAccounting,
@@ -121,6 +122,7 @@ function harness(overrides: Overrides = {}): Harness {
 					recorded.push({ ...address, unassembled: true, memoryBackend }),
 				).then(() => {}),
 			),
+		recordCosts: async () => {},
 		recordMeasurements: (_conversationId, measurements) =>
 			track(Promise.resolve(measured.push(...measurements)).then(() => {})),
 		readAccounting: async () => [],
@@ -233,6 +235,7 @@ describe("context handler", () => {
 					throw new Error("disk full");
 				},
 				async recordUnassembled() {},
+				async recordCosts() {},
 				async recordMeasurements() {},
 				async readAccounting() {
 					return [];
@@ -256,6 +259,7 @@ describe("context handler", () => {
 			accounting: {
 				recordPack: () => blocked,
 				async recordUnassembled() {},
+				async recordCosts() {},
 				async recordMeasurements() {},
 				async readAccounting() {
 					return [];
@@ -576,6 +580,53 @@ describe("measurement reconciliation", () => {
 		expect(cm.measured.map((entry) => entry.snapshot.promptTokens)).toEqual([
 			100, 120,
 		]);
+	});
+
+	test("what the provider charged rides the same walk as the window", async () => {
+		const cm = harness();
+		const priced: BranchEntry[] = [
+			{ type: "message", message: { role: "user", content: "first" } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					contextSnapshot: { promptTokens: 29328, nonMessageTokens: 25588 },
+					usage: { input: 4, cacheRead: 20488, cacheWrite: 8836, totalTokens: 29331 },
+				},
+			},
+		];
+
+		// Both sit on the assistant message the Call produced, so the cost
+		// is read where the window already is rather than on a second pass.
+		await cm.agentEnd({}, ctx([...priced, ...answered(120, "second")]));
+		await cm.settle();
+
+		expect(cm.measured[0]?.usage).toMatchObject({
+			input: 4,
+			cacheRead: 20488,
+			cacheWrite: 8836,
+		});
+		// A Call the provider priced nothing for carries nothing, rather
+		// than zeroes that would read as a window that cost nothing.
+		expect(cm.measured[1]?.usage).toBeUndefined();
+	});
+
+	test("the reported figures add up to the window they were charged for", async () => {
+		const journal = await readJournal(JOURNAL_FIXTURE);
+		const priced = journal
+			.flatMap((turn) => turn.messages)
+			.filter((message) => message.usage && message.contextSnapshot);
+
+		expect(priced.length).toBeGreaterThan(0);
+		for (const message of priced) {
+			const { input = 0, cacheRead = 0, cacheWrite = 0 } = message.usage ?? {};
+			// The identity the derived rate rests on: everything charged for
+			// a window is one of the three, so cached pack tokens are what
+			// `cacheRead` has left once the Floor has taken its share.
+			expect(input + cacheRead + cacheWrite).toBe(
+				message.contextSnapshot?.promptTokens ?? 0,
+			);
+		}
 	});
 });
 
@@ -2512,6 +2563,51 @@ describe("a journal that cannot be found", () => {
 		await cm.settle();
 
 		expect(cm.reported.join("\n")).toMatch(/Ingested \d+ turns/);
+	});
+
+	test("re-ingesting puts each call's cost beside the pack it paid for", async () => {
+		const accounting = new MemoryAccounting();
+		let costWrites = 0;
+		const counted: AccountingStore = {
+			...accounting,
+			recordPack: (...args) => accounting.recordPack(...args),
+			recordUnassembled: (...args) => accounting.recordUnassembled(...args),
+			recordMeasurements: (...args) => accounting.recordMeasurements(...args),
+			readAccounting: (...args) => accounting.readAccounting(...args),
+			recordCosts: (conversationId, measurements) => {
+				costWrites++;
+				return accounting.recordCosts(conversationId, measurements);
+			},
+		};
+		const cm = harness({
+			accounting: counted,
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => JOURNAL_FIXTURE,
+		});
+
+		// A Pack recorded at turn 0, call 0 — the address the fixture's
+		// first Call sits at — then the sweep that reads the Journal.
+		await cm.context({ messages: [{ role: "user", content: "one" }] }, ctx());
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+		const backfilled = await accounting.readAccounting("conv-1");
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+		const again = await accounting.readAccounting("conv-1");
+
+		// The cost belongs beside what it paid for: the Call that holds the
+		// parts is the Call that holds the figures.
+		const call = backfilled[0]?.calls[0];
+		expect(call?.parts.length).toBeGreaterThan(0);
+		expect(call?.cacheRead).toBe(20488);
+		expect(call?.cacheWrite).toBe(8836);
+		// A Call the Journal names and Accounting never recorded stays
+		// unrecorded: a cost with no Pack beside it explains nothing.
+		expect(backfilled.flatMap((turn) => turn.calls)).toHaveLength(1);
+		// And a sweep over a Conversation the Store already holds writes
+		// nothing at all, as ingest itself does not.
+		expect(costWrites).toBe(1);
+		expect(again[0]?.calls[0]?.cacheRead).toBe(20488);
 	});
 
 	test("does not fail the turn", async () => {

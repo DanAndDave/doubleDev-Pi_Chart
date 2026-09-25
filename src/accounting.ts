@@ -5,7 +5,7 @@ import type {
 	PackSource,
 	PartExclusion,
 } from "./assembler.ts";
-import type { ContextSnapshot } from "./messages.ts";
+import type { CallUsage, ContextSnapshot } from "./messages.ts";
 
 /** Where a Call sits in its Conversation. A Turn may contain several Calls. */
 export interface CallAddress {
@@ -73,6 +73,15 @@ export interface CallAccounting extends CallAddress {
 	 * Absent on Calls recorded before it was observed.
 	 */
 	memoryBackend?: MemoryBackendState;
+	/**
+	 * What the window cost, as the provider reported it: tokens read from
+	 * the prompt cache, written into it, and charged as neither. Absent
+	 * where the provider reported none and on records written before they
+	 * were read — a Call nobody measured is unmeasured, not free.
+	 */
+	cacheRead?: number;
+	cacheWrite?: number;
+	inputTokens?: number;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -133,6 +142,8 @@ export interface TurnAccounting {
 
 export interface Measurement extends CallAddress {
 	snapshot: ContextSnapshot;
+	/** What the provider charged for it, where it said. */
+	usage?: CallUsage;
 }
 
 /**
@@ -158,6 +169,18 @@ export interface AccountingStore {
 		memoryBackend: MemoryBackendState,
 	): Promise<void>;
 	recordMeasurements(
+		conversationId: string,
+		measurements: Measurement[],
+	): Promise<void>;
+	/**
+	 * Adds what the provider charged to Calls already recorded, and to no
+	 * others. Read back from the Journal, where the live path missed them:
+	 * the Journal numbers its Calls by walking a file that keeps abandoned
+	 * branches, so a Call it names that Accounting does not hold is a Call
+	 * this system never assembled — recording it would put a cost beside a
+	 * Pack that was never there.
+	 */
+	recordCosts(
 		conversationId: string,
 		measurements: Measurement[],
 	): Promise<void>;
@@ -310,6 +333,30 @@ export class MemoryAccounting implements AccountingStore {
 			call.packTokens =
 				measurement.snapshot.promptTokens - measurement.snapshot.nonMessageTokens;
 			call.compactionEpoch = measurement.snapshot.compactionEpoch;
+			// Left alone where the provider reported nothing: a Call it did
+			// not price is unmeasured, and zeroes would read as free.
+			const usage = measurement.usage;
+			if (usage?.cacheRead !== undefined) call.cacheRead = usage.cacheRead;
+			if (usage?.cacheWrite !== undefined) call.cacheWrite = usage.cacheWrite;
+			if (usage?.input !== undefined) call.inputTokens = usage.input;
+		}
+	}
+
+	async recordCosts(
+		conversationId: string,
+		measurements: Measurement[],
+	): Promise<void> {
+		const conversation = this.forConversation(conversationId);
+		for (const measurement of measurements) {
+			const key = `${measurement.turnIndex}:${measurement.callIndex}`;
+			const call = conversation.get(key);
+			// Only Calls this system recorded: an address the Journal names
+			// and Accounting does not is a Call nothing here assembled.
+			if (!call) continue;
+			const usage = measurement.usage;
+			if (usage?.cacheRead !== undefined) call.cacheRead = usage.cacheRead;
+			if (usage?.cacheWrite !== undefined) call.cacheWrite = usage.cacheWrite;
+			if (usage?.input !== undefined) call.inputTokens = usage.input;
 		}
 	}
 

@@ -122,6 +122,26 @@ export interface CallView {
 	 * Call observed to be clean.
 	 */
 	memoryBackend?: MemoryBackendState;
+	/**
+	 * What the provider charged for this Call's window: tokens it read from
+	 * the prompt cache, tokens it wrote into it, and tokens charged as
+	 * neither. Absent where it reported nothing.
+	 */
+	cacheRead?: number;
+	cacheWrite?: number;
+	inputTokens?: number;
+	/**
+	 * How much of the Pack was read from cache rather than re-sent.
+	 *
+	 * Against the Pack, not against the window: the Floor is most of a
+	 * window here — 25,588 of 29,328 tokens on the audited Call — and the
+	 * Floor is the head of the prefix, so it caches whatever the Pack does.
+	 * A rate over the whole window reads about 90% in a world where the
+	 * Pack body is rewritten on every Call, which is the world this exists
+	 * to detect. Cached Pack tokens are what is left of `cacheRead` once
+	 * the Floor has taken its share, over the Pack's own size.
+	 */
+	cachedPackShare?: number;
 	/** Whether any part of this Call names what it excluded. */
 	explained: boolean;
 }
@@ -191,6 +211,19 @@ export function inspectCall(call: CallAccounting): CallView {
 			? call.floorTokens / (call.floorTokens + call.packTokens)
 			: undefined;
 
+	// A `cacheRead` below the Floor means the cache did not reach the Pack
+	// at all: the Floor is the head of the prefix, so nothing beyond it can
+	// have been read from cache. Reported as none, never as a share of what
+	// the Floor alone accounted for.
+	const cachedPack =
+		call.cacheRead !== undefined && call.floorTokens !== undefined
+			? Math.max(0, call.cacheRead - call.floorTokens)
+			: undefined;
+	const cachedPackShare =
+		cachedPack !== undefined && call.packTokens !== undefined && call.packTokens > 0
+			? round(cachedPack / call.packTokens)
+			: undefined;
+
 	return {
 		turnIndex: call.turnIndex,
 		callIndex: call.callIndex,
@@ -214,6 +247,10 @@ export function inspectCall(call: CallAccounting): CallView {
 		beforeCeiling: call.beforeCeiling,
 		compactionEpoch: call.compactionEpoch,
 		memoryBackend: call.memoryBackend,
+		cacheRead: call.cacheRead,
+		cacheWrite: call.cacheWrite,
+		inputTokens: call.inputTokens,
+		cachedPackShare,
 		// Set by `inspectConversation`, which is the only place that can
 		// see the Call before this one: a compaction is a change of epoch,
 		// and one Call alone has nothing to have changed from.

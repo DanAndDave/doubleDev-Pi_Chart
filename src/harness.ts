@@ -2,7 +2,11 @@
 // extension uses is declared; the adapter is the one place that touches
 // harness types, so a change to them is confined here.
 
-import type { ContextSnapshot, HarnessMessage } from "./messages.ts";
+import type {
+	CallUsage,
+	ContextSnapshot,
+	HarnessMessage,
+} from "./messages.ts";
 
 export interface ContextEvent {
 	messages?: HarnessMessage[];
@@ -23,6 +27,8 @@ export interface BranchEntry {
 		role?: string;
 		content?: HarnessMessage["content"];
 		contextSnapshot?: ContextSnapshot;
+		/** What the provider charged for the Call this entry answered. */
+		usage?: CallUsage;
 	};
 }
 

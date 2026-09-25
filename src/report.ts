@@ -231,6 +231,27 @@ export function renderCall(view: CallView): string {
 					: ` (${view.estimateRatio}× the reported size)`),
 		);
 	}
+
+	// What the window cost, against the Pack rather than the whole window:
+	// the Floor is most of a window and caches whatever the Pack does, so a
+	// rate over the window would read high whatever the body did.
+	if (view.cacheRead === undefined) {
+		lines.push("  cache         not reported for this call");
+	} else if (view.cachedPackShare === undefined) {
+		// Priced, but with no Pack to measure the price against — a window
+		// the harness reported as all Floor. Saying 0% would claim a
+		// measurement nobody made.
+		lines.push(
+			`  cache         ${view.cacheRead} read, ${view.cacheWrite ?? 0} written ` +
+				`(share of the pack unmeasured)`,
+		);
+	} else {
+		const cached = Math.round(view.cachedPackShare * 100);
+		lines.push(
+			`  cache         ${view.cacheRead} read, ${view.cacheWrite ?? 0} written ` +
+				`(${cached}% of the pack read from cache)`,
+		);
+	}
 	return lines.join("\n");
 }
 
