@@ -1,6 +1,18 @@
-# Pi Chart
+<p align="center">
+  <img src="assets/pi-chart.png" alt="Pi Chart logo" width="132" height="132">
+</p>
 
-Assembles a fresh Context Pack for every Turn of a coding agent, so the context window stops growing.
+<h1 align="center">Pi Chart</h1>
+
+<p align="center"><em>Assembles a fresh Context Pack for every Turn of a coding agent, so the context window stops growing.</em></p>
+
+<p align="center">
+  <img alt="Built for omp" src="https://img.shields.io/badge/built%20for-omp-6366f1?style=flat-square">
+  <img alt="Bun 1.4.2" src="https://img.shields.io/badge/Bun-1.4.2-38bdf8?style=flat-square&logo=bun&logoColor=white">
+  <img alt="License MIT" src="https://img.shields.io/badge/License-MIT-22c55e?style=flat-square">
+</p>
+
+The name is the mechanic: a Context Pack is a *pie chart* of the window — every Store gets a slice, and the Assembler holds each to its budget.
 
 The agent's window is rebuilt each Turn from what that Turn needs, rather than inherited from everything that came before. The Assembler owns the window and measures what it costs, and four Stores supply it: the **Thread Store** holds the Turns so they outlive the session, the **Doc Store** carries curated Concepts, the **Graph Store** answers structural questions from a parse, and the **Spec Store** checks that a Codebase is set up for spec-driven work — the one Store that puts nothing in a pack.
 

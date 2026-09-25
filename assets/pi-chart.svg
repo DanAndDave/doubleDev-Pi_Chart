@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Pi Chart">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <circle cx="256" cy="256" r="182" fill="none" stroke="#1e293b" stroke-width="4"/>
+  <path d="M 259.23 88.03 A 168 168 0 0 1 357.34 389.99 L 313.91 332.57 A 96 96 0 0 0 257.84 160.02 Z" fill="#38bdf8"/>
+  <path d="M 352.12 393.79 A 168 168 0 0 1 122.01 357.34 L 179.43 313.91 A 96 96 0 0 0 310.93 334.73 Z" fill="#6366f1"/>
+  <path d="M 118.21 352.12 A 168 168 0 0 1 95.26 207.16 L 164.15 228.09 A 96 96 0 0 0 177.27 310.93 Z" fill="#22c55e"/>
+  <path d="M 97.25 201.03 A 168 168 0 0 1 172.25 110.36 L 208.15 172.78 A 96 96 0 0 0 165.28 224.59 Z" fill="#a855f7"/>
+  <path d="M 177.91 107.25 A 168 168 0 0 1 252.77 88.03 L 254.16 160.02 A 96 96 0 0 0 211.38 171.00 Z" fill="#f59e0b"/>
+  <circle cx="256" cy="256" r="90" fill="#0f172a"/>
+  <g fill="#e2e8f0">
+    <rect x="200" y="222" width="112" height="20" rx="8"/>
+    <rect x="220" y="236" width="20" height="70" rx="8"/>
+    <rect x="272" y="236" width="20" height="70" rx="8"/>
+  </g>
+</svg>
