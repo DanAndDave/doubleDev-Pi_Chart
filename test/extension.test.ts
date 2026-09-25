@@ -429,6 +429,32 @@ describe("the harness's own memory backend", () => {
 		expect(flagless.recorded[0]?.memoryBackend).toBe("active");
 	});
 
+	test("an actionable condition reaches the status line, an inert one only the log", async () => {
+		const acted = harness();
+		const inert = harness();
+		const raised: string[] = [];
+		const quiet: string[] = [];
+
+		await acted.sessionStart(
+			{},
+			ctx([], {
+				...active,
+				ui: { notify: (message: string) => raised.push(message) },
+			}),
+		);
+		// No backend answer is a caveat the operator cannot act on, so it
+		// stays in the log and never reaches the status line.
+		await inert.sessionStart(
+			{},
+			ctx([], { ui: { notify: (message: string) => quiet.push(message) } }),
+		);
+
+		expect(raised.join("\n")).toContain("memory: {backend: off}");
+		expect(acted.reported.join("\n")).toContain("memory: {backend: off}");
+		expect(quiet).toEqual([]);
+		expect(inert.reported.join("\n")).toContain("cannot be");
+	});
+
 	test("a harness that never answers is unconfirmed, not off", async () => {
 		const absent = harness();
 		const silent = harness();
@@ -1802,6 +1828,7 @@ describe("wiring a session that declined the thread store", () => {
 					commands[name] = command;
 				},
 				registerTool: () => {},
+				logger: { info() {}, warn() {} },
 			} as unknown as ExtensionAPI);
 		} finally {
 			if (before === undefined) delete process.env.PICHART_DATABASE_URL;

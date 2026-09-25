@@ -10,7 +10,7 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 
 - [omp](https://github.com/can1357/oh-my-pi) — the harness this loads into
 - Bun (pinned in `mise.toml`; `mise install` provides it)
-- Docker, for the Thread Store's Postgres. Without it the extension still runs and still governs the window: the verbatim tail falls back to whatever history the harness itself carries. What stops with the store is everything derived from it — recall, curated knowledge (its Concept index lives in the same Postgres), cross-Conversation search, and Accounting. Declining the store outright with `PICHART_DATABASE_URL=""` keeps Accounting for the Conversation in progress, so `/pack` still answers; a store that is configured and unreachable keeps none, and `/pack` answers only once it is back.
+- Nothing more for the Thread Store: it is embedded (PGlite — Postgres compiled to WASM, with an official pgvector build), runs in this process, and persists to `~/.pi-chart/store`. A fresh machine needs only Bun. To run against a real Postgres server instead — for a heavier corpus — set `PICHART_DATABASE_URL` to any pgvector-capable one (a system package, [Postgres.app](https://postgresapp.com), or a hosted [Neon](https://neon.tech)/[Supabase](https://supabase.com)); `compose.yaml` serves one for `docker compose up`. Declining the store with `PICHART_DATABASE_URL=""` keeps Accounting for the Conversation in progress, so `/pack` still answers; a configured server that is unreachable keeps none, and `/pack` answers only once it is back.
 
 ## Install
 
@@ -38,7 +38,7 @@ Then, in any session:
 /pi-chart setup
 ```
 
-That starts the Thread Store's Postgres and creates a bundle directory. Running `/pi-chart` with no argument checks the installation instead and says what is missing, with the command that fixes each thing:
+With no `PICHART_DATABASE_URL` set, that opens the embedded Thread Store at `~/.pi-chart/store` (creating it) and a bundle directory — no server, daemon, or container. Set `PICHART_DATABASE_URL` to your own pgvector Postgres and setup checks it is reachable instead, never starting a server it does not own. Running `/pi-chart` with no argument checks the installation instead and says what is missing, with the command that fixes each thing:
 
 ```
   ok   embedder runtime  /home/you/.bun/bin/bun
@@ -49,7 +49,7 @@ That starts the Thread Store's Postgres and creates a bundle directory. Running 
   ok   codebase graph    extraction off; set PICHART_GRAPH=on to derive one
 ```
 
-Nothing else is required. The embedder finds its own Bun, and the Thread Store defaults to what this project's `compose.yaml` serves. A store that is not running degrades rather than failing: the tail comes from the harness's own history, and recall, curated knowledge, cross-Conversation search and Accounting wait for the store to come back. Each Call says on stderr what it assembled without, and `/pack` records it for the Calls the store was there to record.
+Nothing else is required. The embedder finds its own Bun, and the Thread Store is embedded by default — Postgres-in-WASM with pgvector, persisting to `~/.pi-chart/store` (move it with `PICHART_STORE_DIR`) — or the server `PICHART_DATABASE_URL` names. A store that will not open degrades rather than failing: the tail comes from the harness's own history, and recall, curated knowledge, cross-Conversation search and Accounting wait for the store to come back. Each Call says on stderr what it assembled without, and `/pack` records it for the Calls the store was there to record.
 
 ## Configure
 
@@ -71,17 +71,17 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `PICHART_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
 | `PICHART_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
 | `PICHART_RECALL_MAX_DISTANCE` | `0.52` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: over 99 real Turns, a prompt asked in other words reaches its own Turn within 0.52 in 92% of cases and no off-topic text comes within it at all. |
-| `PICHART_DATABASE_URL` | this project's compose default | Thread Store connection. Empty declines the store deliberately; unreachable loses the same parts by accident. Either way the tail comes from the harness's own history and recall, curated knowledge and cross-Conversation search stop with it — declined keeps Accounting for the Conversation in progress, unreachable keeps none. |
+| `PICHART_DATABASE_URL` | unset — the store is embedded | A Postgres server to use in place of the embedded store, for a heavier corpus. Any pgvector-capable one works — a system package, Postgres.app, or a hosted Neon/Supabase — and setup checks that server rather than opening the embedded store. Empty (`""`) declines the store; a configured server that is unreachable loses the same parts by accident. Either way the tail comes from the harness's own history and recall, curated knowledge and cross-Conversation search stop with it — declined keeps Accounting for the Conversation in progress, unreachable keeps none. |
 | `PICHART_BUN` | found | The Bun that runs the embedding worker. Located automatically — including under version managers, whose shims fail outside a directory they know. Set it only to override. |
 | `PICHART_EMBED_MODEL` | `Xenova/bge-small-en-v1.5` | The model the embedding worker loads. The schema stores one vector width, so a model of another width is refused by the embedding pass itself (`embedPending`), which reports the mismatch rather than writing vectors the index cannot rank; recall and curated knowledge stay empty until the width matches again. A same-width model is accepted, and both Stores record which model made each vector: a vector from another model is never ranked, and is embedded again by the pass that keeps the index in line. So a swap costs one re-embedding of the Turns and one of the Concept sections, in the background, and a search says how much of the index it could not see while that is happening rather than reading as a corpus with nothing relevant in it. Measured by `scripts/measure-model-swap.ts` between two 384-dimension models over the vendored bundle: 33 sections re-embedded in 3.0s, nothing on any pass after that, and the same five Concepts at the same distances once the swap is reversed. |
 | `PICHART_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
 | `PICHART_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
-| `PICHART_PG_PORT` | `55432` | The port of the default Thread Store URL, and the port `compose.yaml` publishes. Read only when `PICHART_DATABASE_URL` is unset: a URL you supply is the one dialled, port and all. |
+| `PICHART_STORE_DIR` | `~/.pi-chart/store` | Where the embedded Thread Store persists, so it outlives the process. Used only when `PICHART_DATABASE_URL` is unset. |
 | `PICHART_DOC_BUNDLE` | `~/.pi-chart/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
 | `PICHART_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
 | `PICHART_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
 | `PICHART_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
-| `PICHART_PACK_TOKENS` | `110000` | The whole pack's ceiling in estimated tokens. When the parts together exceed it they are reduced in a fixed order — structure, then curated knowledge, then the weakest recollections, then the oldest Turns of the tail. The current Turn is never dropped. Derived, not chosen: a 200,000-token window less this project's measured ~28,000 Floor, divided by the estimator's measured worst-case bias of 1.5. |
+| `PICHART_PACK_TOKENS` | `300000` | The whole pack's ceiling in estimated tokens. When the parts together exceed it they are reduced in a fixed order — structure, then curated knowledge, then the weakest recollections, then the oldest Turns of the tail. The current Turn is never dropped. Sized for large-context models: 300,000 estimated tokens presumes a reported window of ~478,000 (this ceiling × the estimator's measured 1.5× worst-case bias, plus this project's ~28,000 Floor). On a 200,000-token window, lower it so the pack cannot overrun the window it cannot see. |
 | `PICHART_TAIL_TOKENS` | `25000` | Size Budget for the verbatim tail. Its most recent Turn is always kept, shortened if it cannot fit whole, because that Turn is what the current one is reasoning about. |
 | `PICHART_RECALL_TOKENS` | `8000` | Size Budget for recalled Turns. A Budget too small to hold one readable recollection carries none. |
 | `PICHART_DOC_TOKENS` | `5000` | Size Budget for curated knowledge. A Concept too large for it is dropped rather than shortened — the bundle holds others, and `walk_documentation` reaches the rest at no Budget. |
@@ -166,14 +166,22 @@ Nothing is created unasked. An `openspec/` tree is a claim about how a project i
 - `/specs` — verify the tree and report what OpenSpec says about its content
 - `/specs init` — create what is missing, through `openspec init`, which leaves existing specs, changes, and configuration untouched
 
-## Start the Thread Store
+## The Thread Store
+
+The Thread Store is embedded by default: PGlite — real Postgres compiled to WASM with an official pgvector build — running in this process and persisting to `~/.pi-chart/store` (move it with `PICHART_STORE_DIR`). There is nothing to start; `pi-chart setup` opens it, and a fresh machine needs only Bun.
+
+For a heavier corpus, point the store at a Postgres server instead. Any pgvector-capable one works:
+
+- A system package, or [Postgres.app](https://postgresapp.com).
+- A hosted one — [Neon](https://neon.tech) and [Supabase](https://supabase.com) both ship pgvector.
+- The bundled `compose.yaml`, for a local container:
 
 ```sh
 docker compose up -d
 export PICHART_DATABASE_URL=postgres://pi_chart:pi_chart@localhost:55432/thread_store
 ```
 
-The schema is created and migrated forward automatically on connect; there is no setup step. `PICHART_PG_PORT` moves the port, and moves it on both sides: `compose.yaml` publishes it and the default URL `loadConfig` builds dials it. It is read only when `PICHART_DATABASE_URL` is unset — a URL you supplied is the one dialled, port and all.
+Whichever you name in `PICHART_DATABASE_URL`, `setup` checks it is reachable and never starts a server it does not own. The SQL and schema are the same as the embedded store, so the choice moves where content lives, not what can be retrieved. `compose.yaml` honours `PICHART_PG_PORT` for the port it publishes; the extension reads no port of its own — the URL you supply is dialled verbatim.
 
 ## What it records
 
@@ -193,10 +201,11 @@ The Thread Store holds two things, both keyed by Conversation, Turn, and Call.
 ## Develop
 
 ```sh
-bun test          # fast, deterministic, no container, no model, no network
+bun test          # fast, deterministic, no container, no model, no network — store suites included, on the embedded PGlite store
 bun run typecheck
 
-# Store-backed: real SQL against the Compose database
+# Store-backed suites run on the embedded store under plain `bun test`.
+# To run them against a Postgres server instead:
 PICHART_DATABASE_URL=postgres://pi_chart:pi_chart@localhost:55432/thread_store \
   bun test test/postgres-store.test.ts
 

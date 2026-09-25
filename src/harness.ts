@@ -94,6 +94,16 @@ export interface ToolDefinition {
 	) => Promise<ToolResult>;
 }
 
+/**
+ * The harness's shared file logger. An extension's diagnostics belong here,
+ * not on stdout/stderr, which the TUI renders into the composer. Only the
+ * levels this extension emits are declared.
+ */
+export interface Logger {
+	info(message: string): void;
+	warn(message: string): void;
+}
+
 export interface ExtensionAPI {
 	on(event: "context", handler: ContextHandler): void;
 	on(
@@ -104,4 +114,6 @@ export interface ExtensionAPI {
 	registerTool?: (tool: ToolDefinition) => void;
 	/** Schema builder the harness injects; tool parameters are built with it. */
 	zod?: SchemaBuilder;
+	/** The shared file logger; where this extension's reports are written. */
+	logger: Logger;
 }

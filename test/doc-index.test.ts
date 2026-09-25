@@ -9,21 +9,24 @@ import { join } from "node:path";
 
 import { parseConcept, type Concept } from "../src/concept.ts";
 import { DocStore } from "../src/doc-store.ts";
-import { SQL } from "bun";
-
 import {
 	LocalEmbedder,
 	PINNED_DIMENSIONS,
 	StubEmbedder,
 } from "../src/embedder.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
+import type { Sql } from "../src/sql.ts";
+import { storeLocation } from "./store-support.ts";
 
-const databaseUrl = process.env.PICHART_DATABASE_URL;
-const describeStore = databaseUrl ? describe : describe.skip;
+const describeStore = describe;
+const location = storeLocation();
+
+afterAll(() => location.dispose());
+
 // The stub embedder shares tokens, so under it "by meaning" and "by wording"
 // are the same claim. Only the real model can tell them apart.
 const describeModel =
-	databaseUrl && process.env.PICHART_EMBED === "1" ? describe : describe.skip;
+	process.env.PICHART_EMBED === "1" ? describe : describe.skip;
 const AT = new Date("2026-09-16T00:00:00Z");
 
 function concept(
@@ -55,17 +58,19 @@ const BANNER = concept(
 
 describeStore("the concept index", () => {
 	let store: PostgresStore;
-	let sql: SQL;
+	let sql: Sql;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		// The Store and the raw handle placing rows by hand share one
+		// connection: the embedded store is single-writer, so a second
+		// handle would not see the Store's writes.
+		sql = location.open();
+		store = new PostgresStore(sql, new StubEmbedder());
 		await store.migrate();
-		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
 		await store?.close();
-		await sql?.close();
 	});
 
 	beforeEach(async () => {
@@ -240,7 +245,7 @@ describeStore("bringing one concept's index in line", () => {
 	beforeAll(async () => {
 		const counting = new StubEmbedder();
 		embedded = [];
-		store = PostgresStore.connect(databaseUrl ?? "", {
+		store = new PostgresStore(location.open(), {
 			identity: () => counting.identity(),
 			embed: (texts) => {
 				embedded.push(texts);
@@ -406,10 +411,13 @@ describeStore("a concept vector and the model that made it", () => {
 	let swapped: PostgresStore;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		// Two Stores over one connection: the embedded store is
+		// single-writer, so `swapped` must read what `store` wrote.
+		const sql = location.open();
+		store = new PostgresStore(sql, new StubEmbedder());
 		// Same width, different model: the case a width check cannot catch.
-		swapped = PostgresStore.connect(
-			databaseUrl ?? "",
+		swapped = new PostgresStore(
+			sql,
 			new StubEmbedder(PINNED_DIMENSIONS, "stub-two"),
 		);
 		await store.migrate();
@@ -417,7 +425,6 @@ describeStore("a concept vector and the model that made it", () => {
 
 	afterAll(async () => {
 		await store?.close();
-		await swapped?.close();
 	});
 
 	beforeEach(async () => {
@@ -508,7 +515,7 @@ describeStore("a concept vector and the model that made it", () => {
 const PROBE = "anchor";
 
 async function place(
-	sql: SQL,
+	sql: Sql,
 	rows: { conceptId: string; distance: number; stale: boolean }[],
 ): Promise<void> {
 	const [probe] = await new StubEmbedder().embed([PROBE]);
@@ -536,19 +543,19 @@ async function place(
 
 describeStore("lifecycle and trust in retrieval", () => {
 	let store: PostgresStore;
-	let sql: SQL;
+	let sql: Sql;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		// One connection shared with the raw handle: the embedded store is
+		// single-writer, so vectors placed by hand must be written on the
+		// same handle the Store reads through.
+		sql = location.open();
+		store = new PostgresStore(sql, new StubEmbedder());
 		await store.migrate();
-		// Its own connection: placing vectors by hand is a fixture concern,
-		// not something the Store's interface should expose.
-		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
 		await store?.close();
-		await sql?.close();
 	});
 
 	beforeEach(async () => {
@@ -724,17 +731,18 @@ describeStore("lifecycle and trust in retrieval", () => {
 
 describeStore("what the concept index refused", () => {
 	let store: PostgresStore;
-	let sql: SQL;
+	let sql: Sql;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		// One shared connection: the raw handle places the fixture vectors
+		// the single-writer Store then reads back.
+		sql = location.open();
+		store = new PostgresStore(sql, new StubEmbedder());
 		await store.migrate();
-		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
 		await store?.close();
-		await sql?.close();
 	});
 
 	beforeEach(async () => {
@@ -824,7 +832,7 @@ describeStore("indexing a bundle from disk", () => {
 	let store: PostgresStore;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		store = new PostgresStore(location.open(), new StubEmbedder());
 		await store.migrate();
 	});
 
@@ -855,7 +863,7 @@ describeModel("retrieval under the real model", () => {
 		"a concept is found by a query that shares its meaning, not its words",
 		async () => {
 			const embedder = new LocalEmbedder(process.env.PICHART_BUN ?? "bun");
-			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
+			const store = new PostgresStore(location.open(), embedder);
 			try {
 				await store.migrate();
 				await store.truncate();
@@ -896,7 +904,7 @@ describeModel("retrieval under the real model", () => {
 		"the concept that states its subject beats the one that leaves it implicit",
 		async () => {
 			const embedder = new LocalEmbedder(process.env.PICHART_BUN ?? "bun");
-			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
+			const store = new PostgresStore(location.open(), embedder);
 			const body =
 				"## Decision\n\n`retain_days` defaults to 90. The sweep runs " +
 				"`DELETE FROM turns WHERE ingested_at < now() - $1`, then `VACUUM`.";
@@ -948,7 +956,7 @@ describeModel("retrieval under the real model", () => {
 		"the part of a concept a query is about is the part retrieved",
 		async () => {
 			const embedder = new LocalEmbedder(process.env.PICHART_BUN ?? "bun");
-			const store = PostgresStore.connect(databaseUrl ?? "", embedder);
+			const store = new PostgresStore(location.open(), embedder);
 			try {
 				await store.migrate();
 				await store.truncate();
@@ -985,17 +993,18 @@ describeModel("retrieval under the real model", () => {
 
 describeStore("a candidate set nothing can reorder", () => {
 	let store: PostgresStore;
-	let sql: SQL;
+	let sql: Sql;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		// One shared connection: the raw handle reindexes the same rows the
+		// single-writer Store queries.
+		sql = location.open();
+		store = new PostgresStore(sql, new StubEmbedder());
 		await store.migrate();
-		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
 		await store?.close();
-		await sql?.end();
 	});
 
 	beforeEach(async () => {

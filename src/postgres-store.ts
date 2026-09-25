@@ -1,4 +1,6 @@
-import { SQL } from "bun";
+import type { Config } from "./config.ts";
+import { openPglite } from "./pglite-sql.ts";
+import { bunSql, type Sql } from "./sql.ts";
 
 import {
 	groupByTurn,
@@ -371,12 +373,27 @@ export class PostgresStore implements
 		ConceptSearch,
 		AccountingStore {
 	constructor(
-		private readonly sql: SQL,
+		private readonly sql: Sql,
 		private readonly embedder?: Embedder,
 	) {}
 
 	static connect(url: string, embedder?: Embedder): PostgresStore {
-		return new PostgresStore(new SQL(url), embedder);
+		return new PostgresStore(bunSql(url), embedder);
+	}
+
+	/**
+	 * The store the configuration asks for, or nothing when it is declined.
+	 * `own` opens the embedded store at `config.storeDir`; `supplied` dials
+	 * the server the operator named; `declined` returns undefined, leaving the
+	 * caller on the harness's own history.
+	 */
+	static open(config: Config, embedder?: Embedder): PostgresStore | undefined {
+		if (config.storeOrigin === "declined") return undefined;
+		const sql =
+			config.storeOrigin === "supplied"
+				? bunSql(config.databaseUrl ?? "")
+				: openPglite(config.storeDir);
+		return new PostgresStore(sql, embedder);
 	}
 
 	async migrate(): Promise<void> {
@@ -446,7 +463,7 @@ export class PostgresStore implements
 				continue;
 			}
 
-			await this.sql.begin(async (tx: SQL) => {
+			await this.sql.begin(async (tx: Sql) => {
 				await tx`
 					INSERT INTO turns
 						(conversation_id, turn_index, prompt, codebase, call_count, text_hash)

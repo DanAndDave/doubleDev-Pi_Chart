@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_DOC_MAX_DISTANCE, DEFAULT_RECALL_MAX_DISTANCE } from "../src/config.ts";
 import { embedText } from "../src/embed-text.ts";
 import {
+	explainEmbedderFailure,
 	LocalEmbedder,
 	PINNED_DIMENSIONS,
 	StubEmbedder,
@@ -75,6 +76,44 @@ describe("LocalEmbedder failure", () => {
 
 		// A second attempt starts a fresh worker rather than reusing the dead one.
 		await expect(embedder.embed(["second"])).rejects.toThrow(/exited/);
+	});
+
+	test("a WebAssembly abort reaches the caller legibly", async () => {
+		// The user-reported crash: the worker forwards ONNX Runtime's
+		// Emscripten abort as an error reply. Opaque as raised; the caller
+		// must instead learn it was the embedding model and what clears it.
+		const aborting = new URL("./fixtures/aborting-worker.ts", import.meta.url)
+			.pathname;
+		const embedder = new LocalEmbedder(BUN, 5_000, aborting);
+
+		await expect(embedder.embed(["anything"])).rejects.toThrow(
+			/embedding model crashed its WebAssembly runtime/,
+		);
+		embedder.close();
+	});
+});
+
+describe("explainEmbedderFailure", () => {
+	const abort = "Aborted(). Build with -sASSERTIONS for more info.";
+
+	test("an Emscripten abort names the embedder, its cause, and the fix", () => {
+		const explained = explainEmbedderFailure(abort);
+		expect(explained).toMatch(/embedding model/);
+		expect(explained).toMatch(/node_modules\/@huggingface\/transformers\/\.cache/);
+		expect(explained).toMatch(/PICHART_EMBED_MODEL/);
+		// The original is kept, so nothing is hidden by the rewrite.
+		expect(explained).toContain(abort);
+	});
+
+	test("an abort wrapped in a worker exit is still recognised", () => {
+		expect(explainEmbedderFailure(`embedder exited with code 1: ${abort}`)).toMatch(
+			/embedding model crashed/,
+		);
+	});
+
+	test("anything else passes through untouched", () => {
+		const other = "embedder exited with code 1: out of memory";
+		expect(explainEmbedderFailure(other)).toBe(other);
 	});
 });
 

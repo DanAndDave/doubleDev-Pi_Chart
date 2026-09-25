@@ -7,4 +7,4 @@ omp already persists every Turn to an append-only JSONL journal with stable entr
 - Schema changes are cheap early on, when they are most likely: drop, migrate, re-ingest.
 - A failed or lagging ingest costs retrieval quality, never data.
 - Retrieval scope defaults to the current Conversation. Reaching across Conversations is an explicit query, never an implicit widening.
-- Postgres runs from a Compose file this project manages, but the storage interface stays narrow enough that the test suite does not need a container.
+- The storage interface stays narrow enough that the test suite needs no server. The store runs embedded by default (ADR-0007); a Compose file this project manages serves a Postgres only for the `PICHART_DATABASE_URL` escape hatch.

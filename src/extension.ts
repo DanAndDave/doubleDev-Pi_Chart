@@ -277,6 +277,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let unsearchedConceptsReported = false;
 	/** The whole-bundle indexing pass, so authoring can wait rather than race it. */
 	let indexingBundle: Promise<void> | undefined;
+	/**
+	 * The UI of the handler in flight, captured so a condition raised deep in
+	 * assembly can reach the harness's status line. Absent in headless and
+	 * print runs, where the log is the only channel.
+	 */
+	let ui: HandlerContext["ui"];
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -308,7 +314,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		if (pack.ceiling <= 0) return;
 
 		if (pack.approximateTokens > pack.ceiling) {
-			reportSafely(
+			announce(
 				`Context Pack exceeds its ceiling: ~${pack.approximateTokens} of ` +
 					`${pack.ceiling} tokens. The current turn could not be reduced ` +
 					`further and is never dropped, so the pack went out over budget.`,
@@ -320,7 +326,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		if (pack.approximateTokens < pack.ceiling * deps.config.packWarnShare) return;
 		warnedNearCeiling.add(conversationId);
 		const share = Math.round((100 * pack.approximateTokens) / pack.ceiling);
-		reportSafely(
+		announce(
 			`Context Packs are approaching their ceiling: ~${pack.approximateTokens} ` +
 				`of ${pack.ceiling} tokens (${share}%). Parts will start being reduced; ` +
 				`\`pack\` shows what, and \`pack budget pack <n>\` raises the ceiling ` +
@@ -346,11 +352,23 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 	}
 
+	/**
+	 * A condition the operator can act on. Recorded like every other report,
+	 * and also raised once on the harness's status line when it offers one, so
+	 * it is seen without opening the log. `notify` is the same seam the
+	 * commands use; when a handler has no UI this degrades to the log alone.
+	 */
+	function announce(message: string): void {
+		reportSafely(message);
+		ui?.notify?.(message, "warning");
+	}
+
 	pi.on("session_start", async (_event, ctx) => {
+		ui = ctx.ui;
 		// A setting silently ignored is a setting someone believes is in
 		// force; retention in particular would be believed to be bounding a
 		// Store it never touched.
-		for (const problem of deps.config.problems) deps.report(problem);
+		for (const problem of deps.config.problems) announce(problem);
 
 		if (deps.specs && deps.config.specsVerify) {
 			const specs = deps.specs;
@@ -427,7 +445,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					"conversation is recorded as unconfirmed, not as clean.",
 			);
 		} else if (memoryBackend === "active") {
-			deps.report(
+			announce(
 				`The harness memory backend is active (${status?.backend ?? "unknown"}). ` +
 					"It injects recall into the system prompt, which the assembler " +
 					"cannot reach, so this window has two injectors in it; set " +
@@ -438,6 +456,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	});
 
 	pi.on("context", async (event, ctx) => {
+		ui = ctx.ui;
 		const conversationId = conversationOf(ctx);
 		lastConversation = conversationId;
 		const branch = ctx.sessionManager?.getBranch?.() ?? [];
@@ -522,6 +541,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
+		ui = ctx.ui;
 		const conversationId = conversationOf(ctx);
 		reconcile(conversationId, ctx.sessionManager?.getBranch?.() ?? []);
 		// The Turn that just finished is the Turn that may have edited the
@@ -661,7 +681,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				const named = others
 					.map((each) => `${each.turns} from ${each.model}`)
 					.join(", ");
-				deps.report(
+				announce(
 					`Embedding model in use is ${inUse}, but the store holds vectors ` +
 						`${named}. Those turns are not recalled until the background ` +
 						`pass has re-embedded them.`,
@@ -1394,7 +1414,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	function reportMissingGraph(): void {
 		if (missingGraphReported) return;
 		missingGraphReported = true;
-		reportSafely(
+		announce(
 			`Structure is configured (${deps.config.graphSymbols} symbols) but this ` +
 				`codebase has no graph; run with PICHART_GRAPH=on to derive one, or set ` +
 				`PICHART_GRAPH_SYMBOLS=0 to stop asking for it.`,
@@ -1564,12 +1584,14 @@ export default function piChart(pi: ExtensionAPI): void {
 		author: bundle,
 		specs: new SpecStore(),
 		codebase: process.cwd(),
-		report: reportToStderr,
+		report: (message) => pi.logger.warn(`[pi-chart] ${message}`),
 		show: showToStdout,
 	} satisfies Partial<Dependencies>;
 
-	if (!config.databaseUrl) {
-		// Without a Thread Store the Assembler still owns the window; the tail
+	const embedder = new LocalEmbedder();
+	const store = PostgresStore.open(config, embedder);
+	if (!store) {
+		// A declined store: the Assembler still owns the window; the tail
 		// simply comes from the harness's own history, as it did before, and
 		// Accounting is held in memory so `/pack` still answers in-session.
 		register(pi, {
@@ -1579,16 +1601,18 @@ export default function piChart(pi: ExtensionAPI): void {
 		});
 		return;
 	}
-
-	const embedder = new LocalEmbedder();
-	const store = PostgresStore.connect(config.databaseUrl, embedder);
 	const ready = store.migrate().catch((error: unknown) => {
-		// Naming the command matters more than naming the error: an
-		// unreachable store means nothing is recorded and nothing is
-		// recalled, and the fix is one command away.
-		reportToStderr(
-			`Thread Store unreachable, so nothing is recorded or recalled. ` +
-				`Run \`/pi-chart setup\` to start it. (${describe(error)})`,
+		// Naming the fix matters more than naming the error: a store that
+		// will not open means nothing is recorded and nothing is recalled.
+		// The embedded store fails only on a bad data directory; a supplied
+		// one, on a server that is not up.
+		const fix =
+			config.storeOrigin === "supplied"
+				? `Check PICHART_DATABASE_URL and that its Postgres is up.`
+				: `Check PICHART_STORE_DIR is writable.`;
+		pi.logger.warn(
+			`[pi-chart] Thread Store unavailable, so nothing is recorded or recalled. ` +
+				`${fix} (${describe(error)})`,
 		);
 	});
 
@@ -1628,8 +1652,4 @@ async function embedAll(store: PostgresStore, conversationId: string): Promise<v
 
 function showToStdout(text: string): void {
 	process.stdout.write(`${text}\n`);
-}
-
-function reportToStderr(message: string): void {
-	process.stderr.write(`[pi-chart] ${message}\n`);
 }

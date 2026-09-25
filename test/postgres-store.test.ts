@@ -1,29 +1,30 @@
-// Store-backed seam. These need a real Postgres — `docker compose up -d` and
-// PICHART_DATABASE_URL — because "the schema applies" and "SQL returns turns in
-// order" mean nothing against a fake.
+// Store-backed seam: "the schema applies" and "SQL returns turns in order"
+// mean nothing against a fake, so these run against a real store — the
+// embedded one by default, or the server `PICHART_DATABASE_URL` names.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { SQL } from "bun";
 
 import { assemble } from "../src/assembler.ts";
+import { loadConfig } from "../src/config.ts";
 import { StubEmbedder } from "../src/embedder.ts";
-import { reconstructTurns } from "../src/turns.ts";
 import { readJournal } from "../src/journal.ts";
-import {
-	MIGRATION_VERSIONS,
-	PostgresStore,
-} from "../src/postgres-store.ts";
-import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
+import { MIGRATION_VERSIONS, PostgresStore } from "../src/postgres-store.ts";
+import type { Sql } from "../src/sql.ts";
+import { reconstructTurns } from "../src/turns.ts";
 import { budgets } from "./fixtures.ts";
+import { storeLocation } from "./store-support.ts";
+import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
 
-const databaseUrl = process.env.PICHART_DATABASE_URL;
-const describeStore = databaseUrl ? describe : describe.skip;
+const describeStore = describe;
+const location = storeLocation();
+
+afterAll(() => location.dispose());
 
 let store: PostgresStore;
 
 describeStore("PostgresStore", () => {
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "");
+		store = new PostgresStore(location.open());
 		await store.migrate();
 	});
 
@@ -68,7 +69,30 @@ describeStore("PostgresStore", () => {
 		]);
 	});
 
-	test("accounting written now is readable by a later connection", async () => {
+	test("what one process ingested, a later process reads", async () => {
+		// The embedded store persists to its data directory: a fresh handle
+		// after close stands in for a later process. On a server it is simply
+		// a second connection. Either way, durability is observable.
+		const durable = storeLocation();
+		try {
+			const first = new PostgresStore(durable.open());
+			await first.migrate();
+			await first.ingest("durable", await readJournal(JOURNAL_FIXTURE));
+			await first.close();
+
+			const later = new PostgresStore(durable.open());
+			try {
+				await later.migrate();
+				expect(await later.recentTurns("durable", 100)).toHaveLength(3);
+			} finally {
+				await later.close();
+			}
+		} finally {
+			durable.dispose();
+		}
+	});
+
+	test("accounting written now survives a read-back", async () => {
 		await store.recordPack(
 			"conv-1",
 			{ turnIndex: 0, callIndex: 0 },
@@ -84,17 +108,14 @@ describeStore("PostgresStore", () => {
 			},
 		]);
 
-		// A separate connection stands in for a later process.
-		const reader = PostgresStore.connect(databaseUrl ?? "");
-		try {
-			const [turn] = await reader.readAccounting("conv-1");
-			expect(turn?.floorTokens).toBe(25588);
-			expect(turn?.packTokens).toBe(29352 - 25588);
-			expect(turn?.calls[0]?.tailSource).toBe("thread-store");
-			expect(turn?.calls[0]?.parts[0]?.approximate).toBe(true);
-		} finally {
-			await reader.close();
-		}
+		// Read back through the same store: the embedded store is single-writer,
+		// so a later process is modelled by close-and-reopen, not a live second
+		// connection. This asserts what was recorded survives a read-back.
+		const [turn] = await store.readAccounting("conv-1");
+		expect(turn?.floorTokens).toBe(25588);
+		expect(turn?.packTokens).toBe(29352 - 25588);
+		expect(turn?.calls[0]?.tailSource).toBe("thread-store");
+		expect(turn?.calls[0]?.parts[0]?.approximate).toBe(true);
 	});
 
 	test("what a call's curated part could not see survives the write", async () => {
@@ -179,39 +200,40 @@ describeStore("PostgresStore", () => {
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
-		// A separate connection stands in for a later process: the reasons a
-		// pack was reduced have to outlive the Call that recorded them.
-		const reader = PostgresStore.connect(databaseUrl ?? "");
-		try {
-			const [turn] = await reader.readAccounting("conv-1");
-			const call = turn?.calls[0];
-			const tail = call?.parts.find((part) => part.source === "verbatim-tail");
+		// Read back through the same store: the reasons a pack was reduced have
+		// to outlive the Call that recorded them. Embedded is single-writer, so
+		// durability across processes is covered by close-and-reopen elsewhere.
+		const [turn] = await store.readAccounting("conv-1");
+		const call = turn?.calls[0];
+		const tail = call?.parts.find((part) => part.source === "verbatim-tail");
 
-			expect(call?.ceiling).toBe(300);
-			expect(call?.beforeCeiling).toBeGreaterThan(300);
-			expect(tail?.shortened).toBe(true);
-			expect(tail?.withoutCeiling).toBeGreaterThan(tail?.approximateTokens ?? 0);
-		} finally {
-			await reader.close();
-		}
+		expect(call?.ceiling).toBe(300);
+		expect(call?.beforeCeiling).toBeGreaterThan(300);
+		expect(tail?.shortened).toBe(true);
+		expect(tail?.withoutCeiling).toBeGreaterThan(tail?.approximateTokens ?? 0);
 	});
 });
 
 describeStore("the call a message came from", () => {
-	// Its own connections: the block above closes the shared store when it
-	// finishes, and a test that depends on file order is not a test.
+	// One connection, shared: the embedded store is single-writer, so a
+	// separate handle would not see this store's writes. The raw `sql` reads
+	// through the very handle the store wrote through.
 	let calls: PostgresStore;
-	let sql: SQL;
+	let sql: Sql;
 
 	beforeAll(async () => {
-		calls = PostgresStore.connect(databaseUrl ?? "");
+		sql = location.open();
+		calls = new PostgresStore(sql);
 		await calls.migrate();
-		sql = new SQL(databaseUrl ?? "");
 	});
 
 	afterAll(async () => {
+		// `sql` and `calls` are the same handle; closing the store closes it.
 		await calls?.close();
-		await sql?.close();
+	});
+
+	beforeEach(async () => {
+		await calls.truncate();
 	});
 
 	async function callsOf(turnIndex: number): Promise<number[]> {
@@ -271,7 +293,7 @@ describeStore("the call a message came from", () => {
 				(conversation_id, turn_index, ordinal, role, message)
 			VALUES ('calls', 9, 0, 'user', '{"role":"user","content":"an older ingest"}'::jsonb)`;
 
-		const embedded = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		const embedded = new PostgresStore(location.open(), new StubEmbedder());
 		try {
 			await embedded.embedPending();
 			const [found] = await embedded.searchAll("an older ingest", 1, 2);
@@ -311,5 +333,24 @@ describe("the schema's declared order", () => {
 				index === 0 || version > (MIGRATION_VERSIONS[index - 1] ?? 0),
 		);
 		expect(ascending).toBe(true);
+	});
+});
+
+describe("choosing a store backend", () => {
+	// `open` picks the backend from `storeOrigin` without connecting: the
+	// embedded and server handles both open lazily, on first query.
+	test("a declined store is no store at all", () => {
+		expect(
+			PostgresStore.open(loadConfig({ PICHART_DATABASE_URL: "" })),
+		).toBeUndefined();
+	});
+
+	test("the default and a supplied URL each yield a store", () => {
+		expect(PostgresStore.open(loadConfig({}))).toBeInstanceOf(PostgresStore);
+		expect(
+			PostgresStore.open(
+				loadConfig({ PICHART_DATABASE_URL: "postgres://x/y" }),
+			),
+		).toBeInstanceOf(PostgresStore);
 	});
 });

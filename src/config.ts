@@ -42,11 +42,27 @@ export interface Config {
 	 */
 	docMaxDistance: number;
 	/**
-	 * Thread Store connection. Defaults to what `docker compose up` in this
-	 * project serves, so a working setup needs no setting; an unreachable
-	 * one degrades to the harness's own history, which `/pack` reports.
+	 * A server-backed Thread Store the operator supplied by pointing
+	 * `PICHART_DATABASE_URL` at it. Absent by default: with no setting the
+	 * store is embedded (see `storeDir`), and an empty setting declines a
+	 * store outright. Present only when `storeOrigin` is `supplied`.
 	 */
 	databaseUrl?: string;
+	/**
+	 * Where the Thread Store comes from. `own` is the embedded store this
+	 * project runs in-process and persists under `storeDir`, needing no
+	 * server; `supplied` is a pgvector Postgres the operator pointed
+	 * `PICHART_DATABASE_URL` at — a system package, Postgres.app, or a hosted
+	 * one; `declined` is an empty setting, a deliberate refusal. The store is
+	 * embedded unless a setting says otherwise.
+	 */
+	storeOrigin: "own" | "supplied" | "declined";
+	/**
+	 * Where the embedded store keeps its data, so it outlives the process.
+	 * Used only when `storeOrigin` is `own`; overridable with
+	 * `PICHART_STORE_DIR`.
+	 */
+	storeDir: string;
 	/** Where the machine-wide Doc Store bundle lives. */
 	docBundle: string;
 	/**
@@ -56,7 +72,8 @@ export interface Config {
 	 *
 	 * Derived from measurement, not taste: the estimate runs ~1.15× low
 	 * against the harness's reported figures at the median and 1.447× at the
-	 * p90, so the ceiling is `(200,000 window − 28,000 measured Floor) / 1.5`.
+	 * p90, so a ceiling presumes a reported window of `ceiling × 1.5 + 28,000`
+	 * measured tokens — the derivation is on `DEFAULT_PACK_TOKENS`.
 	 */
 	tailTokens: number;
 	recallTokens: number;
@@ -132,9 +149,11 @@ export const DEFAULT_DOC_CONCEPTS = 2;
 export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 /**
- * What `compose.yaml` serves, on the port it was told to serve. `PICHART_PG_PORT`
- * is honoured by the Compose file, so the extension has to dial the same
- * port or setup's two halves disagree about which store exists.
+ * The connection string for the Postgres `compose.yaml` serves, on the port
+ * it publishes. The extended default store is embedded and reads no port;
+ * this exists so the operator can point `PICHART_DATABASE_URL` at the bundled
+ * container when they want a server, and so a test can check the compose file
+ * and this string still name the same store.
  */
 export const DEFAULT_PG_PORT = 55432;
 export function defaultDatabaseUrl(port: number = DEFAULT_PG_PORT): string {
@@ -145,12 +164,15 @@ export const DEFAULT_RECALL_TOKENS = 8_000;
 export const DEFAULT_DOC_TOKENS = 5_000;
 export const DEFAULT_GRAPH_TOKENS = 3_000;
 /**
- * `(200,000 − 28,000) / 1.5`: a window the operator is likely to have, less
- * the Floor this project measures, divided by the estimator's measured p90
- * bias. The parts default to 41,000 together, which leaves the current Turn
- * 69,000 before the ceiling touches it — enough for 97.4% of real Turns.
+ * A ceiling for large-context models: 300,000 estimated tokens. Inverting
+ * the estimator's measured 1.5× p90 bias and this project's ~28,000 Floor,
+ * it presumes a reported window of `300,000 × 1.5 + 28,000 ≈ 478,000`
+ * tokens, so an operator on a 200,000-token window MUST lower it with
+ * `PICHART_PACK_TOKENS` or the pack will overrun the window it cannot see.
+ * The parts default to 41,000 together, leaving the current Turn 259,000
+ * before the ceiling touches it — beyond any real Turn measured here.
  */
-export const DEFAULT_PACK_TOKENS = 110_000;
+export const DEFAULT_PACK_TOKENS = 300_000;
 /**
  * The retained head of each part's excluded candidates. Twelve is recall's
  * own over-fetch — `recallTurns + tailTurns` — and so the widest candidate
@@ -191,7 +213,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_OPENSPEC",
 	"PICHART_PACK_TOKENS",
 	"PICHART_PACK_WARN_SHARE",
-	"PICHART_PG_PORT",
+	"PICHART_STORE_DIR",
 	"PICHART_RECALL_DEADLINE_MS",
 	"PICHART_RECALL_MAX_DISTANCE",
 	"PICHART_RECALL_TOKENS",
@@ -234,8 +256,16 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		specsVerify: env.PICHART_SPECS !== "off",
 		docMaxDistance: distance(env.PICHART_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl:
-			env.PICHART_DATABASE_URL ??
-			defaultDatabaseUrl(count(env.PICHART_PG_PORT, DEFAULT_PG_PORT)),
+			env.PICHART_DATABASE_URL === undefined || env.PICHART_DATABASE_URL === ""
+				? undefined
+				: env.PICHART_DATABASE_URL,
+		storeOrigin:
+			env.PICHART_DATABASE_URL === undefined
+				? "own"
+				: env.PICHART_DATABASE_URL === ""
+					? "declined"
+					: "supplied",
+		storeDir: env.PICHART_STORE_DIR || join(homedir(), ".pi-chart", "store"),
 		docBundle:
 			env.PICHART_DOC_BUNDLE ?? join(homedir(), ".pi-chart", "bundle"),
 		tailTokens: count(env.PICHART_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),

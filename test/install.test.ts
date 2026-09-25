@@ -17,32 +17,29 @@ function config(overrides: Partial<Config> = {}): Config {
 function installation(options: {
 	bun?: string;
 	reachable?: boolean;
+	openable?: boolean;
 	bundle?: boolean;
 	/** Paths that exist, where a test needs to tell them apart. */
 	existing?: string[];
-	ran?: string[][];
 }): Installation {
 	return new Installation({
 		bun: async () => options.bun,
 		reachable: async () => options.reachable === true,
+		// Embedded stores open unless a test says otherwise.
+		openable: async () => options.openable !== false,
 		exists: async (path) =>
 			options.existing === undefined
 				? options.bundle === true
 				: options.existing.includes(path),
-		root: "/work/project",
-		// The cwd is recorded too: it is what makes `docker compose` find
-		// this project's compose file, and nothing else would notice it go.
-		run: async (command, args, cwd) => {
-			options.ran?.push([command, ...args, cwd ?? ""]);
-			return { ok: true, output: "" };
-		},
 	});
 }
 
 describe("what an unconfigured install does", () => {
-	test("the thread store points at what this project serves", () => {
-		// The setting existed only to repeat the compose file back at us.
-		expect(loadConfig({}).databaseUrl).toBe(defaultDatabaseUrl());
+	test("the default store is embedded, not a server", () => {
+		const config = loadConfig({});
+		expect(config.storeOrigin).toBe("own");
+		expect(config.databaseUrl).toBeUndefined();
+		expect(config.storeDir).toContain(".pi-chart");
 	});
 
 	test("the settings list is what the code actually reads", async () => {
@@ -86,23 +83,25 @@ describe("what an unconfigured install does", () => {
 		expect(compose).toContain(`PICHART_PG_PORT:-${url.port}}:5432`);
 	});
 
-	test("the port compose was told to serve is the port the extension dials", () => {
-		// `compose.yaml` honours `PICHART_PG_PORT`; until now the extension read
-		// it nowhere and dialled 55432 while the container listened
-		// elsewhere, so nothing was recorded and nothing recalled.
-		expect(loadConfig({ PICHART_PG_PORT: "6543" }).databaseUrl).toContain(":6543/");
-		expect(loadConfig({}).databaseUrl).toContain(":55432/");
-		// A configured URL still outranks the port.
-		expect(
-			loadConfig({ PICHART_PG_PORT: "6543", PICHART_DATABASE_URL: "postgres://x/y" })
-				.databaseUrl,
-		).toBe("postgres://x/y");
-	});
-
 	test("a configured store still wins", () => {
 		const url = "postgres://elsewhere/db";
 
-		expect(loadConfig({ PICHART_DATABASE_URL: url }).databaseUrl).toBe(url);
+		const config = loadConfig({ PICHART_DATABASE_URL: url });
+		expect(config.databaseUrl).toBe(url);
+		expect(config.storeOrigin).toBe("supplied");
+	});
+
+	test("an empty setting declines the store", () => {
+		const config = loadConfig({ PICHART_DATABASE_URL: "" });
+		expect(config.storeOrigin).toBe("declined");
+		expect(config.databaseUrl).toBeUndefined();
+	});
+
+	test("an empty store directory falls back to the default", () => {
+		expect(loadConfig({ PICHART_STORE_DIR: "" }).storeDir).toContain(".pi-chart");
+		expect(loadConfig({ PICHART_STORE_DIR: "/tmp/elsewhere" }).storeDir).toBe(
+			"/tmp/elsewhere",
+		);
 	});
 
 	test("graph extraction is asked for, not assumed", () => {
@@ -126,7 +125,7 @@ describe("checking an installation", () => {
 
 	test("a store declined on purpose is not reported as a fault", async () => {
 		const checks = await installation({ bun: "/usr/bin/bun" }).check(
-			config({ databaseUrl: "" }),
+			config({ databaseUrl: "", storeOrigin: "declined" }),
 			"off",
 		);
 
@@ -136,15 +135,31 @@ describe("checking an installation", () => {
 		expect(store?.detail).toContain("declined");
 	});
 
-	test("an unreachable store is named, with the command that fixes it", async () => {
+	test("an embedded store that cannot open names the data directory", async () => {
+		const checks = await installation({
+			bun: "/usr/bin/bun",
+			openable: false,
+		}).check(config(), "off");
+
+		const store = checks.find((check) => check.name === "thread store");
+		expect(store?.ok).toBe(false);
+		expect(store?.fix).toContain("PICHART_STORE_DIR");
+	});
+
+	test("an unreachable store the operator supplied is theirs to bring up", async () => {
 		const checks = await installation({ bun: "/usr/bin/bun" }).check(
-			config(),
+			config({
+				databaseUrl: "postgres://me@db.example/thread_store",
+				storeOrigin: "supplied",
+			}),
 			"off",
 		);
 
 		const store = checks.find((check) => check.name === "thread store");
 		expect(store?.ok).toBe(false);
-		expect(store?.fix).toContain("setup");
+		// Not told to run our setup: setup does not start a store we do not own.
+		expect(store?.fix).not.toContain("setup");
+		expect(store?.fix).toContain("PICHART_DATABASE_URL");
 	});
 
 	test("an active backend is a fault, with the setting that fixes it", async () => {
@@ -250,24 +265,43 @@ describe("checking an installation", () => {
 		expect(bundle?.ok).toBe(true);
 		expect(bundle?.detail).toContain("simply empty");
 	});
-
-	test("checking reads only", async () => {
-		const ran: string[][] = [];
-		await installation({ bun: "/usr/bin/bun", ran }).check(config(), "off");
-
-		// A status check that starts containers is a trap.
-		expect(ran).toEqual([]);
-	});
 });
 
 describe("setting an installation up", () => {
-	test("starts the thread store where this project's compose file is", async () => {
-		const ran: string[][] = [];
-		await installation({ ran, bundle: true }).setup(config());
+	test("provisions the embedded store for a default install", async () => {
+		const done = await installation({ bundle: true }).setup(config());
 
-		expect(ran).toEqual([
-			["docker", "compose", "up", "-d", "--wait", "/work/project"],
-		]);
+		const store = done.find((check) => check.name === "thread store");
+		expect(store?.ok).toBe(true);
+		expect(store?.detail).toContain("embedded");
+	});
+
+	test("a supplied store is checked, not opened as embedded", async () => {
+		// reachable:false while openable defaults true: a false result proves
+		// the supplied path dials the server rather than opening a local store.
+		const done = await installation({ reachable: false, bundle: true }).setup(
+			config({
+				databaseUrl: "postgres://me@db.example/thread_store",
+				storeOrigin: "supplied",
+			}),
+		);
+
+		const store = done.find((check) => check.name === "thread store");
+		expect(store?.ok).toBe(false);
+		expect(store?.fix).toContain("PICHART_DATABASE_URL");
+	});
+
+	test("a store declined on purpose is left alone", async () => {
+		// Neither reachable nor openable, yet reported ok: a deliberate refusal.
+		const done = await installation({
+			reachable: false,
+			openable: false,
+			bundle: true,
+		}).setup(config({ databaseUrl: "", storeOrigin: "declined" }));
+
+		const store = done.find((check) => check.name === "thread store");
+		expect(store?.ok).toBe(true);
+		expect(store?.detail).toContain("declined");
 	});
 
 	test("does not create a bundle over the top of one the rename left", async () => {
@@ -276,7 +310,6 @@ describe("setting an installation up", () => {
 			reachable: async () => true,
 			exists: async (path) => path === join(homedir(), ".context-manager", "bundle"),
 			root: "/work/project",
-			run: async () => ({ ok: true, output: "" }),
 		});
 
 		const done = await install.setup(config());
@@ -287,49 +320,6 @@ describe("setting an installation up", () => {
 		expect(bundle?.detail).toContain(join(homedir(), ".context-manager", "bundle"));
 		expect(bundle?.fix).toContain("PICHART_DOC_BUNDLE");
 		expect(bundle?.detail).toStartWith("not created");
-	});
-
-	test("a docker that never returns is bounded", async () => {
-		const bounds: (number | undefined)[] = [];
-		const install = new Installation({
-			bun: async () => "/usr/bin/bun",
-			reachable: async () => true,
-			exists: async () => true,
-			root: "/work/project",
-			run: async (_command, _args, _cwd, timeoutMs) => {
-				bounds.push(timeoutMs);
-				return { ok: true, output: "" };
-			},
-		});
-
-		await install.setup(config());
-
-		// `--wait` waits for a healthy container, and a daemon that never
-		// answers would otherwise hold setup open with no output at all.
-		expect(bounds).toEqual([expect.any(Number)]);
-		expect(bounds[0]).toBeGreaterThan(0);
-	});
-
-	test("the project root holds the compose file", async () => {
-		expect(await Bun.file(`${projectRoot()}/compose.yaml`).exists()).toBe(true);
-	});
-
-	test("a missing docker is a failed check, not a thrown error", async () => {
-		const install = new Installation({
-			bun: async () => "/usr/bin/bun",
-			reachable: async () => false,
-			exists: async () => true,
-			run: async () => {
-				// What Bun.spawn does for an executable that is not there.
-				throw new Error('Executable not found in $PATH: "docker"');
-			},
-		});
-
-		const done = await install.setup(config());
-
-		const store = done.find((check) => check.name === "thread store");
-		expect(store?.ok).toBe(false);
-		expect(store?.detail).toContain("not found");
 	});
 });
 

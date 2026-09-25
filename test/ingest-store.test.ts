@@ -1,17 +1,21 @@
 // Store-backed: what a sweep writes, and what it refuses to write again.
 // Both are claims about real SQL — statements issued, rows left alone — so a
-// fake would only prove our arithmetic. Needs PICHART_DATABASE_URL.
+// fake would only prove our arithmetic. Runs on the embedded store by
+// default, or the server `PICHART_DATABASE_URL` names.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { SQL } from "bun";
 
 import { StubEmbedder } from "../src/embedder.ts";
 import type { JournalTurn } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
+import type { Sql } from "../src/sql.ts";
+import { storeLocation } from "./store-support.ts";
 
-const databaseUrl = process.env.PICHART_DATABASE_URL;
-const describeStore = databaseUrl ? describe : describe.skip;
+const describeStore = describe;
+const location = storeLocation();
+
+afterAll(() => location.dispose());
 
 const HERE = "/repo";
 const BELOW = "/repo/packages/inner";
@@ -36,7 +40,7 @@ function turn(index: number, messages = 2): JournalTurn {
  * A `sql` tag that counts the statements the Store asks it to run, so "the
  * work is proportional to what is new" is a measurement rather than a claim.
  */
-function counting(inner: SQL): { sql: SQL; since: () => number } {
+function counting(inner: Sql): { sql: Sql; since: () => number } {
 	let statements = 0;
 	const run = inner as unknown as (
 		strings: TemplateStringsArray,
@@ -45,7 +49,7 @@ function counting(inner: SQL): { sql: SQL; since: () => number } {
 	const tag = ((strings: TemplateStringsArray, ...values: unknown[]) => {
 		statements++;
 		return run(strings, ...values);
-	}) as unknown as SQL;
+	}) as unknown as Sql;
 	for (const key of ["unsafe", "begin", "end", "close", "reserve"] as const) {
 		const method = (inner as unknown as Record<string, unknown>)[key];
 		if (typeof method === "function") {
@@ -67,7 +71,7 @@ describeStore("where a turn happened", () => {
 	let store: PostgresStore;
 
 	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		store = new PostgresStore(location.open(), new StubEmbedder());
 		await store.migrate();
 	});
 
@@ -115,11 +119,11 @@ describeStore("where a turn happened", () => {
 
 describeStore("what a sweep costs", () => {
 	let store: PostgresStore;
-	let sql: SQL;
-	let counter: { sql: SQL; since: () => number };
+	let sql: Sql;
+	let counter: { sql: Sql; since: () => number };
 
 	beforeAll(async () => {
-		sql = new SQL(databaseUrl ?? "");
+		sql = location.open();
 		counter = counting(sql);
 		store = new PostgresStore(counter.sql, new StubEmbedder());
 		await store.migrate();

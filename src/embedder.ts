@@ -258,9 +258,12 @@ export class LocalEmbedder implements Embedder {
 		if (this.worker?.process !== child) return;
 		this.worker = undefined;
 		const stderr = await new Response(child.stderr).text().catch(() => "");
+		const tail = stderr.trim()
+			? `: ${stderr.trim().split("\n").at(-1)}`
+			: "";
 		this.settleAll(
 			new Error(
-				`embedder exited with code ${code}${stderr.trim() ? `: ${stderr.trim().split("\n").at(-1)}` : ""}`,
+				explainEmbedderFailure(`embedder exited with code ${code}${tail}`),
 			),
 		);
 	}
@@ -292,9 +295,32 @@ export class LocalEmbedder implements Embedder {
 		const waiting = this.pending.get(reply.id);
 		if (!waiting) return;
 		this.pending.delete(reply.id);
-		if (reply.error !== undefined) waiting.reject(new Error(reply.error));
-		else waiting.resolve(reply);
+		if (reply.error !== undefined) {
+			waiting.reject(new Error(explainEmbedderFailure(reply.error)));
+		} else waiting.resolve(reply);
 	}
+}
+
+/**
+ * A WebAssembly abort from the embedding model, made legible.
+ *
+ * ONNX Runtime aborts its Emscripten runtime with "Aborted(). Build with
+ * -sASSERTIONS for more info." — opaque, and by the time it reaches a report
+ * line nothing says it came from the embedder or what to do about it. The
+ * signature is recognised here and rewritten with the usual cause and the
+ * one action that clears it, the original text kept on the end so nothing is
+ * hidden. Anything that is not that abort passes through untouched.
+ */
+export function explainEmbedderFailure(raw: string): string {
+	if (!/\bAborted\(\)/.test(raw)) return raw;
+	return (
+		"the embedding model crashed its WebAssembly runtime, usually a " +
+		"corrupt or half-downloaded model file, or too little memory to load " +
+		"the model. Clear the transformers cache " +
+		"(node_modules/@huggingface/transformers/.cache) so the model " +
+		"re-downloads, or set PICHART_EMBED_MODEL to a smaller model. " +
+		`Original: ${raw}`
+	);
 }
 
 /** What one line back from the worker can carry. */

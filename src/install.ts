@@ -4,15 +4,7 @@ import { dirname, join } from "node:path";
 
 import type { Config } from "./config.ts";
 import type { MemoryBackendState } from "./accounting.ts";
-import { runProcess, type RunCommand } from "./process.ts";
-
-/**
- * How long `docker compose up -d --wait` may take. It pulls an image on a
- * machine that has never run it, which is the case the wait exists for;
- * beyond this the daemon is not coming.
- */
-const COMPOSE_MS = 120_000;
-
+import { openPglite } from "./pglite-sql.ts";
 /**
  * What a working installation needs, and how to get there.
  *
@@ -33,11 +25,12 @@ export interface Check {
 }
 
 export interface InstallOptions {
-	run?: RunCommand;
 	/** Whether a path exists. A seam, so the checks run without a filesystem. */
 	exists?: (path: string) => Promise<boolean>;
 	/** Whether the Thread Store answers. */
 	reachable?: (url: string) => Promise<boolean>;
+	/** Whether an embedded store opens at a data directory. */
+	openable?: (dataDir: string) => Promise<boolean>;
 	/** Where Bun is, if anywhere. */
 	bun?: () => Promise<string | undefined>;
 	/** This project's root, which holds `compose.yaml`. */
@@ -59,16 +52,16 @@ export function projectRoot(): string {
 const BUNDLE_BEFORE_THE_RENAME = join(homedir(), ".context-manager", "bundle");
 
 export class Installation {
-	private readonly run: RunCommand;
 	private readonly exists: (path: string) => Promise<boolean>;
 	private readonly reachable: (url: string) => Promise<boolean>;
+	private readonly openable: (dataDir: string) => Promise<boolean>;
 	private readonly bun: () => Promise<string | undefined>;
 	private readonly root: string;
 
 	constructor(options: InstallOptions = {}) {
-		this.run = options.run ?? runProcess;
 		this.exists = options.exists ?? pathExists;
 		this.reachable = options.reachable ?? storeAnswers;
+		this.openable = options.openable ?? storeOpens;
 		this.bun = options.bun ?? defaultBun;
 		this.root = options.root ?? projectRoot();
 	}
@@ -95,20 +88,36 @@ export class Installation {
 			fix: bun ? undefined : "install Bun from https://bun.sh",
 		});
 
-		// An empty setting is how someone declines a store on purpose, and a
-		// deliberate choice must not be reported as a fault.
+		// Three states, three checks: an embedded store is asked to open, a
+		// supplied one to answer, and a declined one is left alone — a
+		// deliberate refusal is not a fault.
+		const origin = config.storeOrigin;
 		const url = config.databaseUrl;
-		const declined = url === undefined || url === "";
-		const answers = !declined && (await this.reachable(url));
+		const answers =
+			origin === "declined"
+				? false
+				: origin === "supplied"
+					? url !== undefined && url !== "" && (await this.reachable(url))
+					: await this.openable(config.storeDir);
 		checks.push({
 			name: "thread store",
-			ok: answers || declined,
-			detail: declined
-				? "declined; the tail falls back to the harness's own history"
-				: answers
-					? url
-					: "not reachable; turns are not recorded and nothing is recalled",
-			fix: answers || declined ? undefined : "run `pi-chart setup`",
+			ok: answers || origin === "declined",
+			detail:
+				origin === "declined"
+					? "declined; the tail falls back to the harness's own history"
+					: answers
+						? origin === "supplied"
+							? (url as string)
+							: `embedded at ${config.storeDir}`
+						: origin === "supplied"
+							? "not reachable; turns are not recorded and nothing is recalled"
+							: "cannot open; turns are not recorded and nothing is recalled",
+			fix:
+				answers || origin === "declined"
+					? undefined
+					: origin === "supplied"
+						? "start the Postgres PICHART_DATABASE_URL points at, with pgvector"
+						: "check PICHART_STORE_DIR is a writable directory",
 		});
 		// The same three states the report at a Conversation's start
 		// distinguishes, in the same words: a check that read "not reported"
@@ -182,27 +191,7 @@ export class Installation {
 	async setup(config: Config): Promise<Check[]> {
 		const done: Check[] = [];
 
-		// `--wait` because `up -d` returns when the container starts, not
-		// when Postgres accepts connections; the check below would
-		// otherwise tell the user to run the command they just ran.
-		// Caught because a missing `docker` throws rather than failing.
-		const compose = await this.run(
-			"docker",
-			["compose", "up", "-d", "--wait"],
-			this.root,
-			COMPOSE_MS,
-		).catch((error: unknown) => ({
-			ok: false,
-			output: error instanceof Error ? error.message : String(error),
-		}));
-		done.push({
-			name: "thread store",
-			ok: compose.ok,
-			detail: compose.ok
-				? "started; the schema applies itself on first use"
-				: compose.output || "could not start docker compose",
-			fix: compose.ok ? undefined : "is Docker installed and running?",
-		});
+		done.push(await this.provideStore(config));
 
 		if (!(await this.exists(config.docBundle))) {
 			// An empty bundle created here would make the check below read
@@ -228,6 +217,51 @@ export class Installation {
 		}
 
 		return done;
+	}
+
+	/**
+	 * Provides the Thread Store, or reports on one this project does not own.
+	 * The default (`own`) store is embedded: setup opens it once at
+	 * `config.storeDir`, which creates the data directory. The schema is
+	 * applied later, on the first runtime connection. A
+	 * supplied `PICHART_DATABASE_URL` is the operator's server — setup checks
+	 * it answers but never starts it — and a declined store is left alone.
+	 */
+	private async provideStore(config: Config): Promise<Check> {
+		if (config.storeOrigin === "declined") {
+			return {
+				name: "thread store",
+				ok: true,
+				detail: "declined; the tail falls back to the harness's own history",
+			};
+		}
+
+		if (config.storeOrigin === "supplied") {
+			const url = config.databaseUrl;
+			const answers = url !== undefined && url !== "" && (await this.reachable(url));
+			return {
+				name: "thread store",
+				ok: answers,
+				detail: answers
+					? (url as string)
+					: "supplied store not reachable",
+				fix: answers
+					? undefined
+					: "start the Postgres PICHART_DATABASE_URL points at, with pgvector",
+			};
+		}
+
+		// `own`: the embedded store. Opening it at the data directory creates
+		// the directory and loads pgvector; no server, daemon, or container.
+		const opened = await this.openable(config.storeDir);
+		return {
+			name: "thread store",
+			ok: opened,
+			detail: opened
+				? `embedded at ${config.storeDir}`
+				: "embedded store could not be opened",
+			fix: opened ? undefined : "check PICHART_STORE_DIR is a writable directory",
+		};
 	}
 }
 
@@ -261,6 +295,19 @@ async function storeAnswers(url: string): Promise<boolean> {
 		return false;
 	} finally {
 		await sql.close().catch(() => undefined);
+	}
+}
+
+/** Whether an embedded store opens and answers at a data directory. */
+async function storeOpens(dataDir: string): Promise<boolean> {
+	const sql = openPglite(dataDir);
+	try {
+		await sql`SELECT 1`;
+		return true;
+	} catch {
+		return false;
+	} finally {
+		await sql.end().catch(() => undefined);
 	}
 }
 
