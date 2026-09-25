@@ -130,6 +130,16 @@
   knowledge went dark, the Call's record blamed the threshold, and the
   indexing pass re-embedded nothing, because no text had changed.
 
+  Confirmed in a governed Conversation, not only by the instrument: with
+  the bundle indexed under the pinned model and `CM_EMBED_MODEL` set to
+  `Xenova/all-MiniLM-L6-v2`, the Conversation printed "8 concepts are held
+  only as vectors from another embedding model" once, its first Call
+  recorded `concepts_unsearched = 8`, and `/pack` rendered "curated
+  searched all but 8 concepts of the bundle (awaiting embedding)". The
+  next Call of the same Conversation, after the background pass finished,
+  carried 2 Concepts — `metrics/gross-margin` and
+  `computations/gross-margin-period` — with nothing unsearched.
+
 - [x] 4.3 Confirm the README's `CM_EMBED_MODEL` row is now true of both Stores, and correct the sentence `audit-docs-debt` had to write about the Concept index
 
   The row now says both Stores record the model, that a swap costs one
