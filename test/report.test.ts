@@ -51,6 +51,7 @@ function view(overrides: Partial<CallView> = {}): CallView {
 		unassembled: false,
 		rejected: 0,
 		unsearched: 0,
+		conceptsUnsearched: 0,
 		compacted: false,
 		explained: false,
 		...overrides,
@@ -421,6 +422,18 @@ describe("rendering a call that recalled nothing", () => {
 		const text = renderCall(view({ unsearched: 0 }));
 
 		expect(text).not.toContain("awaiting embedding");
+	});
+
+	test("a curated part mid-repair is named apart from a thin recall", () => {
+		const curated = renderCall(view({ unsearched: 0, conceptsUnsearched: 3 }));
+		const recall = renderCall(view({ unsearched: 7, conceptsUnsearched: 0 }));
+
+		// Both Stores embed on their own schedule, so a reader must be able
+		// to tell which one is behind.
+		expect(curated).toContain("3 concepts of the bundle");
+		expect(curated).not.toContain("turns of this conversation");
+		expect(recall).toContain("7 turns of this conversation");
+		expect(recall).not.toContain("concepts of the bundle");
 	});
 });
 

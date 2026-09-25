@@ -93,6 +93,12 @@ export interface CallView {
 	 * where nothing was relevant.
 	 */
 	unsearched: number;
+	/**
+	 * Concepts the Doc Store could not rank, for want of a vector from the
+	 * model in use. Curated knowledge thinned by a model change reads
+	 * differently from a bundle with nothing relevant in it.
+	 */
+	conceptsUnsearched: number;
 	/** The Pack ceiling in force. Absent on records that predate it. */
 	ceiling?: number;
 	/** What the parts came to before the ceiling reduced them. */
@@ -243,6 +249,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		budgets: call.budgets,
 		rejected: call.rejected ?? 0,
 		unsearched: call.unsearched ?? 0,
+		conceptsUnsearched: call.conceptsUnsearched ?? 0,
 		ceiling: call.ceiling,
 		beforeCeiling: call.beforeCeiling,
 		compactionEpoch: call.compactionEpoch,

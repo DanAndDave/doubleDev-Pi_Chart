@@ -156,6 +156,7 @@ describeStore("retention", () => {
 				budgets: { tail: 8, recall: 4, docs: 2, graph: 3 },
 				rejected: 0,
 				unsearched: 0,
+				conceptsUnsearched: 0,
 				ceiling: 110_000,
 				beforeCeiling: 42,
 				approximateTokens: 42,

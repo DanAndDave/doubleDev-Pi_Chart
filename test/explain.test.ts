@@ -338,6 +338,7 @@ describe("addressing a call", () => {
 		parts: [],
 		unassembled: false,
 		rejected: 0,
+		conceptsUnsearched: 0,
 		unsearched: 0,
 		compacted: false,
 		explained: true,

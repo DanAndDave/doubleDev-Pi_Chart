@@ -52,6 +52,11 @@ export interface CallAccounting extends CallAddress {
 	 * vector. Absent on records written before it was recorded.
 	 */
 	unsearched?: number;
+	/**
+	 * Concepts the Doc Store could not rank, for want of a vector from the
+	 * model in use. Absent on records written before it was recorded.
+	 */
+	conceptsUnsearched?: number;
 	/** The Pack ceiling in force for this Call. Absent on older records. */
 	ceiling?: number;
 	/**
@@ -307,6 +312,7 @@ export class MemoryAccounting implements AccountingStore {
 		call.budgets = pack.budgets;
 		call.rejected = pack.rejected;
 		call.unsearched = pack.unsearched;
+		call.conceptsUnsearched = pack.conceptsUnsearched;
 		call.ceiling = pack.ceiling;
 		call.beforeCeiling = pack.beforeCeiling;
 		call.memoryBackend = memoryBackend;

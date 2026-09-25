@@ -162,6 +162,14 @@ export interface Pack {
 	 * Conversation with nothing relevant in it.
 	 */
 	unsearched: number;
+	/**
+	 * Concepts the Doc Store could not rank at all, because their vectors
+	 * were made by another embedding model. Beside `unsearched` rather
+	 * than folded into it: the two Stores re-embed on their own schedules,
+	 * and a curated part thinned by one of them is not a Conversation
+	 * missing recall.
+	 */
+	conceptsUnsearched: number;
 	/** The pack ceiling in force, and whether it had to bind. */
 	ceiling: number;
 	/**
@@ -255,6 +263,8 @@ export interface AssembleInput {
 	conceptsRejected?: number;
 	/** Concepts the Doc Store refused, nearest first. */
 	conceptMisses?: ConceptMiss[];
+	/** How many Concepts the Doc Store could not rank at all. */
+	conceptsUnsearched?: number;
 	/** Neighbourhoods of the symbols this prompt refers to. */
 	structure?: Neighbourhood[];
 	/**
@@ -280,6 +290,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		concepts = [],
 		conceptsRejected = 0,
 		conceptMisses = [],
+		conceptsUnsearched = 0,
 		structure = [],
 		unavailable = {},
 	} = input;
@@ -545,6 +556,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		},
 		rejected,
 		unsearched,
+		conceptsUnsearched,
 		ceiling: config.packTokens,
 		beforeCeiling,
 		approximateTokens: totalOf(parts),

@@ -275,6 +275,26 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS input_tokens INTEGER`,
 		],
 	},
+	{
+		version: 19,
+		statements: [
+			// Which model produced a section's vector, as `turns` records for
+			// each Turn's. Two models' coordinates mean different things by
+			// the same numbers, so a vector is only ever ranked against
+			// vectors from the model that made it. Nullable: a row that
+			// records no model cannot be shown to match the model in use, so
+			// it is embedded again rather than assumed.
+			`ALTER TABLE concept_sections ADD COLUMN IF NOT EXISTS embedding_model TEXT`,
+		],
+	},
+	{
+		version: 20,
+		statements: [
+			// What a Call's curated part could not see, beside what recall
+			// could not see: both Stores re-embed on their own schedules.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS concepts_unsearched INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -308,6 +328,7 @@ interface AccountingRow {
 	budgets: JsonColumn;
 	rejected: number | null;
 	unsearched: number | null;
+	concepts_unsearched: number | null;
 	ceiling: number | null;
 	before_ceiling: number | null;
 	compaction_epoch: number | null;
@@ -749,12 +770,14 @@ export class PostgresStore implements
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
 				 approximate_tokens, unassembled, tail_source, budgets, rejected,
-				 unsearched, ceiling, before_ceiling, memory_backend)
+				 unsearched, concepts_unsearched, ceiling, before_ceiling,
+				 memory_backend)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
 				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
-				${pack.unsearched}, ${pack.ceiling}, ${pack.beforeCeiling},
+				${pack.unsearched}, ${pack.conceptsUnsearched}, ${pack.ceiling},
+				${pack.beforeCeiling},
 				${memoryBackend}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
@@ -767,6 +790,7 @@ export class PostgresStore implements
 				budgets = EXCLUDED.budgets,
 				rejected = EXCLUDED.rejected,
 				unsearched = EXCLUDED.unsearched,
+				concepts_unsearched = EXCLUDED.concepts_unsearched,
 				ceiling = EXCLUDED.ceiling,
 				before_ceiling = EXCLUDED.before_ceiling,
 				memory_backend = EXCLUDED.memory_backend`;
@@ -862,7 +886,8 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected, unsearched, ceiling, before_ceiling, compaction_epoch,
+			       rejected, unsearched, concepts_unsearched, ceiling,
+			       before_ceiling, compaction_epoch,
 			       memory_backend, cache_read, cache_write, input_tokens
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
@@ -891,6 +916,7 @@ export class PostgresStore implements
 			),
 			rejected: row.rejected ?? undefined,
 			unsearched: row.unsearched ?? undefined,
+			conceptsUnsearched: row.concepts_unsearched ?? undefined,
 			ceiling: row.ceiling ?? undefined,
 			beforeCeiling: row.before_ceiling ?? undefined,
 			compactionEpoch: row.compaction_epoch ?? undefined,
@@ -1122,9 +1148,15 @@ export class PostgresStore implements
 	}
 
 	/**
-	 * Embeds the sections whose content moved, and writes them.
+	 * Embeds the sections whose content moved — or whose vector was made by
+	 * another model — and writes them with the model that made them.
 	 *
-	 * `scope` confines the hashes read to one Concept, so a single-Concept
+	 * A model change is treated exactly as a content change, so the pass
+	 * that indexes a new section is also the pass that repairs one left
+	 * behind: two models' coordinates mean different things by the same
+	 * numbers, and a vector nobody can attribute is one nobody may rank.
+	 *
+	 * `scope` confines the rows read to one Concept, so a single-Concept
 	 * pass reads that Concept's rows rather than the whole index's.
 	 */
 	private async embedSections(
@@ -1134,26 +1166,34 @@ export class PostgresStore implements
 		scope?: string,
 	): Promise<number> {
 		if (!this.embedder) return 0;
-		const known = new Map<string, string>();
+		const { model } = await this.embedder.identity();
+		const known = new Map<string, { hash: string; model: string | null }>();
 		const rows = (scope === undefined
 			? await this.sql`
-				SELECT identity, section_index, hash FROM concept_sections
-				WHERE embedding IS NOT NULL`
+				SELECT identity, section_index, hash, embedding_model
+				FROM concept_sections WHERE embedding IS NOT NULL`
 			: await this.sql`
-				SELECT identity, section_index, hash FROM concept_sections
+				SELECT identity, section_index, hash, embedding_model
+				FROM concept_sections
 				WHERE embedding IS NOT NULL AND identity = ${scope}`) as {
 			identity: string;
 			section_index: number;
 			hash: string;
+			embedding_model: string | null;
 		}[];
 		for (const row of rows) {
-			known.set(`${row.identity}:${row.section_index}`, row.hash);
+			known.set(`${row.identity}:${row.section_index}`, {
+				hash: row.hash,
+				model: row.embedding_model,
+			});
 		}
 
-		const changed = sections.filter(
-			(section) =>
-				known.get(`${section.identity}:${section.index}`) !== section.hash,
-		);
+		const changed = sections.filter((section) => {
+			const indexed = known.get(`${section.identity}:${section.index}`);
+			// No recorded model is not the model in use: a row written
+			// before provenance existed cannot be shown to match it.
+			return indexed?.hash !== section.hash || indexed.model !== model;
+		});
 
 		let embedded = 0;
 		for (let start = 0; start < changed.length; start += batch) {
@@ -1169,13 +1209,13 @@ export class PostgresStore implements
 				await this.sql`
 					INSERT INTO concept_sections
 						(identity, section_index, concept_id, status, trust, stale,
-						 hash, text, exclusions, embedding)
+						 hash, text, exclusions, embedding, embedding_model)
 					VALUES (
 						${section.identity}, ${section.index}, ${section.conceptId},
 						${concept.status}, ${concept.trust}, ${concept.stale},
 						${section.hash}, ${section.text},
 						${JSON.stringify(concept.exclusions)}::text::jsonb,
-						${JSON.stringify(vector)}::vector
+						${JSON.stringify(vector)}::vector, ${model}
 					)
 					ON CONFLICT (identity, section_index) DO UPDATE SET
 						concept_id = EXCLUDED.concept_id,
@@ -1185,7 +1225,8 @@ export class PostgresStore implements
 						text = EXCLUDED.text,
 						hash = EXCLUDED.hash,
 						exclusions = EXCLUDED.exclusions,
-						embedding = EXCLUDED.embedding`;
+						embedding = EXCLUDED.embedding,
+						embedding_model = EXCLUDED.embedding_model`;
 				embedded++;
 			}
 		}
@@ -1241,8 +1282,14 @@ export class PostgresStore implements
 		limit: number,
 		maxDistance: number,
 	): Promise<ConceptMatches> {
-		const empty: ConceptMatches = { hits: [], rejected: 0, misses: [] };
+		const empty: ConceptMatches = {
+			hits: [],
+			rejected: 0,
+			misses: [],
+			unsearched: 0,
+		};
 		if (!this.embedder || limit <= 0) return empty;
+		const { model } = await this.embedder.identity();
 		const [vector] = await this.embedder.embed([query]);
 		if (!vector) return empty;
 
@@ -1258,6 +1305,12 @@ export class PostgresStore implements
 					embedding <=> ${embedding}::vector AS distance
 				FROM concept_sections
 				WHERE embedding IS NOT NULL
+					-- Only vectors this model made. Two models' coordinates
+					-- mean different things by the same numbers, so a
+					-- stranger is withheld here rather than filtered after
+					-- the window, where it would crowd out a Concept that
+					-- could actually have been returned.
+					AND embedding_model = ${model}
 				-- Identity breaks the tie, as it does for Turns: the index is
 				-- approximate, so two equally near sections at the edge of
 				-- the candidate window would otherwise be chosen by the
@@ -1328,6 +1381,21 @@ export class PostgresStore implements
 					FROM chosen WHERE ord <= ${limit}
 				), '[]'::jsonb) AS hits,
 				(SELECT count(*)::int FROM missed) AS rejected,
+				-- Concepts held only as vectors from another model: not
+				-- refused for distance, not searched at all. By identity,
+				-- because one Concept's several sections are one Concept —
+				-- and only where this model can see none of them, so a
+				-- Concept part-way through a repair, which the query above
+				-- could return, is not also reported as invisible.
+				(SELECT count(DISTINCT identity)::int FROM concept_sections stranger
+					WHERE embedding IS NOT NULL
+						AND embedding_model IS DISTINCT FROM ${model}
+						AND status <> 'deprecated'
+						AND NOT EXISTS (
+							SELECT 1 FROM concept_sections mine
+							WHERE mine.identity = stranger.identity
+								AND mine.embedding IS NOT NULL
+								AND mine.embedding_model = ${model})) AS unsearched,
 				coalesce((
 					SELECT jsonb_agg(
 						jsonb_build_object('conceptId', concept_id, 'distance', distance)
@@ -1336,6 +1404,7 @@ export class PostgresStore implements
 				), '[]'::jsonb) AS misses`) as {
 			hits: JsonColumn;
 			rejected: number;
+			unsearched: number;
 			misses: JsonColumn;
 		}[];
 
@@ -1343,6 +1412,7 @@ export class PostgresStore implements
 			hits: decode<ConceptHit[]>(row?.hits, []),
 			rejected: row?.rejected ?? 0,
 			misses: decode<ConceptMiss[]>(row?.misses, []),
+			unsearched: row?.unsearched ?? 0,
 		};
 	}
 

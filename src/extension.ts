@@ -268,6 +268,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const warnedNearCeiling = new Set<string>();
 	/** Said once a session: a Codebase with no graph is a condition, not an event. */
 	let missingGraphReported = false;
+	/** Said once: an index mid-swap is a condition, not a per-Call event. */
+	let unsearchedConceptsReported = false;
 	/** The whole-bundle indexing pass, so authoring can wait rather than race it. */
 	let indexingBundle: Promise<void> | undefined;
 
@@ -469,6 +471,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					concepts: concepts.value.hits,
 					conceptsRejected: concepts.value.rejected,
 					conceptMisses: concepts.value.misses,
+					conceptsUnsearched: concepts.value.unsearched,
 					structure: structure.value,
 					unavailable: {
 						recalled: recalled.unavailable,
@@ -1291,7 +1294,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function conceptsFor(
 		current: Turn | undefined,
 	): Promise<Supplied<ConceptMatches>> {
-		const none: ConceptMatches = { hits: [], rejected: 0, misses: [] };
+		const none: ConceptMatches = { hits: [], rejected: 0, misses: [], unsearched: 0 };
 		if (!deps.docs) return { value: none, unavailable: "unconfigured" };
 		if (!current || deps.config.docConcepts <= 0) return { value: none };
 		try {
@@ -1306,13 +1309,36 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					deps.config.docMaxDistance,
 				),
 			);
-			return found.answered
-				? { value: found.value }
-				: { value: none, unavailable: "failed" };
+			if (found.answered) {
+				reportUnsearchedConcepts(found.value.unsearched);
+				return { value: found.value };
+			}
+			return { value: none, unavailable: "failed" };
 		} catch (error) {
 			reportSafely(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
 			return { value: none, unavailable: "failed" };
 		}
+	}
+
+	/**
+	 * Says so, once, while the Concept index holds vectors another model
+	 * made.
+	 *
+	 * The same cadence as the Turn-side swap report, and for the same
+	 * reason: the condition persists until the background pass has
+	 * re-embedded the sections, and a line per Call is a line nobody reads.
+	 * Silence would leave curated knowledge looking thin for no stated
+	 * reason, which is the one reading it must not invite.
+	 */
+	function reportUnsearchedConcepts(unsearched: number): void {
+		if (unsearched <= 0 || unsearchedConceptsReported) return;
+		unsearchedConceptsReported = true;
+		reportSafely(
+			`${unsearched} concept${unsearched === 1 ? " is" : "s are"} held only ` +
+				`as vectors from another embedding model, so ${unsearched === 1 ? "it is" : "they are"} ` +
+				`not searched until an indexing pass has re-embedded ` +
+				`${unsearched === 1 ? "it" : "them"}.`,
+		);
 	}
 
 	/**

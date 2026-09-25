@@ -772,6 +772,7 @@ describe("recall wiring", () => {
 				searchConcepts: async () => ({
 					hits: [],
 					rejected: 2,
+					unsearched: 0,
 					misses: [
 						{ conceptId: "decisions/caching", distance: 0.55 },
 						{ conceptId: "decisions/retention", distance: 0.62 },
@@ -1217,7 +1218,12 @@ describe("the doc store in a session", () => {
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({ hits: [hit], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({
+					hits: [hit],
+					rejected: 0,
+					misses: [],
+					unsearched: 0,
+				}),
 			},
 		});
 
@@ -1229,6 +1235,48 @@ describe("the doc store in a session", () => {
 		expect(JSON.stringify(result?.messages)).toContain(
 			"[curated knowledge: decisions/caching]",
 		);
+	});
+
+	test("an index mid-swap says so once, and still serves what it can", async () => {
+		const cm = harness({
+			config: {
+				tailTurns: DEFAULT_TAIL_TURNS,
+				recallTurns: 0,
+				recallMaxDistance: 1,
+				docConcepts: 2,
+				docMaxDistance: 0.5,
+				graphSymbols: 0,
+				graphExtract: false,
+				specsVerify: false,
+				docBundle: "/unused",
+			},
+			docs: {
+				indexConcepts: async () => ({ embedded: 0, contested: [] }),
+				indexConcept: async () => ({ embedded: 0, contested: [] }),
+				searchConcepts: async () => ({
+					hits: [hit],
+					rejected: 0,
+					misses: [],
+					unsearched: 4,
+				}),
+			},
+		});
+		const prompt = [{ role: "user" as const, content: "how do we handle config?" }];
+
+		const first = await cm.context({ messages: prompt }, ctx());
+		await cm.context({ messages: prompt }, ctx());
+		await cm.settle();
+
+		// A condition that lasts until the background pass catches up, not
+		// an event: said once, and never at the cost of the Concepts that
+		// could be searched.
+		const said = cm.reported.filter((line) => line.includes("another embedding model"));
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain("4 concepts");
+		expect(JSON.stringify(first?.messages)).toContain("curated knowledge");
+		// Every Call's own record carries it, not just the Conversation that
+		// happened to be running when the swap was noticed.
+		expect(cm.recorded.map((call) => call.pack?.conceptsUnsearched)).toEqual([4, 4]);
 	});
 
 	test("a doc store failure costs the concepts, not the turn", async () => {
@@ -1273,7 +1321,7 @@ describe("the doc store in a session", () => {
 					indexed++;
 					return { embedded: 1, contested: [] };
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 			bundle: async () => [],
 		});
@@ -1297,7 +1345,7 @@ describe("the doc store in a session", () => {
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 			bundle: async () => {
 				throw new Error("no bundle there");
@@ -1321,7 +1369,7 @@ describe("a bundle that is not there", () => {
 					indexed = concepts.length;
 					return { embedded: 0, contested: [] };
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 			// What the real reader returns for a path that is not there.
 			bundle: async () => undefined,
@@ -1344,7 +1392,7 @@ describe("a bundle that is not there", () => {
 					embedded: 0,
 					contested: ["decisions/caching-copy"],
 				}),
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 			bundle: async () => [],
 		});
@@ -1365,7 +1413,7 @@ describe("a bundle that is not there", () => {
 					indexed = true;
 					return { embedded: 0, contested: [] };
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 			bundle: async () => [],
 			ready: migrated.promise,
@@ -2231,6 +2279,7 @@ describe("walking the documentation bundle", () => {
 					],
 					rejected: 0,
 					misses: [],
+					unsearched: 0,
 				}),
 			},
 		});
@@ -2270,7 +2319,7 @@ describe("writing to the documentation bundle", () => {
 					indexed.push(concept.id);
 					return { embedded: 1, contested: [] };
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 			...overrides,
 		});
@@ -2319,7 +2368,7 @@ describe("writing to the documentation bundle", () => {
 				indexConcept: async () => {
 					throw new Error("store unreachable");
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 			},
 		});
 
@@ -2462,7 +2511,7 @@ describe("a store that misses its deadline", () => {
 		const answering = {
 			indexConcepts: async () => ({ embedded: 0, contested: [] }),
 			indexConcept: async () => ({ embedded: 0, contested: [] }),
-			searchConcepts: async () => ({ hits: [], rejected: 0, misses: [] }),
+			searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
 		};
 		const bounded = harness({ config: { docConcepts: 2 }, docs: answering });
 		const unbounded = harness({

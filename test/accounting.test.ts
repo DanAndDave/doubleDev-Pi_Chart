@@ -51,6 +51,22 @@ describe("accounting", () => {
 		expect(turn?.packTokens).toBe(29352 - 25588);
 	});
 
+	test("a call records how much of the bundle its search could not see", async () => {
+		const store = new MemoryAccounting();
+		const assembled = assemble(
+			{ turns: reconstructTurns([PROMPT]), conceptsUnsearched: 5 },
+			budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
+		);
+
+		await store.recordPack("conv-1", at(0, 0), assembled, "thread-store", "off");
+
+		// Per Call: a Conversation spanning a model change has Calls on
+		// both sides of the repair, and a curated part that came back thin
+		// is only explicable against the Call it was assembled for.
+		const [turn] = await store.readAccounting("conv-1");
+		expect(turn?.calls[0]?.conceptsUnsearched).toBe(5);
+	});
+
 	test("a turn's pack size is the widest window it reached", async () => {
 		const store = new MemoryAccounting();
 		await store.recordMeasurements("conv-1", [

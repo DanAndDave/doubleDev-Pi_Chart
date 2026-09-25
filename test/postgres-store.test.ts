@@ -96,6 +96,23 @@ describeStore("PostgresStore", () => {
 		}
 	});
 
+	test("what a call's curated part could not see survives the write", async () => {
+		const pack = assemble(
+			{
+				turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }],
+				conceptsUnsearched: 5,
+			},
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+
+		const [turn] = await store.readAccounting("conv-1");
+
+		// Read back per Call, because a Conversation spanning a model change
+		// has Calls on both sides of the repair.
+		expect(turn?.calls[0]?.conceptsUnsearched).toBe(5);
+	});
+
 	test("accounting for a tool-using turn groups its calls", async () => {
 		const pack = assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");

@@ -197,6 +197,16 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
+	// Same repairable fact on the curated side, and a separate line
+	// because the two Stores re-embed independently: curated knowledge can
+	// be mid-repair while recall is whole.
+	if (view.conceptsUnsearched > 0) {
+		lines.push(
+			`  curated       searched all but ${view.conceptsUnsearched} concepts ` +
+				`of the bundle (awaiting embedding)`,
+		);
+	}
+
 	// Said only when it is news: a session spent running without the store
 	// should be visible afterwards rather than mysterious.
 	if (view.tailSource === "harness-fallback") {

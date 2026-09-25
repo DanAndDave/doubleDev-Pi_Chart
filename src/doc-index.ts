@@ -31,7 +31,7 @@ export interface ConceptMiss {
 	distance: number;
 }
 
-/** What a search found, and what it refused. */
+/** What a search found, what it refused, and what it could not see. */
 export interface ConceptMatches {
 	hits: ConceptHit[];
 	/** How many Concepts fell outside the relevance threshold. */
@@ -42,6 +42,14 @@ export interface ConceptMatches {
 	 * at from an empty part.
 	 */
 	misses: ConceptMiss[];
+	/**
+	 * How many Concepts the search could not rank at all, because their
+	 * vectors were made by another embedding model. Counted rather than
+	 * named: they were not refused for distance and may be anything, and a
+	 * curated part that came back thin while the index is in transition
+	 * should say so rather than read as a corpus with nothing in it.
+	 */
+	unsearched: number;
 }
 
 /**

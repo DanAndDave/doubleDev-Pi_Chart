@@ -11,7 +11,11 @@ import { parseConcept, type Concept } from "../src/concept.ts";
 import { DocStore } from "../src/doc-store.ts";
 import { SQL } from "bun";
 
-import { LocalEmbedder, StubEmbedder } from "../src/embedder.ts";
+import {
+	LocalEmbedder,
+	PINNED_DIMENSIONS,
+	StubEmbedder,
+} from "../src/embedder.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 
 const databaseUrl = process.env.CM_DATABASE_URL;
@@ -397,6 +401,105 @@ describeStore("bringing one concept's index in line", () => {
 	});
 });
 
+describeStore("a concept vector and the model that made it", () => {
+	let store: PostgresStore;
+	let swapped: PostgresStore;
+
+	beforeAll(async () => {
+		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
+		// Same width, different model: the case a width check cannot catch.
+		swapped = PostgresStore.connect(
+			databaseUrl ?? "",
+			new StubEmbedder(PINNED_DIMENSIONS, "stub-two"),
+		);
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+		await swapped?.close();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+	});
+
+	test("a vector from another model is never a hit", async () => {
+		await store.indexConcepts([CACHING, BANNER]);
+
+		const query = "parsed configuration memory";
+		expect(
+			(await store.searchConcepts(query, 5, 0.6)).hits.map((hit) => hit.conceptId),
+		).toEqual(["decisions/caching"]);
+		const underSwap = await swapped.searchConcepts(query, 5, 0.6);
+
+		// The stub is deterministic, so this is the same query against the
+		// same rows: what changes is who made the vectors they hold.
+		expect(underSwap.hits).toEqual([]);
+		// Not refused for distance — never searched at all, and said so.
+		expect(underSwap.misses).toEqual([]);
+		expect(underSwap.rejected).toBe(0);
+		expect(underSwap.unsearched).toBe(2);
+	});
+
+	test("a model change is repaired by the next pass, text or no text change", async () => {
+		await store.indexConcepts([CACHING, BANNER]);
+
+		const { embedded } = await swapped.indexConcepts([CACHING, BANNER]);
+
+		// Every section, though not one word of the bundle moved.
+		expect(embedded).toBe(3);
+		const found = await swapped.searchConcepts("parsed configuration memory", 5, 0.6);
+		expect(found.hits.map((hit) => hit.conceptId)).toEqual(["decisions/caching"]);
+		expect(found.unsearched).toBe(0);
+	});
+
+	test("the scoped pass repairs one concept the same way", async () => {
+		await store.indexConcepts([CACHING, BANNER]);
+
+		const { embedded } = await swapped.indexConcept(CACHING);
+
+		expect(embedded).toBe(2);
+		// The Concept it was not given keeps the vectors it had, so it is
+		// still unsearchable under the new model rather than silently ranked.
+		expect((await swapped.searchConcepts("muted green banner", 5, 0.6)).hits).toEqual(
+			[],
+		);
+		expect(
+			(await swapped.searchConcepts("parsed configuration memory", 5, 0.6)).hits,
+		).not.toEqual([]);
+	});
+
+	test("a concept part-way through a repair counts as seen, not as unseen", async () => {
+		await store.indexConcepts([CACHING]);
+		// One section still held by the previous model, as a background
+		// pass writing section by section leaves it.
+		await store["sql"]`
+			UPDATE concept_sections SET embedding_model = 'stub-two'
+			WHERE section_index = 1`;
+
+		const found = await store.searchConcepts("parsed configuration memory", 5, 0.6);
+
+		// The search can rank this Concept, so reporting it as one the
+		// search could not see would contradict the hit beside it.
+		expect(found.hits.map((hit) => hit.conceptId)).toEqual(["decisions/caching"]);
+		expect(found.unsearched).toBe(0);
+	});
+
+	test("a section indexed before provenance existed is re-embedded", async () => {
+		await store.indexConcepts([CACHING]);
+		// A row as an earlier version wrote it: a vector with no model.
+		await store["sql"]`UPDATE concept_sections SET embedding_model = NULL`;
+
+		expect((await store.searchConcepts("parsed configuration memory", 5, 0.6)).hits)
+			.toEqual([]);
+		expect((await store.indexConcepts([CACHING])).embedded).toBe(2);
+		expect(
+			(await store.searchConcepts("parsed configuration memory", 5, 0.6)).hits,
+		).not.toEqual([]);
+	});
+});
+
 /**
  * The query this file's ranking tests search with, and the vectors `place`
  * positions around it. Distances are set directly because no wording puts
@@ -422,11 +525,11 @@ async function place(
 		await sql`
 			INSERT INTO concept_sections
 				(identity, section_index, concept_id, status, trust, stale, hash,
-				 text, embedding)
+				 text, embedding, embedding_model)
 			VALUES (
 				${`id-${index}`}, 0, ${row.conceptId}, 'stable', 'unverified',
 				${row.stale}, ${`hash-${index}`}, ${`text for ${row.conceptId}`},
-				${JSON.stringify(vector)}::vector
+				${JSON.stringify(vector)}::vector, 'stub'
 			)`;
 	}
 }
