@@ -13,7 +13,7 @@ import {
 } from "../src/inspection.ts";
 import { describeRecorded } from "../src/report.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
-import { budgets } from "./fixtures.ts";
+import { budgets, UNBOUNDED } from "./fixtures.ts";
 
 function missing(): never {
 	throw new Error("nothing recorded");
@@ -184,7 +184,7 @@ describeStore("per-part detail round-trips", () => {
 			(part) => part.source === "recalled",
 		);
 		expect(recalledPart?.turnIndices).toEqual([7]);
-		expect(recalledPart?.budget).toBe(1);
+		expect(recalledPart?.budget).toEqual({ count: 1, tokens: UNBOUNDED });
 		expect(recalledPart?.candidates).toBe(2);
 	});
 

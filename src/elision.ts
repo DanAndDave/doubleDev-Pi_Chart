@@ -72,6 +72,13 @@ export function elide(
 ): string | undefined {
 	const half = Math.floor((characters - ELISION(0, alsoDropped).length) / 2);
 	if (half < floor) return undefined;
+	// A head and a tail that between them cover the text would carry its
+	// middle twice, which is how a message shortened for its metadata alone
+	// used to come back longer than it went in. Nothing of the text goes;
+	// the marker still says what went beside it.
+	if (half * 2 >= text.length) {
+		return alsoDropped > 0 ? `${text}${ELISION(alsoDropped, alsoDropped)}` : text;
+	}
 	const removed = Math.ceil((text.length - half * 2) / 4) + alsoDropped;
 	return `${text.slice(0, half)}${ELISION(removed, alsoDropped)}${text.slice(-half)}`;
 }

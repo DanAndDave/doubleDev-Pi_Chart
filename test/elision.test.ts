@@ -86,6 +86,37 @@ describe("shortening", () => {
 		expect(tail?.approximateTokens).toBeLessThanOrEqual(2000);
 	});
 
+	test("a message shortened for its metadata alone keeps its text once", () => {
+		// The text fits; only the `details` beside it have to go. Head and
+		// tail then cover the whole text between them, and carrying both
+		// used to carry the middle twice — a message that came back longer
+		// than it went in, with its content duplicated.
+		const text = "the whole answer, which fits. ".repeat(20);
+		const message: HarnessMessage = {
+			role: "toolResult",
+			toolCallId: "call-m",
+			toolName: "read",
+			content: text,
+			details: { lines: "d".repeat(40_000) },
+		};
+		const pack = assemble(
+			{
+				turns: [
+					{ index: 1, prompt: "read it", messages: [{ role: "user", content: "read it" }, message] },
+					turnOf(2),
+				],
+			},
+			budgets({ tailTurns: 1, tailTokens: 1000 }),
+		);
+		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
+		const carried = messageText(
+			tail?.messages.find((each) => each.role === "toolResult") ?? { role: "toolResult" },
+		);
+
+		expect(carried.split("the whole answer, which fits.")).toHaveLength(21);
+		expect(carried).toContain("tool metadata");
+	});
+
 	test("a recollection too large for the room left is shortened, not dropped", () => {
 		const pack = assemble(
 			{
