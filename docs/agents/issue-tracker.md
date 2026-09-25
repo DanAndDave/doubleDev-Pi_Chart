@@ -59,6 +59,7 @@ Create a change folder, do not open an issue anywhere:
 - **`triage`**: see `triage-labels.md`. State is a `Triage:` line in `proposal.md`, because OpenSpec has no label vocabulary.
 - **`wayfinder`**: the effort is a change folder. The map is `openspec/changes/<effort>/map.md`; child decision tickets are `openspec/changes/<effort>/questions/NN-<slug>.md` with `Type:`, `Status:`, and `Blocked by:` lines. Both are extra files inside the change folder; `openspec validate` and `openspec status` ignore them, so they are safe to add.
 - **`research`**: findings go to `docs/research/<topic>.md`, not into a change folder, unless the question belongs to a specific effort's `questions/`.
+- **audits**: a systematic read of the whole system against its own specs goes to `docs/audits/<date>-<topic>.md`, beside the `docs/research/` convention above. Dated, because an audit describes the system on a day; named by topic, because the next one is about something else. No index file — the directory listing is the index.
 
 ## Closing work
 

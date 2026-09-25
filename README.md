@@ -10,7 +10,7 @@ See `CONTEXT.md` for the vocabulary and `docs/adr/` for the decisions.
 
 - [omp](https://github.com/can1357/oh-my-pi) — the harness this loads into
 - Bun (pinned in `mise.toml`; `mise install` provides it)
-- Docker, for the Thread Store's Postgres. Without it the extension still runs — the verbatim tail just falls back to whatever history the harness itself carries.
+- Docker, for the Thread Store's Postgres. Without it the extension still runs and still governs the window: the verbatim tail falls back to whatever history the harness itself carries. What stops with the store is everything derived from it — recall, curated knowledge (its Concept index lives in the same Postgres), cross-Conversation search, and Accounting. Declining the store outright with `CM_DATABASE_URL=""` keeps Accounting for the Conversation in progress, so `/pack` still answers; a store that is configured and unreachable keeps none, and `/pack` answers only once it is back.
 
 ## Install
 
@@ -40,7 +40,7 @@ That starts the Thread Store's Postgres and creates a bundle directory. Running 
   ok   codebase graph    extraction off; set CM_GRAPH=on to derive one
 ```
 
-Nothing else is required. The embedder finds its own Bun, the Thread Store defaults to what this project's `compose.yaml` serves, and a store that is not running degrades to the harness's own history rather than failing — which `/pack` reports, so a session spent running without it is visible rather than mysterious.
+Nothing else is required. The embedder finds its own Bun, and the Thread Store defaults to what this project's `compose.yaml` serves. A store that is not running degrades rather than failing: the tail comes from the harness's own history, and recall, curated knowledge, cross-Conversation search and Accounting wait for the store to come back. Each Call says on stderr what it assembled without, and `/pack` records it for the Calls the store was there to record.
 
 ## Configure
 
@@ -62,10 +62,12 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `CM_TAIL_TURNS` | `8` | Completed Turns carried verbatim ahead of the current one. `0` keeps only the current Turn. |
 | `CM_RECALL_TURNS` | `4` | Turns a pack may carry that were recalled by meaning. `0` disables recall. |
 | `CM_RECALL_MAX_DISTANCE` | `0.52` | How distant a Turn may be and still be recalled, as cosine distance. Measured, not chosen: over 99 real Turns, a prompt asked in other words reaches its own Turn within 0.52 in 92% of cases and no off-topic text comes within it at all. |
-| `CM_DATABASE_URL` | this project's compose default | Thread Store connection. An unreachable store degrades to the harness's own history. |
+| `CM_DATABASE_URL` | this project's compose default | Thread Store connection. Empty declines the store deliberately; unreachable loses the same parts by accident. Either way the tail comes from the harness's own history and recall, curated knowledge and cross-Conversation search stop with it — declined keeps Accounting for the Conversation in progress, unreachable keeps none. |
 | `CM_BUN` | found | The Bun that runs the embedding worker. Located automatically — including under version managers, whose shims fail outside a directory they know. Set it only to override. |
+| `CM_EMBED_MODEL` | `Xenova/bge-small-en-v1.5` | The model the embedding worker loads. The schema stores one vector width, so a model of another width is refused by the embedding pass itself (`embedPending`), which reports the mismatch rather than writing vectors the index cannot rank; recall and curated knowledge stay empty until the width matches again. A same-width model is accepted, and what it costs differs by Store. Turns record the model with each vector, so vectors from another model are excluded from ranking and re-embedded in the background: a swap costs a re-embedding of the Turns. The Concept index records no model and re-embeds a section only when the section's text changes, so after a swap curated knowledge ranks one model's query against another model's vectors until the bundle changes — or until the index is dropped, which loses nothing. |
 | `CM_DOC_CONCEPTS` | `2` | Concepts a pack may carry from the Doc Store. `0` disables curated knowledge. |
 | `CM_DOC_MAX_DISTANCE` | `0.5` | How distant a Concept may be and still be carried. Measured on curated prose, separately from recall: genuine hits land at 0.24–0.42 and unrelated queries at 0.61+. |
+| `CM_PG_PORT` | `55432` | The port of the default Thread Store URL, and the port `compose.yaml` publishes. Read only when `CM_DATABASE_URL` is unset: a URL you supply is the one dialled, port and all. |
 | `CM_DOC_BUNDLE` | `~/.context-manager/bundle` | The OKF bundle read as the Doc Store. Machine-wide: one bundle serves every Codebase. |
 | `CM_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
 | `CM_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
@@ -96,6 +98,8 @@ The model runs **out of process**, under the project's own Bun. The harness's bu
 ## Curated knowledge
 
 The Doc Store is an [OKF](https://github.com/google/okf) bundle of Concepts — decisions, standards, guides — that outlive any one Conversation. It is machine-wide, so a decision written once is available in every Codebase.
+
+**Indexing a bundle writes into it.** OKF identifies a Concept by its file path, so a move would silently destroy one Concept and create another — fatal once an index keys off identity. Every Conversation that starts with both a bundle and a Thread Store configured therefore gives each conformant Concept that lacks one a `cm_identity` key, written back through a temporary file and a rename (`ensureIdentities`, called from `readBundle` before the index is brought in line). Walking the bundle never writes; declining the Thread Store means nothing indexes it, so nothing writes either. It is one line of frontmatter, the format sanctions extra keys, and it happens once per Concept — but a bundle under version control goes dirty the first time this extension reads it, and that is worth knowing before it does. Authoring through `write_documentation` writes more, and deliberately.
 
 Concepts are indexed by **section** rather than whole. A Concept that covers a decision, its rationale and its consequences has three subjects, and one vector for all three matches none of them well; sections are how a Concept is found, and the Concept is what is returned. Each section is embedded under the Concept's title and the author's own one-line summary, so a Concept is findable by a paraphrase of its subject and not only by the wording of its body. Measured by `scripts/measure-summary-placement.ts` over this repository's decisions and the vendored bundle: attaching the summary moved genuine queries from 0.244–0.438 to 0.229–0.427 while unrelated ones stayed at 0.597–0.644, and it put the right section of a multi-subject Concept first in 5 probes of 6 against 3 with the summary on the first section alone. The index is derived from the bundle exactly as the Thread Store is derived from the Journal: re-indexing embeds only sections whose text changed, Concepts removed from the bundle leave, and dropping the index loses nothing.
 
@@ -140,7 +144,7 @@ The symbols in play come from the whole current Turn, not its opening prompt: mo
 
 A symbol contributes at most twelve connections and says how many it left out, so one hub cannot swallow the Budget: measured over this repository, a neighbourhood is 72 tokens at the median and 305 at worst. Which twelve is decided by what the connection says: what calls, imports, inherits from or depends on a symbol before what it merely contains or has as a member. Measured over this repository's own graph before that ranking, 188 of 684 kept connections were membership and 29 of 57 over-sized symbols had real uses displaced by them.
 
-The Graph Store needs no Postgres: declining the Thread Store with `CM_DATABASE_URL=""` leaves structure, the documentation bundle and the Spec Store exactly as they were.
+The Graph Store needs no Postgres: declining the Thread Store with `CM_DATABASE_URL=""` leaves structure and the Spec Store exactly as they were, and leaves the documentation bundle walkable and writable. What it takes with it is the Concept *index*, which lives in the same Postgres — so curated knowledge stops reaching a pack by meaning even though `walk_documentation` still reads every word of it.
 
 ## Stated intent
 
@@ -160,7 +164,7 @@ docker compose up -d
 export CM_DATABASE_URL=postgres://context_manager:context_manager@localhost:55432/thread_store
 ```
 
-The schema is created and migrated forward automatically on connect; there is no setup step. The port is overridable with `CM_PG_PORT`.
+The schema is created and migrated forward automatically on connect; there is no setup step. `CM_PG_PORT` moves the port, and moves it on both sides: `compose.yaml` publishes it and the default URL `loadConfig` builds dials it. It is read only when `CM_DATABASE_URL` is unset — a URL you supplied is the one dialled, port and all.
 
 ## What it records
 
@@ -173,7 +177,7 @@ The Thread Store holds two things, both keyed by Conversation, Turn, and Call.
 - `floorTokens` — the Floor, reported by the harness as `nonMessageTokens`: system prompt, tool schemas, skills, and rules. Not controlled by the Assembler.
 - `packTokens` — the measured pack size, `promptTokens − nonMessageTokens`; for a Turn, the widest its window reached.
 - `calls[].parts` — which part of the Assembler contributed what, counted locally and **approximate**. Never used for the pack-versus-Floor figures.
-- `calls[].tailSource` — `thread-store` or `harness-fallback`, so a session spent running without the store is visible afterwards rather than mysterious.
+- `calls[].tailSource` — `thread-store` or `harness-fallback`, so a Call assembled without the store is visible afterwards, for the Calls the store was there to record.
 - `calls[].unassembled` — set when assembly failed and the harness's own array was used for that Call.
 
 ## Develop
@@ -197,7 +201,7 @@ CM_GRAPHIFY=1 bun test test/graphify.test.ts
 CM_OPENSPEC=1 bun test test/openspec.test.ts
 ```
 
-Four suites are gated, each because a fake would prove the wrong thing. The store-backed tests need real Postgres because "the schema applies" and "SQL returns Turns in order" mean nothing against a stub. The live tests need a provider because they cover the claims that are only true when the harness and the model agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported. The tool suites need the real graphify and OpenSpec because they are the only evidence that `--code-only` still emits inferred edges, that `openspec init` does not damage an existing tree, and that a malformed change is diagnosed in OpenSpec's own words.
+Five suites are gated, each because a fake would prove the wrong thing. The store-backed tests need real Postgres because "the schema applies" and "SQL returns Turns in order" mean nothing against a stub. The live tests need a provider because they cover the claims that are only true when the harness and the model agree: that a pack reaches the model, that the Journal keeps what the model never saw, and that window sizes are reported. The model suite needs the pinned embedder because the stub shares tokens, so under it "by meaning" and "by wording" are the same claim. The tool suites need the real graphify and OpenSpec because they are the only evidence that `--code-only` still emits inferred edges, that `openspec init` does not damage an existing tree, and that a malformed change is diagnosed in OpenSpec's own words.
 
 `test/fixtures/*.json` are message arrays captured from real sessions. Regenerate them with `test/capture-extension.ts`, which records what the harness passes to the `context` event and changes nothing:
 
