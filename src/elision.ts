@@ -19,13 +19,17 @@ import { approximateTokens } from "./tokens.ts";
 /**
  * Marks the gap a shortened payload leaves, in the payload's own text.
  *
- * `details` is named separately when the shortening dropped it, because a
+ * "content" rather than "result": a tool result is elided this way, and so
+ * are the arguments an assistant passed to a call, so a `write` whose file
+ * went would otherwise read as a result that did.
+ *
+ * Metadata is named separately when the shortening dropped it, because a
  * marker that counted only the text would understate what went: on a real
  * tool result the harness's `details` can rival the content it summarises.
  */
-export const ELISION = (tokens: number, withoutDetails: boolean) =>
+const ELISION = (tokens: number, alsoDropped: number) =>
 	`\n… [context-manager elided ~${tokens} tokens from the middle of this` +
-	`${withoutDetails ? " result, and its tool metadata" : " result"}]\n`;
+	`${alsoDropped > 0 ? " content, and its tool metadata" : " content"}]\n`;
 
 /**
  * The marker for a payload with no room for a head and a tail at all: the
@@ -34,21 +38,52 @@ export const ELISION = (tokens: number, withoutDetails: boolean) =>
  * what the payload was — a recollection shortens the agent's own prose this
  * way as well as a tool's output.
  */
-export const ELIDED_WHOLE = (tokens: number) =>
+const ELIDED_WHOLE = (tokens: number) =>
 	`… [context-manager elided ~${tokens} tokens here]`;
 
-/** Head, marker, tail — the shape every shortened payload takes. */
+/** What else went with the text, beside the characters it may spend. */
+interface Elision {
+	/**
+	 * Tokens dropped beside the text — the `details` a shortened tool
+	 * result loses. Counted into the marker and named by it, so the marker
+	 * never reports less than the shortening removed.
+	 */
+	alsoDropped?: number;
+	/**
+	 * The fewest characters worth keeping on each side. Below it there is
+	 * no head and tail worth reading, and the caller is told so rather than
+	 * handed two fragments.
+	 */
+	floor?: number;
+}
+
+/**
+ * Head, marker, tail — a payload elided to the characters it may spend,
+ * or nothing when it cannot be spent on a head and a tail worth reading.
+ *
+ * The arithmetic lives here rather than at each caller: every one of them
+ * sized its halves by asking the marker how long it was, and three then
+ * derived the same estimate of what the middle had cost.
+ */
 export function elide(
 	text: string,
-	half: number,
-	removed: number,
-	withoutDetails: boolean,
-): string {
-	return (
-		`${text.slice(0, half)}` +
-		`${ELISION(removed, withoutDetails)}` +
-		`${text.slice(-half)}`
-	);
+	characters: number,
+	{ alsoDropped = 0, floor = 1 }: Elision = {},
+): string | undefined {
+	const half = Math.floor((characters - ELISION(0, alsoDropped).length) / 2);
+	if (half < floor) return undefined;
+	const removed = Math.ceil((text.length - half * 2) / 4) + alsoDropped;
+	return `${text.slice(0, half)}${ELISION(removed, alsoDropped)}${text.slice(-half)}`;
+}
+
+/** The marker for a payload elided whole, in tokens. */
+export function elidedWhole(text: string): string {
+	return ELIDED_WHOLE(Math.ceil(text.length / 4));
+}
+
+/** The characters a marker and two floor-sized halves take together. */
+function atLeast(alsoDropped = 0): number {
+	return SHORTEST_HALF_CHARACTERS * 2 + ELISION(0, alsoDropped).length;
 }
 
 /**
@@ -127,7 +162,6 @@ function shortenText(
 	// character `details` drove an otherwise 1,810-token text down to the
 	// floor of 231 against a 2,000-token Budget.
 	const withoutDetails: HarnessMessage = { ...message };
-	const hadDetails = withoutDetails.details !== undefined;
 	delete withoutDetails.details;
 
 	const keptCost = approximateTokens([withoutDetails]);
@@ -146,19 +180,23 @@ function shortenText(
 	// of the shortened message is not a linear function of the characters
 	// kept, so the halves shrink until the message actually fits rather than
 	// being trusted to.
-	let half = Math.floor((characters - ELISION(0, hadDetails).length) / 2);
+	let room = characters;
 	let best: { message: HarnessMessage; tokens: number } | undefined;
-	while (half >= SHORTEST_HALF_CHARACTERS) {
-		const elidedText = Math.ceil((text.length - half * 2) / 4);
+	while (true) {
+		const content = elide(text, room, {
+			alsoDropped: droppedDetails,
+			floor: SHORTEST_HALF_CHARACTERS,
+		});
+		if (content === undefined) break;
 		const candidate: HarnessMessage = {
 			...withoutDetails,
-			content: elide(text, half, elidedText + droppedDetails, hadDetails),
+			content,
 			cmShortened: true,
 		};
 		const tokens = approximateTokens([candidate]);
 		best = { message: candidate, tokens };
 		if (tokens <= allowance) break;
-		half = Math.floor(half * 0.9) - 1;
+		room = Math.floor(room * 0.9) - 2;
 	}
 
 	if (best === undefined) return { message, tokens: cost, shortened: false };
@@ -194,14 +232,13 @@ function shortenPayloads(
 		const call = block;
 		const passed = JSON.stringify(call.arguments ?? null);
 		if (Math.ceil(passed.length / 4) <= each) return block;
-		const half = Math.max(
-			Math.floor((each * 4 - ELISION(0, false).length) / 2),
-			SHORTEST_HALF_CHARACTERS,
-		);
-		if (passed.length <= half * 2) return block;
+		// Never below a readable head and tail, even where the share is
+		// smaller than that: the alternative is carrying the payload whole.
+		const room = Math.max(each * 4, atLeast());
+		const elided = elide(passed, room, { floor: SHORTEST_HALF_CHARACTERS });
+		if (elided === undefined || passed.length <= room) return block;
 		shortened = true;
-		const removed = Math.ceil((passed.length - half * 2) / 4);
-		return { ...call, arguments: elide(passed, half, removed, false) };
+		return { ...call, arguments: elided };
 	});
 
 	if (!shortened) return { message, tokens: cost, shortened: false };
@@ -265,11 +302,10 @@ export function elideTurn(
 /** One line's payload, head and tail, within the characters it may spend. */
 export function elideLine(text: string, allowed: number): string {
 	if (text.length <= allowed) return text;
-	const half = Math.floor((allowed - ELISION(0, false).length) / 2);
-	if (half < SHORTEST_HALF_CHARACTERS / 2) {
-		// No room for a head and a tail worth reading: the line says only
-		// that it had output and how much of it went.
-		return ELIDED_WHOLE(Math.ceil(text.length / 4));
-	}
-	return elide(text, half, Math.ceil((text.length - half * 2) / 4), false);
+	// No room for a head and a tail worth reading: the line says only that
+	// it had output and how much of it went.
+	return (
+		elide(text, allowed, { floor: SHORTEST_HALF_CHARACTERS / 2 }) ??
+		elidedWhole(text)
+	);
 }

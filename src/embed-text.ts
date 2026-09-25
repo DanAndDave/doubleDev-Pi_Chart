@@ -1,4 +1,4 @@
-import { elide, ELISION } from "./elision.ts";
+import { elide } from "./elision.ts";
 import { shares } from "./shares.ts";
 import {
 	isToolCall,
@@ -123,7 +123,6 @@ export function embedText(
 		characters,
 	);
 
-	const marker = ELISION(0, false).length;
 	const lines: string[] = [];
 	for (const [index, part] of seated.entries()) {
 		const allowance = allowances[index] ?? 0;
@@ -131,11 +130,11 @@ export function embedText(
 			lines.push(part.text);
 			continue;
 		}
-		const half = Math.floor((allowance - marker) / 2);
-		if (half < 1) continue;
-		lines.push(
-			elide(part.text, half, Math.ceil((part.text.length - half * 2) / 4), false),
-		);
+		// A share too small for a head, a marker and a tail says nothing
+		// worth embedding, so the part is left out rather than reduced to
+		// punctuation.
+		const elided = elide(part.text, allowance);
+		if (elided !== undefined) lines.push(elided);
 	}
 	return lines.join("\n");
 }
