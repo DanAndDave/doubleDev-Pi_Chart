@@ -66,7 +66,6 @@ export type LifecycleHandler = (
 export interface CompactionStartEvent {
 	/** `threshold`, `idle`, `overflow`, `incomplete`, or whatever it adds. */
 	reason?: string;
-	action?: string;
 }
 
 export type CompactionStartHandler = (

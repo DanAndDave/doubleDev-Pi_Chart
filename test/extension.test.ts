@@ -1281,10 +1281,10 @@ describe("the harness's own compaction", () => {
 	test("is declined when its size estimate triggered it, and said once with the setting", async () => {
 		const cm = harness();
 
-		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		await cm.compactionStart({ reason: "threshold" }, ctx());
 		const threshold = await cm.beforeCompact({}, ctx());
 		await cm.compactionEnd({}, ctx());
-		await cm.compactionStart({ reason: "idle", action: "context-full" }, ctx());
+		await cm.compactionStart({ reason: "idle" }, ctx());
 		const idle = await cm.beforeCompact({}, ctx());
 
 		expect(threshold).toEqual({ cancel: true });
@@ -1293,17 +1293,22 @@ describe("the harness's own compaction", () => {
 		expect(cm.reported[0]).toContain("`compaction: {enabled: false}`");
 	});
 
-	test("proceeds when the provider refused the window as too long", async () => {
+	test("proceeds when the provider refused the window it was sent", async () => {
 		const cm = harness();
 
-		await cm.compactionStart({ reason: "overflow", action: "remote" }, ctx());
+		await cm.compactionStart({ reason: "overflow" }, ctx());
+		const overflow = await cm.beforeCompact({}, ctx());
+		await cm.compactionEnd({}, ctx());
+		await cm.compactionStart({ reason: "incomplete" }, ctx());
+		const incomplete = await cm.beforeCompact({}, ctx());
 
-		expect(await cm.beforeCompact({}, ctx())).toBeUndefined();
+		expect(overflow).toBeUndefined();
+		expect(incomplete).toBeUndefined();
 	});
 
 	test("proceeds when asked for, even right after declining an automatic one", async () => {
 		const cm = harness();
-		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		await cm.compactionStart({ reason: "threshold" }, ctx());
 		await cm.beforeCompact({}, ctx());
 		await cm.compactionEnd({}, ctx());
 
@@ -1322,17 +1327,32 @@ describe("the harness's own compaction", () => {
 		const messages = [{ role: "user", content: "hello" }];
 
 		await cm.context({ messages }, ctx());
-		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		await cm.compactionStart({ reason: "threshold" }, ctx());
 		const afterFailure = await cm.beforeCompact({}, ctx());
 		await cm.compactionEnd({}, ctx());
 
 		failing = false;
 		await cm.context({ messages }, ctx());
-		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		await cm.compactionStart({ reason: "threshold" }, ctx());
 		const afterRecovery = await cm.beforeCompact({}, ctx());
 
 		expect(afterFailure).toBeUndefined();
 		expect(afterRecovery).toEqual({ cancel: true });
+	});
+
+	test("is declined again once a new session starts after an unassembled turn", async () => {
+		const cm = harness({
+			assemble: () => {
+				throw new Error("boom");
+			},
+		});
+		await cm.context({ messages: [{ role: "user", content: "hello" }] }, ctx());
+
+		// The new session's pre-prompt check runs before its first Call.
+		await cm.sessionStart({}, ctx());
+		await cm.compactionStart({ reason: "threshold" }, ctx());
+
+		expect(await cm.beforeCompact({}, ctx())).toEqual({ cancel: true });
 	});
 });
 

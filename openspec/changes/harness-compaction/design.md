@@ -30,7 +30,7 @@ The extension cannot see the harness's estimate or its settings. It can see the 
 
 ### The harness's history is in charge after a failed assembly
 
-A failed assembly returns the harness's own array, so the next window really is the one the harness measured. The extension tracks whether its last `context` call produced a Pack. It starts in the assembling state, because the first Call after a resumed session has not failed yet, and a pre-prompt threshold check runs before that Call's `context` event.
+A failed assembly returns the harness's own array, so the next window really is the one the harness measured. The extension tracks whether its last `context` call produced a Pack. Every session start resets it to the assembling state, because the first Call of a resumed Conversation has not failed yet, and a pre-prompt threshold check runs before that Call's `context` event.
 
 ### Say it once, name the setting
 
@@ -49,7 +49,8 @@ With compaction left enabled, the harness re-checks its threshold on every Call,
 | The summary still reaches the model | Same seam: the summary message is in the returned Pack. |
 | Other provider payloads are untouched | Same seam: a developer message's payload survives. |
 | A size-triggered compaction is declined | `test/extension.test.ts` harness: `auto_compaction_start {reason: "threshold"}` then `session_before_compact` returns `{ cancel: true }`, announced once. |
-| An overflow still compacts | Same seam with `reason: "overflow"`. |
+| A refused window still compacts | Same seam with `reason: "overflow"` and `reason: "incomplete"`. |
+| A resumed Conversation starts governed | Same seam: an `assemble` that throws, then `session_start`, then a threshold start is declined. |
 | A requested compaction proceeds | Same seam with no `auto_compaction_start`. |
 | An unassembled call leaves the harness in charge | Same seam after an `assemble` that throws. |
 | The provider accepts the Pack | Smoke: the captured failing session's branch, rebuilt through the hook, contains no `providerPayload`. |

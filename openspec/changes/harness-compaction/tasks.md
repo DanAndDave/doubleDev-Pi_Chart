@@ -17,17 +17,18 @@
 ## 2. Decline the harness's size-triggered compaction
 
 - [x] 2.1 Remember the trigger from `auto_compaction_start`, clear it on `auto_compaction_end`, and cancel `session_before_compact` for `threshold` and `idle` while the last Call was assembled
-- [x] 2.2 Announce the first decline, naming `compaction: {enabled: false}`, and stay silent after that
-- [x] 2.3 Verify overflow, manual, and post-failure compactions proceed
+- [x] 2.2 Announce the first decline in each Conversation, naming `compaction: {enabled: false}`, and stay silent after that
+- [x] 2.3 Verify overflow, incomplete, manual, and post-failure compactions proceed, and that a new session starts governed
 
   `describe("the harness's own compaction")` in `test/extension.test.ts`:
-  threshold and idle are declined with a single report, overflow proceeds,
-  a manual compaction right after a declined one proceeds, and a failed
-  assembly hands the decision back to the harness until the next success.
+  threshold and idle are declined with a single report, overflow and
+  incomplete proceed, a manual compaction right after a declined one
+  proceeds, a failed assembly hands the decision back to the harness until
+  the next success, and a session start after a failure declines again.
 
 ## 3. Close
 
 - [x] 3.1 Document the compaction setting beside the memory-backend one in the README
 - [x] 3.2 Run typecheck and the full suite
 
-  `tsc --noEmit` is clean. `bun test`: 645 pass, 0 fail.
+  `tsc --noEmit` is clean. `bun test`: 665 pass, 0 fail.

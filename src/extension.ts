@@ -293,19 +293,21 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let swapReported = false;
 	/**
 	 * Why the harness says it started the compaction now in flight: set by
-	 * `auto_compaction_start`, consumed by `session_before_compact`, and
-	 * cleared when the compaction ends so a manual one after it is not
-	 * mistaken for an automatic one. Absent for a manual compaction.
+	 * `auto_compaction_start` and consumed by `session_before_compact`. Also
+	 * cleared when the compaction ends, in case one started but never asked,
+	 * so a later manual compaction is not taken for it. Absent for a manual
+	 * compaction.
 	 */
 	let compactionTrigger: string | undefined;
 	/**
 	 * Whether the window the harness last sent was a Pack. A failed assembly
 	 * sends the harness's own history, and then the harness's measurement of
-	 * it is the right one. True from the start: the pre-prompt check of a
-	 * resumed Conversation runs before its first Call has had a chance to fail.
+	 * it is the right one. True at every session start: the pre-prompt check
+	 * of a resumed Conversation runs before its first Call has had a chance
+	 * to fail.
 	 */
 	let governing = true;
-	/** Said once a session: the harness keeps trying on every Call. */
+	/** Said once a Conversation: the harness keeps trying on every Call. */
 	let compactionDeclineReported = false;
 	/** Conversations already told their packs are approaching the ceiling. */
 	const warnedNearCeiling = new Set<string>();
@@ -413,6 +415,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.ui;
+		governing = true;
+		compactionDeclineReported = false;
 		// A setting silently ignored is a setting someone believes is in
 		// force; retention in particular would be believed to be bounding a
 		// Store it never touched.

@@ -29,17 +29,22 @@ While the Assembler supplies the Context Window, the system SHALL decline a comp
 
 The harness triggers compaction by measuring its whole message history, and the Assembler has replaced that history with a Pack bounded by its own ceiling. A compaction triggered this way summarises a window the model never receives, and it costs a Call over the full history to do so. A compaction for any other reason is different. The provider refusing the window actually sent, or the operator asking for one, is a reason that holds for the Pack as much as for the history. So is a compaction after a Call the Assembler failed to assemble, because that Call went out as the harness's own history.
 
-Declining SHALL be disclosed once per session. The disclosure SHALL name the harness setting that stops the harness from starting such compactions at all.
+Declining SHALL be disclosed once per Conversation. The disclosure SHALL name the harness setting that stops the harness from starting such compactions at all.
 
 #### Scenario: A size-triggered compaction is declined
 
 - **WHEN** the harness starts a compaction because its size estimate crossed a threshold, and the last Call was assembled
 - **THEN** the compaction SHALL be cancelled, and the operator SHALL be told once, naming the setting that disables it
 
-#### Scenario: An overflow still compacts
+#### Scenario: A refused window still compacts
 
-- **WHEN** the harness starts a compaction because the provider refused the window as too long
+- **WHEN** the harness starts a compaction because the provider refused the window it was sent, as too long or cut off
 - **THEN** the compaction SHALL proceed
+
+#### Scenario: A resumed Conversation starts governed
+
+- **WHEN** a Conversation starts after an earlier one in the same harness process sent a Call unassembled, and the harness starts a size-triggered compaction before the new Conversation's first Call
+- **THEN** the compaction SHALL be cancelled
 
 #### Scenario: A requested compaction proceeds
 
