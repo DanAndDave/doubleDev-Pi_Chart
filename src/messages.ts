@@ -86,6 +86,27 @@ export function messageText(message: HarnessMessage): string {
 }
 
 /**
+ * The harness's messages with any compaction it made reduced to its prose.
+ *
+ * A compaction summary's `providerPayload` is a provider-native block that
+ * stands in for the history it summarised, and the provider refuses it
+ * anywhere but the head of the conversation. A Pack carries that history
+ * from the Thread Store ahead of the current Turn, so the block is misplaced
+ * by construction. Without the payload the harness sends the summary as
+ * text, which can sit anywhere. Payloads on other messages mean other things
+ * and are left alone.
+ */
+export function withoutNativeCompaction(messages: HarnessMessage[]): HarnessMessage[] {
+	return messages.map((message) => {
+		if (message.role !== "compactionSummary" || !("providerPayload" in message)) {
+			return message;
+		}
+		const { providerPayload: _native, ...prose } = message;
+		return prose as HarnessMessage;
+	});
+}
+
+/**
  * Whether a content block is a tool call, narrowing it to one.
  *
  * A guard rather than a cast at each use: `ContentBlock` admits blocks this

@@ -51,6 +51,28 @@ export type LifecycleHandler = (
 	ctx: HandlerContext,
 ) => Promise<void>;
 
+/** Why the harness started compacting on its own, in its own words. */
+export interface CompactionStartEvent {
+	/** `threshold`, `idle`, `overflow`, `incomplete`, or whatever it adds. */
+	reason?: string;
+	action?: string;
+}
+
+export type CompactionStartHandler = (
+	event: CompactionStartEvent,
+	ctx: HandlerContext,
+) => Promise<void>;
+
+/** What a `session_before_compact` handler may answer; absent lets it run. */
+export interface CompactionDecision {
+	cancel: boolean;
+}
+
+export type BeforeCompactHandler = (
+	event: unknown,
+	ctx: HandlerContext,
+) => Promise<CompactionDecision | undefined>;
+
 export interface CommandContext {
 	ui?: { notify?: (message: string, level: string) => void };
 }
@@ -110,6 +132,9 @@ export interface ExtensionAPI {
 		event: "session_start" | "agent_end" | "session_shutdown",
 		handler: LifecycleHandler,
 	): void;
+	on(event: "auto_compaction_start", handler: CompactionStartHandler): void;
+	on(event: "auto_compaction_end", handler: LifecycleHandler): void;
+	on(event: "session_before_compact", handler: BeforeCompactHandler): void;
 	registerCommand?: (name: string, command: CommandDefinition) => void;
 	registerTool?: (tool: ToolDefinition) => void;
 	/** Schema builder the harness injects; tool parameters are built with it. */

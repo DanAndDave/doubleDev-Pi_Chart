@@ -67,7 +67,13 @@ import {
 	SESSION_ROOT,
 	type JournalTurn,
 } from "./journal.ts";
-import { messageText, type ContextSnapshot, type HarnessMessage, type Turn } from "./messages.ts";
+import {
+	messageText,
+	withoutNativeCompaction,
+	type ContextSnapshot,
+	type HarnessMessage,
+	type Turn,
+} from "./messages.ts";
 import type {
 	BranchEntry,
 	ExtensionAPI,
@@ -269,6 +275,22 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let lastConversation = UNKNOWN_CONVERSATION;
 	/** Said once a session: a model swap is a condition, not a per-Turn event. */
 	let swapReported = false;
+	/**
+	 * Why the harness says it started the compaction now in flight: set by
+	 * `auto_compaction_start`, consumed by `session_before_compact`, and
+	 * cleared when the compaction ends so a manual one after it is not
+	 * mistaken for an automatic one. Absent for a manual compaction.
+	 */
+	let compactionTrigger: string | undefined;
+	/**
+	 * Whether the window the harness last sent was a Pack. A failed assembly
+	 * sends the harness's own history, and then the harness's measurement of
+	 * it is the right one. True from the start: the pre-prompt check of a
+	 * resumed Conversation runs before its first Call has had a chance to fail.
+	 */
+	let governing = true;
+	/** Said once a session: the harness keeps trying on every Call. */
+	let compactionDeclineReported = false;
 	/** Conversations already told their packs are approaching the ceiling. */
 	const warnedNearCeiling = new Set<string>();
 	/** Said once a session: a Codebase with no graph is a condition, not an event. */
@@ -460,7 +482,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		const conversationId = conversationOf(ctx);
 		lastConversation = conversationId;
 		const branch = ctx.sessionManager?.getBranch?.() ?? [];
-		const messages = event.messages ?? [];
+		const messages = withoutNativeCompaction(event.messages ?? []);
 		const address = addressOf(branch, messages);
 
 		reconcile(conversationId, branch);
@@ -522,11 +544,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				),
 			);
 
+			governing = true;
 			return { messages: pack.messages };
 		} catch (error) {
 			// Fails open, toward the accumulating window this exists to prevent,
 			// so every occurrence is reported and the Call is marked unassembled
-			// rather than vanishing from the accounting.
+			// rather than vanishing from the accounting. The harness's history
+			// is what goes out now, so its own compaction is left to it.
+			governing = false;
 			reportSafely(`Assembly failed, turn left unassembled: ${describe(error)}`);
 			inBackground(
 				"Unassembled turn",
@@ -538,6 +563,40 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 			return undefined;
 		}
+	});
+
+	pi.on("auto_compaction_start", async (event, ctx) => {
+		ui = ctx.ui;
+		compactionTrigger = event.reason;
+	});
+
+	pi.on("auto_compaction_end", async (_event, ctx) => {
+		ui = ctx.ui;
+		compactionTrigger = undefined;
+	});
+
+	// The harness decides to compact by measuring its whole history, which
+	// the Pack replaced, so its threshold fires on a window the model never
+	// receives, and remote compaction then pays a Call over that history.
+	// An overflow, a manual compaction, and a compaction after an unassembled
+	// Call are about the window actually sent, and proceed.
+	pi.on("session_before_compact", async (_event, ctx) => {
+		ui = ctx.ui;
+		const trigger = compactionTrigger;
+		compactionTrigger = undefined;
+		if (!governing || (trigger !== "threshold" && trigger !== "idle")) {
+			return undefined;
+		}
+		if (!compactionDeclineReported) {
+			compactionDeclineReported = true;
+			announce(
+				`Declined the harness's ${trigger} compaction: it measures the whole ` +
+					"conversation, not the Context Pack sent in its place. Set " +
+					"`compaction: {enabled: false}` in ~/.omp/agent/config.yml so it " +
+					"stops trying on every call; an overflow still compacts either way.",
+			);
+		}
+		return { cancel: true };
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {

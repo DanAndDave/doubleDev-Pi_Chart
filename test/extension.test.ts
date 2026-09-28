@@ -30,8 +30,10 @@ import piChart, {
 } from "../src/extension.ts";
 import { MemoryTurnSource } from "../src/thread-store.ts";
 import type {
+	BeforeCompactHandler,
 	BranchEntry,
 	CommandDefinition,
+	CompactionStartHandler,
 	ToolDefinition,
 	ContextHandler,
 	ExtensionAPI,
@@ -58,6 +60,9 @@ interface Harness {
 	sessionStart: LifecycleHandler;
 	agentEnd: LifecycleHandler;
 	sessionShutdown: LifecycleHandler;
+	compactionStart: CompactionStartHandler;
+	compactionEnd: LifecycleHandler;
+	beforeCompact: BeforeCompactHandler;
 	reported: string[];
 	recorded: Recorded[];
 	measured: Measurement[];
@@ -78,17 +83,29 @@ function harness(overrides: Overrides = {}): Harness {
 	let sessionStart: LifecycleHandler | undefined;
 	let agentEnd: LifecycleHandler | undefined;
 	let sessionShutdown: LifecycleHandler | undefined;
+	let compactionStart: CompactionStartHandler | undefined;
+	let compactionEnd: LifecycleHandler | undefined;
+	let beforeCompact: BeforeCompactHandler | undefined;
 
 	const commands: Record<string, CommandDefinition> = {};
 	const tools: Record<string, ToolDefinition> = {};
 	const shown: string[] = [];
 	const pi: ExtensionAPI = {
-		on(event: string, handler: ContextHandler | LifecycleHandler) {
+		on(event: string, handler: unknown) {
 			if (event === "context") context = handler as ContextHandler;
 			if (event === "session_start") sessionStart = handler as LifecycleHandler;
 			if (event === "agent_end") agentEnd = handler as LifecycleHandler;
 			if (event === "session_shutdown") {
 				sessionShutdown = handler as LifecycleHandler;
+			}
+			if (event === "auto_compaction_start") {
+				compactionStart = handler as CompactionStartHandler;
+			}
+			if (event === "auto_compaction_end") {
+				compactionEnd = handler as LifecycleHandler;
+			}
+			if (event === "session_before_compact") {
+				beforeCompact = handler as BeforeCompactHandler;
 			}
 		},
 		registerCommand(name: string, command: CommandDefinition) {
@@ -153,7 +170,15 @@ function harness(overrides: Overrides = {}): Harness {
 		}),
 	});
 
-	if (!context || !sessionStart || !agentEnd || !sessionShutdown) {
+	if (
+		!context ||
+		!sessionStart ||
+		!agentEnd ||
+		!sessionShutdown ||
+		!compactionStart ||
+		!compactionEnd ||
+		!beforeCompact
+	) {
 		throw new Error("extension did not register its handlers");
 	}
 
@@ -161,6 +186,9 @@ function harness(overrides: Overrides = {}): Harness {
 		context,
 		sessionStart,
 		sessionShutdown,
+		compactionStart,
+		compactionEnd,
+		beforeCompact,
 		agentEnd,
 		reported,
 		recorded,
@@ -1191,6 +1219,118 @@ describe("a harness compaction during a session", () => {
 
 		expect(compacted?.messages).toEqual(plain?.messages);
 		expect(cm.reported).toEqual([]);
+	});
+
+	test("reaches the model as its summary, never as the provider's own block", async () => {
+		// The failing session's shape: a remote compaction cut into the
+		// current Turn, so it opens the harness's array, while the Store
+		// still carries the Turns it summarised.
+		const store = new MemoryTurnSource();
+		await store.ingest("conv-1", [
+			{
+				turnIndex: 0,
+				prompt: "earlier",
+				messages: [
+					{ role: "user", content: "earlier" },
+					{ role: "assistant", content: "answered" },
+				],
+				callCount: 1,
+				calls: [0, 0],
+			},
+		]);
+		const cm = harness({ turns: store });
+		const effort = {
+			role: "developer",
+			content: "",
+			providerPayload: { type: "anthropicMessage", effort: "high" },
+		};
+
+		const result = await cm.context(
+			{
+				messages: [
+					{
+						role: "compactionSummary",
+						summary: "## Goal\nShip the store.",
+						providerPayload: {
+							type: "anthropicCompaction",
+							provider: "anthropic",
+							content: "## Goal\nShip the store.",
+							signature: "signed",
+						},
+					},
+					effort,
+					{ role: "assistant", content: "continuing" },
+				],
+			},
+			ctx(),
+		);
+
+		expect(result?.messages).toEqual([
+			{ role: "user", content: "earlier" },
+			{ role: "assistant", content: "answered" },
+			{ role: "compactionSummary", summary: "## Goal\nShip the store." },
+			effort,
+			{ role: "assistant", content: "continuing" },
+		]);
+	});
+});
+
+describe("the harness's own compaction", () => {
+	test("is declined when its size estimate triggered it, and said once with the setting", async () => {
+		const cm = harness();
+
+		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		const threshold = await cm.beforeCompact({}, ctx());
+		await cm.compactionEnd({}, ctx());
+		await cm.compactionStart({ reason: "idle", action: "context-full" }, ctx());
+		const idle = await cm.beforeCompact({}, ctx());
+
+		expect(threshold).toEqual({ cancel: true });
+		expect(idle).toEqual({ cancel: true });
+		expect(cm.reported).toHaveLength(1);
+		expect(cm.reported[0]).toContain("`compaction: {enabled: false}`");
+	});
+
+	test("proceeds when the provider refused the window as too long", async () => {
+		const cm = harness();
+
+		await cm.compactionStart({ reason: "overflow", action: "remote" }, ctx());
+
+		expect(await cm.beforeCompact({}, ctx())).toBeUndefined();
+	});
+
+	test("proceeds when asked for, even right after declining an automatic one", async () => {
+		const cm = harness();
+		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		await cm.beforeCompact({}, ctx());
+		await cm.compactionEnd({}, ctx());
+
+		// A manual compaction announces no trigger of its own.
+		expect(await cm.beforeCompact({}, ctx())).toBeUndefined();
+	});
+
+	test("is the harness's call after a turn that went out unassembled", async () => {
+		let failing = true;
+		const cm = harness({
+			assemble: (input, config) => {
+				if (failing) throw new Error("boom");
+				return assemble(input, config);
+			},
+		});
+		const messages = [{ role: "user", content: "hello" }];
+
+		await cm.context({ messages }, ctx());
+		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		const afterFailure = await cm.beforeCompact({}, ctx());
+		await cm.compactionEnd({}, ctx());
+
+		failing = false;
+		await cm.context({ messages }, ctx());
+		await cm.compactionStart({ reason: "threshold", action: "remote" }, ctx());
+		const afterRecovery = await cm.beforeCompact({}, ctx());
+
+		expect(afterFailure).toBeUndefined();
+		expect(afterRecovery).toEqual({ cancel: true });
 	});
 });
 

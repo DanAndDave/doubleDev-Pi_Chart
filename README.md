@@ -94,6 +94,15 @@ memory:
 
 The extension checks this when a Conversation starts and reports loudly if it is still active — and says so too when the harness does not report its backend at all, because an invariant that cannot be checked is not a confirmed one. What it cannot do is remove the content: every backend injects into the system prompt, which is the Floor, and the Assembler does not supply the Floor. So the state is recorded against every Call as `off`, `active` or `unconfirmed`; `pack <turn>` says whether that Call ran with a second injector, and `pack summary` names every Call of the Conversation that did (ADR-0004).
 
+Turn the harness's own compaction off too:
+
+```yaml
+compaction:
+  enabled: false
+```
+
+The harness decides when to compact by measuring its whole message history. The Pack replaced that history, so the threshold fires on a window the model never receives, and a remote compaction then pays for a Call over the full history. With compaction left on, the extension declines every compaction the harness's size estimate triggers (`threshold`, `idle`) and says so once. The harness still re-checks on every Call, though, and shows the cancellation each time, which is what the setting stops. An overflow, a manual `/compact`, and a compaction after a Call the extension failed to assemble all go ahead. Any compaction that does happen reaches the model as its summary text. The provider's native compaction block is never sent, because the provider only accepts it at the head of the conversation, in place of the history the Pack still carries.
+
 Every setting below has a working default. They exist for tuning, not for setup.
 
 Each part of a pack is bounded twice — by a count of items and by a size in estimated tokens — and is trimmed to whichever binds first. A count says something a size cannot (`PICHART_TAIL_TURNS=0` means "only the current Turn"), and a size says what a count cannot: one Turn carrying six file reads costs two orders of magnitude more than one carrying a sentence.
