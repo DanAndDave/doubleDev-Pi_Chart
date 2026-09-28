@@ -112,6 +112,13 @@ export interface Config {
 	 * their policy, not this project's default.
 	 */
 	retainDays?: number;
+	/**
+	 * Whether `recall_across_conversations` asks a relevance judge about
+	 * what distance admits. `auto` asks when the host resolves a TypeSafe
+	 * key; `off` never asks, key or not. Judging sends Turn text off the
+	 * machine, so the switch is separate from the key.
+	 */
+	judge: "auto" | "off";
 }
 
 /**
@@ -209,6 +216,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_GRAPH_DEADLINE_MS",
 	"PICHART_GRAPH_SYMBOLS",
 	"PICHART_GRAPH_TOKENS",
+	"PICHART_JUDGE",
 	"PICHART_LIVE",
 	"PICHART_OPENSPEC",
 	"PICHART_PACK_TOKENS",
@@ -288,6 +296,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 			env.PICHART_GRAPH_DEADLINE_MS,
 			DEFAULT_RETRIEVAL_DEADLINE_MS,
 		),
+		judge: judging(env.PICHART_JUDGE, problems),
 		retainDays: days(env.PICHART_RETAIN_DAYS, problems),
 	};
 }
@@ -388,4 +397,19 @@ function days(
 		return undefined;
 	}
 	return parsed;
+}
+
+/**
+ * The relevance judge switch. An unrecognised value is off, and said aloud:
+ * a typo in a switch someone reached for is likelier an attempt to stop
+ * sending text than to start.
+ */
+function judging(raw: string | undefined, problems: string[]): Config["judge"] {
+	if (raw === undefined || raw === "auto") return "auto";
+	if (raw === "off") return "off";
+	problems.push(
+		`PICHART_JUDGE is "${raw}", which is neither auto nor off. ` +
+			`Relevance judging stays off.`,
+	);
+	return "off";
 }

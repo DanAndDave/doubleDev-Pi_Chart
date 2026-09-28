@@ -29,6 +29,7 @@ import piChart, {
 	type Dependencies,
 } from "../src/extension.ts";
 import { MemoryTurnSource } from "../src/thread-store.ts";
+import { JudgeFailure, type RelevanceJudge } from "../src/relevance-judge.ts";
 import type {
 	BeforeCompactHandler,
 	BranchEntry,
@@ -39,6 +40,7 @@ import type {
 	ExtensionAPI,
 	HandlerContext,
 	LifecycleHandler,
+	ToolResult,
 } from "../src/harness.ts";
 import type { ContextSnapshot } from "../src/messages.ts";
 import {
@@ -1410,6 +1412,349 @@ describe("searching across conversations", () => {
 		expect(result?.content[0]?.text).toContain("store unreachable");
 		expect(result?.details?.failed).toBe(true);
 		expect(cm.reported.join()).toContain("store unreachable");
+	});
+});
+
+describe("a judged search", () => {
+	/** A hit whose Turn says `text`, `rank` places from the nearest. */
+	function turnHit(rank: number, text: string) {
+		return {
+			turnIndex: rank,
+			turn: { index: rank, prompt: text, messages: [{ role: "user", content: text }] },
+			conversationId: `conversation-${rank}`,
+			calls: 1,
+		};
+	}
+
+	/** A session whose host resolves `key` for TypeSafe, or nothing. */
+	function keyed(key: string | undefined) {
+		return ctx([], {
+			modelRegistry: {
+				getApiKeyForProvider: async (provider: string) =>
+					provider === "typesafe" ? key : undefined,
+			},
+		});
+	}
+
+	/**
+	 * A judge scoring each passage from a table, recording what it was
+	 * asked and which keys it was built with.
+	 */
+	function scripted(verdicts: Record<string, number | Error>) {
+		const asked: string[] = [];
+		const keys: string[] = [];
+		const judgeWith = (key: string): RelevanceJudge => {
+			keys.push(key);
+			return {
+				judge: async (_query, passage) => {
+					asked.push(passage);
+					const verdict = verdicts[passage] ?? 0;
+					if (verdict instanceof Error) throw verdict;
+					return verdict;
+				},
+			};
+		};
+		return { asked, keys, judgeWith };
+	}
+
+	const text = (result: ToolResult | undefined) =>
+		result?.content.map((block) => block.text).join("\n") ?? "";
+
+	async function search(cm: Harness, limit?: number) {
+		return cm.tools.recall_across_conversations?.execute("1", {
+			query: "retries",
+			...(limit === undefined ? {} : { limit }),
+		});
+	}
+
+	const hits = ["alpha", "bravo", "charlie", "delta", "echo"].map((word, rank) =>
+		turnHit(rank, word),
+	);
+
+	test("a Turn the judge refuses is not returned, and the refusal is counted", async () => {
+		const judge = scripted({ alpha: 0.9, bravo: 0.1, charlie: 0.8 });
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 3) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		const result = await search(cm);
+
+		expect(text(result)).toContain("alpha");
+		expect(text(result)).not.toContain("bravo");
+		expect(text(result)).toContain("charlie");
+		expect(text(result)).toContain("refused 1");
+		expect(result?.details).toMatchObject({ judged: true, refused: 1, results: 2 });
+	});
+
+	test("refused Turns are replaced from further down, in distance order", async () => {
+		const judge = scripted({ alpha: 0.2, bravo: 0.7, charlie: 0.1, delta: 0.6, echo: 0.9 });
+		let fetched = 0;
+		const cm = harness({
+			search: {
+				searchAll: async (_query, limit) => {
+					fetched = limit;
+					return hits.slice(0, limit);
+				},
+			},
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		const result = await search(cm, 2);
+
+		// Two asked for, two refused among the nearest: the answer is filled
+		// from past them rather than shrunk, nearest first, and stops at two.
+		expect(fetched).toBe(20);
+		const shown = text(result);
+		expect(shown.indexOf("bravo")).toBeGreaterThan(-1);
+		expect(shown.indexOf("delta")).toBeGreaterThan(shown.indexOf("bravo"));
+		expect(shown).not.toContain("echo");
+		expect(shown).not.toContain("alpha");
+		expect(result?.details).toMatchObject({ results: 2 });
+	});
+
+	test("everything refused is an empty answer that says the judge refused it", async () => {
+		const judge = scripted({});
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 3) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		const result = await search(cm);
+
+		expect(text(result)).not.toContain("alpha");
+		expect(text(result)).toContain("refused 3");
+		expect(result?.details).toMatchObject({ results: 0, refused: 3 });
+	});
+
+	test("without a key the judge is never built and the result is distance alone", async () => {
+		const judge = scripted({});
+		const cm = harness({
+			search: { searchAll: async (_query, limit) => hits.slice(0, limit) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed(undefined));
+
+		const result = await search(cm, 2);
+
+		expect(judge.keys).toEqual([]);
+		expect(text(result)).toContain("alpha");
+		expect(text(result)).toContain("bravo");
+		expect(text(result)).not.toContain("judge");
+		expect(result?.details).toMatchObject({ judged: false, results: 2 });
+		expect(cm.reported.join("\n")).not.toContain("typesafe.ai");
+	});
+
+	test("a host that throws resolving the key is no key", async () => {
+		const judge = scripted({});
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 1) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart(
+			{},
+			ctx([], {
+				modelRegistry: {
+					getApiKeyForProvider: async () => {
+						throw new Error("no auth storage");
+					},
+				},
+			}),
+		);
+
+		const result = await search(cm);
+
+		expect(judge.keys).toEqual([]);
+		expect(text(result)).toContain("alpha");
+	});
+
+	test("switched off by setting, a key present is never used", async () => {
+		const judge = scripted({});
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 2) },
+			judgeWith: judge.judgeWith,
+			config: { judge: "off" },
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		const result = await search(cm);
+
+		expect(judge.asked).toEqual([]);
+		expect(text(result)).toContain("alpha");
+		expect(text(result)).toContain("bravo");
+		expect(cm.reported.join("\n")).not.toContain("typesafe.ai");
+	});
+
+	test("a judge that cannot answer leaves the distance result, and says why", async () => {
+		const judge = scripted({ alpha: 0.9, bravo: new JudgeFailure("the judge answered 429") });
+		const cm = harness({
+			search: { searchAll: async (_query, limit) => hits.slice(0, limit) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		const first = await search(cm, 2);
+		const second = await search(cm, 2);
+
+		// Not half-judged: every Turn distance admitted, up to the limit.
+		expect(text(first)).toContain("alpha");
+		expect(text(first)).toContain("bravo");
+		expect(text(first)).not.toContain("charlie");
+		expect(text(first)).toContain("not judged");
+		expect(text(first)).toContain("429");
+		expect(first?.details).toMatchObject({ judged: false, results: 2 });
+		expect(first?.details?.unjudged).toContain("429");
+		// A passing failure: the next search asks again.
+		expect(text(second)).toContain("not judged");
+		expect(judge.asked.filter((passage) => passage === "bravo")).toHaveLength(2);
+	});
+
+	test("a rejected key is said once, and the session stops asking", async () => {
+		const judge = scripted({
+			alpha: new JudgeFailure("the TypeSafe key was rejected (401)", true),
+		});
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 1) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-bad"));
+
+		const first = await search(cm);
+		const second = await search(cm);
+
+		expect(text(first)).toContain("not judged");
+		expect(text(first)).toContain("alpha");
+		expect(text(second)).toContain("alpha");
+		expect(judge.asked).toEqual(["alpha"]);
+		const rejections = cm.reported.filter((line) => line.includes("rejected"));
+		expect(rejections).toHaveLength(1);
+		expect(rejections[0]).toContain("/login typesafe");
+		expect(rejections[0]).toContain("PICHART_JUDGE=off");
+	});
+
+	test("the first judged search discloses what is sent and where, once", async () => {
+		const judge = scripted({ alpha: 0.9 });
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 1) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		await search(cm);
+		await search(cm);
+
+		const disclosures = cm.reported.filter((line) => line.includes("api.typesafe.ai"));
+		expect(disclosures).toHaveLength(1);
+		expect(disclosures[0]).toContain("1200 characters");
+		expect(disclosures[0]).toContain("PICHART_JUDGE=off");
+		expect(disclosures[0]).toContain("pi-chart judge off");
+	});
+
+	test("switching judging off for the session stops it, and only for the session", async () => {
+		const judge = scripted({ alpha: 0.9 });
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 1) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		await cm.commands["pi-chart"]?.handler("judge off", {});
+		const result = await search(cm);
+
+		expect(judge.asked).toEqual([]);
+		expect(text(result)).toContain("alpha");
+		expect(cm.shown.join("\n")).toContain("off");
+
+		await cm.commands["pi-chart"]?.handler("judge auto", {});
+		await search(cm);
+		expect(judge.asked).toEqual(["alpha"]);
+	});
+
+	test("an unknown judge switch is refused, and changes nothing", async () => {
+		const judge = scripted({ alpha: 0.9 });
+		const cm = harness({
+			search: { searchAll: async () => hits.slice(0, 1) },
+			judgeWith: judge.judgeWith,
+		});
+		await cm.sessionStart({}, keyed("sk-test"));
+
+		await cm.commands["pi-chart"]?.handler("judge maybe", {});
+		await search(cm);
+
+		expect(cm.shown.join("\n")).toContain("unchanged");
+		expect(judge.asked).toEqual(["alpha"]);
+	});
+});
+
+describe("the relevance judge in the installation check", () => {
+	const install = () =>
+		new Installation({
+			reachable: async () => true,
+			bun: async () => "/usr/bin/bun",
+			exists: async () => false,
+		});
+	const judgeWith = (): RelevanceJudge => ({
+		judge: async () => {
+			throw new JudgeFailure("the TypeSafe key was rejected (401)", true);
+		},
+	});
+	const keyed = (key: string | undefined) =>
+		ctx([], { modelRegistry: { getApiKeyForProvider: async () => key } });
+
+	async function judgeLine(cm: Harness): Promise<string> {
+		cm.shown.length = 0;
+		await cm.commands["pi-chart"]?.handler("", {});
+		// The check's line and the fix under it: the state and how to change it.
+		const lines = cm.shown.join("\n").split("\n");
+		const at = lines.findIndex((line) => line.includes("relevance judge"));
+		return at === -1 ? "" : `${lines[at]} ${lines[at + 1] ?? ""}`;
+	}
+
+	test("says whether the judge is on, off, keyless or rejected, and how to change it", async () => {
+		const on = harness({ install: install(), judgeWith });
+		await on.sessionStart({}, keyed("sk-test"));
+		expect(await judgeLine(on)).toMatch(/ok .*on.*jev-1\.13\.0/);
+
+		const off = harness({ install: install(), judgeWith, config: { judge: "off" } });
+		await off.sessionStart({}, keyed("sk-test"));
+		expect(await judgeLine(off)).toMatch(/ok .*off.*PICHART_JUDGE/);
+
+		const keyless = harness({ install: install(), judgeWith });
+		await keyless.sessionStart({}, keyed(undefined));
+		expect(await judgeLine(keyless)).toMatch(/ok .*no key.*TYPESAFE_API_KEY/);
+
+		const rejected = harness({
+			install: install(),
+			judgeWith,
+			search: { searchAll: async () => [] },
+		});
+		await rejected.sessionStart({}, keyed("sk-bad"));
+		// Nothing to judge is nothing sent: the key is only found wanting when used.
+		expect(await judgeLine(rejected)).toMatch(/ok .*on/);
+	});
+
+	test("a key rejected in use is a fault", async () => {
+		const cm = harness({
+			install: install(),
+			judgeWith,
+			search: {
+				searchAll: async () => [
+					{
+						turnIndex: 0,
+						turn: { index: 0, prompt: "x", messages: [{ role: "user", content: "x" }] },
+						conversationId: "c",
+						calls: 1,
+					},
+				],
+			},
+		});
+		await cm.sessionStart({}, keyed("sk-bad"));
+		await cm.tools.recall_across_conversations?.execute("1", { query: "q" });
+
+		expect(await judgeLine(cm)).toMatch(/not .*rejected/);
 	});
 });
 
@@ -2938,6 +3283,23 @@ describe("retention at the end of a session", () => {
 
 		expect(config.retainDays).toBeUndefined();
 		expect(config.problems.join("\n")).toContain("PICHART_RETAIN_DAYS");
+	});
+});
+
+describe("the relevance judge setting", () => {
+	test("judging is on unless switched off", () => {
+		expect(loadConfig({}).judge).toBe("auto");
+		expect(loadConfig({ PICHART_JUDGE: "auto" }).judge).toBe("auto");
+		expect(loadConfig({ PICHART_JUDGE: "off" }).judge).toBe("off");
+	});
+
+	test("an unrecognised value leaves judging off, and says so", () => {
+		// Off rather than on: a typo in a switch someone reached for is more
+		// likely an attempt to stop sending text than to start.
+		const config = loadConfig({ PICHART_JUDGE: "no" });
+
+		expect(config.judge).toBe("off");
+		expect(config.problems.join("\n")).toContain("PICHART_JUDGE");
 	});
 });
 

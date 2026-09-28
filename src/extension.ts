@@ -31,7 +31,7 @@ import {
 	type WriteOutcome,
 } from "./doc-store.ts";
 import { GraphStore } from "./graph-store.ts";
-import { describeChecks, Installation } from "./install.ts";
+import { type Check, describeChecks, Installation } from "./install.ts";
 import { describeTree, SpecStore } from "./spec-store.ts";
 import {
 	neighbourhoods,
@@ -59,6 +59,7 @@ import {
 	renderExplanation,
 	renderLevel,
 	renderSearch,
+	type SearchJudgement,
 	renderSummary,
 } from "./report.ts";
 import {
@@ -95,6 +96,15 @@ import {
 	type TurnSource,
 	type VectorModels,
 } from "./thread-store.ts";
+import {
+	JEV_ENDPOINT,
+	JEV_MODEL,
+	JevJudge,
+	JUDGE_THRESHOLD,
+	JudgeFailure,
+	type RelevanceJudge,
+} from "./relevance-judge.ts";
+import { EMBED_CHARACTERS, embedText } from "./embed-text.ts";
 import { reconstructTurns } from "./turns.ts";
 
 export interface Dependencies {
@@ -132,6 +142,12 @@ export interface Dependencies {
 	show?: (text: string) => void;
 	/** Searches every Conversation, when the agent asks. */
 	search?: CorpusSearch;
+	/**
+	 * Builds the relevance judge from the key the host resolves at session
+	 * start. A factory because the key exists only then; absent where there
+	 * is nothing to search.
+	 */
+	judgeWith?: (key: string) => RelevanceJudge;
 	/** The Doc Store's index, searched during assembly. */
 	docs?: ConceptSearch;
 	/** The bundle as the agent walks it, Level by Level. */
@@ -305,6 +321,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * print runs, where the log is the only channel.
 	 */
 	let ui: HandlerContext["ui"];
+	/**
+	 * The relevance judge for this session, built from the key the host
+	 * resolved at session start. Absent means no key: the search is
+	 * distance alone, as it was before judging existed.
+	 */
+	let judge: RelevanceJudge | undefined;
+	/** Set by a 401: the same key would be refused again, so it is not sent. */
+	let judgeRejected = false;
+	/** Said once a session, just before Turn text first leaves the machine. */
+	let judgeDisclosed = false;
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -391,6 +417,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// force; retention in particular would be believed to be bounding a
 		// Store it never touched.
 		for (const problem of deps.config.problems) announce(problem);
+
+		// Resolved whether or not judging is on, so `pi-chart judge auto`
+		// can turn it on mid-session. Resolving contacts nobody; only a
+		// judged search sends anything.
+		judge = deps.judgeWith ? await resolveJudge(ctx, deps.judgeWith) : undefined;
+		judgeRejected = false;
+		judgeDisclosed = false;
 
 		if (deps.specs && deps.config.specsVerify) {
 			const specs = deps.specs;
@@ -1052,21 +1085,93 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			MAX_SEARCH_RESULTS,
 		);
 
+		// With a judge, the whole ceiling is fetched and judged in one
+		// parallel round, so a refusal among the nearest is replaced from
+		// further down without a second round trip.
+		const judging = judgeInForce();
+		let found: FoundTurn[];
 		try {
-			const found = await (deps.search?.searchAll(
+			found = await (deps.search?.searchAll(
 				query,
-				limit,
+				judging ? MAX_SEARCH_RESULTS : limit,
 				deps.config.recallMaxDistance,
 			) ?? Promise.resolve([]));
-			return toolResult(renderSearch(found), {
-				results: found.length,
-				conversations: [...new Set(found.map((hit) => hit.conversationId))],
-			});
 		} catch (error) {
 			const reason = describe(error);
 			deps.report(`Cross-conversation search failed: ${reason}`);
 			return toolResult(`The search could not run: ${reason}`, { failed: true });
 		}
+
+		// Nothing admitted is nothing to send: no request, no disclosure.
+		if (!judging || found.length === 0) {
+			return searchResult(found.slice(0, limit), { judged: false });
+		}
+
+		const verdict = await judgeAll(judging, query, found);
+		if ("unjudged" in verdict) {
+			// Wholly unjudged rather than half: a result mixing two
+			// standards under one heading could not be read by either.
+			return searchResult(found.slice(0, limit), { judged: false, ...verdict });
+		}
+		const kept = found.filter((_hit, at) => verdict.scores[at]! >= JUDGE_THRESHOLD);
+		return searchResult(kept.slice(0, limit), {
+			judged: true,
+			refused: found.length - kept.length,
+		});
+	}
+
+	/** The judge, when this session may use it; otherwise the search is distance alone. */
+	function judgeInForce(): RelevanceJudge | undefined {
+		return deps.config.judge === "auto" && !judgeRejected ? judge : undefined;
+	}
+
+	/**
+	 * One verdict per Turn, asked in parallel. Any failure discards them
+	 * all and names why; a rejected key also ends judging for the session,
+	 * said once, because the same key would be refused again.
+	 */
+	async function judgeAll(
+		using: RelevanceJudge,
+		query: string,
+		found: FoundTurn[],
+	): Promise<{ scores: number[] } | { unjudged: string }> {
+		if (!judgeDisclosed) {
+			judgeDisclosed = true;
+			announce(
+				`recall_across_conversations sends each candidate Turn, up to ` +
+					`${EMBED_CHARACTERS} characters of it, with the query to ` +
+					`${new URL(JEV_ENDPOINT).host} to judge its relevance. Set ` +
+					"PICHART_JUDGE=off to stop, or `pi-chart judge off` for this session.",
+			);
+		}
+		try {
+			const scores = await Promise.all(
+				found.map((hit) => using.judge(query, embedText(hit.turn.messages))),
+			);
+			return { scores };
+		} catch (error) {
+			const reason = describe(error);
+			if (error instanceof JudgeFailure && error.rejected && !judgeRejected) {
+				judgeRejected = true;
+				announce(
+					`The relevance judge rejected the TypeSafe key, so cross-conversation ` +
+						"searches are unjudged for the rest of this session. Run " +
+						"`/login typesafe` with a valid key, or set PICHART_JUDGE=off.",
+				);
+			}
+			return { unjudged: reason };
+		}
+	}
+
+	function searchResult(
+		found: FoundTurn[],
+		judgement: SearchJudgement & { judged: boolean },
+	): ToolResult {
+		return toolResult(renderSearch(found, judgement), {
+			results: found.length,
+			conversations: [...new Set(found.map((hit) => hit.conversationId))],
+			...judgement,
+		});
 	}
 
 	if (pi.registerCommand) {
@@ -1074,7 +1179,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			description:
 				"Check what this extension needs and what is missing: " +
 				"`pi-chart` to check, `pi-chart setup` to start " +
-				"the thread store",
+				"the thread store, `pi-chart judge <auto|off>` to switch " +
+				"relevance judging for this session",
 			handler: async (args, commandCtx) => {
 				const output = await manageInstall(args.trim());
 				if (commandCtx.ui?.notify) commandCtx.ui.notify(output, "info");
@@ -1125,15 +1231,74 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				memoryBackend,
 				deps.graph !== undefined,
 			);
-			return `${describeChecks(done)}\n\nNow:\n${describeChecks(after)}`;
+			return `${describeChecks(done)}\n\nNow:\n${describeChecks(withJudge(after))}`;
 		}
+		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
+		if (verb === "judge") return switchJudge(rest.join(" "));
 		if (args !== "") {
-			return `Unknown command: ${args}. Use \`pi-chart\` or \`pi-chart setup\`.`;
+			return (
+				`Unknown command: ${args}. Use \`pi-chart\`, \`pi-chart setup\` ` +
+				"or `pi-chart judge <auto|off>`."
+			);
 		}
 
 		return describeChecks(
-			await install.check(deps.config, memoryBackend, deps.graph !== undefined),
+			withJudge(
+				await install.check(deps.config, memoryBackend, deps.graph !== undefined),
+			),
 		);
+	}
+
+	/**
+	 * Switches judging for the running session. In memory only, like
+	 * `pack budget`: an experiment that silently persisted into tomorrow's
+	 * sessions would be a trap. `PICHART_JUDGE` sets the default.
+	 */
+	function switchJudge(value: string): string {
+		if (value !== "auto" && value !== "off") {
+			return `Relevance judging unchanged: "${value}" is neither auto nor off.`;
+		}
+		deps.config.judge = value;
+		return describeChecks(withJudge([]));
+	}
+
+	/**
+	 * The relevance judge's state beside the installation's, where there is
+	 * a search to judge. Session state, so it is added here rather than
+	 * known to `Installation`.
+	 */
+	function withJudge(checks: Check[]): Check[] {
+		if (!deps.judgeWith) return checks;
+		const name = "relevance judge";
+		const check: Check =
+			deps.config.judge === "off"
+				? {
+						name,
+						ok: true,
+						detail: "off; cross-conversation searches are ranked by distance alone",
+						fix: "PICHART_JUDGE=auto, or `pi-chart judge auto` for this session",
+					}
+				: !judge
+					? {
+							name,
+							ok: true,
+							detail: "no key; cross-conversation searches are ranked by distance alone",
+							fix: "set TYPESAFE_API_KEY or run `/login typesafe` to judge them",
+						}
+					: judgeRejected
+						? {
+								name,
+								ok: false,
+								detail: "key rejected; searches are unjudged for this session",
+								fix: "`/login typesafe` with a valid key, or PICHART_JUDGE=off",
+							}
+						: {
+								name,
+								ok: true,
+								detail: `on (${JEV_MODEL}); candidate turns are sent to ${new URL(JEV_ENDPOINT).host}`,
+								fix: "PICHART_JUDGE=off, or `pi-chart judge off` for this session",
+							};
+		return [...checks, check];
 	}
 
 	/**
@@ -1627,6 +1792,28 @@ function sleep(ms: number): Promise<void> {
 	return promise;
 }
 
+/**
+ * The session's relevance judge, from the key the host resolves for
+ * TypeSafe. pi-chart never reads the key itself: the host already merges the
+ * environment, every `.env` and `/login`. A host that throws, or offers no
+ * resolution at all, is no key — the search as it was before judging.
+ */
+async function resolveJudge(
+	ctx: HandlerContext,
+	judgeWith: (key: string) => RelevanceJudge,
+): Promise<RelevanceJudge | undefined> {
+	let key: string | undefined;
+	try {
+		key = await ctx.modelRegistry?.getApiKeyForProvider?.(
+			"typesafe",
+			ctx.sessionManager?.getSessionId?.(),
+		);
+	} catch {
+		key = undefined;
+	}
+	return key ? judgeWith(key) : undefined;
+}
+
 export default function piChart(pi: ExtensionAPI): void {
 	const config = loadConfig(process.env);
 
@@ -1681,6 +1868,7 @@ export default function piChart(pi: ExtensionAPI): void {
 		ingest: store,
 		recall: store,
 		search: store,
+		judgeWith: (key) => new JevJudge(key),
 		docs: store,
 		ready,
 		bundle: () => readBundle(config.docBundle),

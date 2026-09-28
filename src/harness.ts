@@ -39,6 +39,17 @@ export interface HandlerContext {
 	};
 	memory?: { status?: () => Promise<MemoryStatus> | MemoryStatus };
 	ui?: { notify?: (message: string, level: string) => void };
+	/**
+	 * The host's credential resolution: environment, every `.env` it loads,
+	 * and `/login`. Optional because it is outside the documented extension
+	 * surface; its absence means no key, which is the unjudged search.
+	 */
+	modelRegistry?: {
+		getApiKeyForProvider?: (
+			provider: string,
+			sessionId?: string,
+		) => Promise<string | undefined> | string | undefined;
+	};
 }
 
 export type ContextHandler = (

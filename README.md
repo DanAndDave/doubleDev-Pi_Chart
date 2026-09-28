@@ -122,6 +122,7 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `PICHART_GRAPH_SYMBOLS` | `3` | Symbols whose connections a pack may carry. `0` disables structure. |
 | `PICHART_GRAPH` | off | `on` derives a graph, which writes `graphify-out/` into the codebase. An existing one is read either way. |
 | `PICHART_SPECS` | on | `off` stops the extension checking the codebase's OpenSpec tree. |
+| `PICHART_JUDGE` | `auto` | Whether `recall_across_conversations` asks [Jev](https://docs.typesafe.ai) whether each Turn distance admitted is relevant. `auto` judges whenever the harness resolves a TypeSafe key (`TYPESAFE_API_KEY` or `/login typesafe`); `off` never does, and the key stays where it is. Anything else is off, and said at session start. `pi-chart judge auto\|off` switches it for the running session only. See [Reaching other conversations](#reaching-other-conversations). |
 | `PICHART_PACK_TOKENS` | `300000` | The whole pack's ceiling in estimated tokens. When the parts together exceed it they are reduced in a fixed order — structure, then curated knowledge, then the weakest recollections, then the oldest Turns of the tail. The current Turn is never dropped. Sized for large-context models: 300,000 estimated tokens presumes a reported window of ~478,000 (this ceiling × the estimator's measured 1.5× worst-case bias, plus this project's ~28,000 Floor). On a 200,000-token window, lower it so the pack cannot overrun the window it cannot see. |
 | `PICHART_TAIL_TOKENS` | `25000` | Size Budget for the verbatim tail. Its most recent Turn is always kept, shortened if it cannot fit whole, because that Turn is what the current one is reasoning about. |
 | `PICHART_RECALL_TOKENS` | `8000` | Size Budget for recalled Turns. A Budget too small to hold one readable recollection carries none. |
@@ -143,7 +144,7 @@ A Turn is embedded as a **bounded representation of the whole Turn**: its prompt
 
 A stored vector is valid only for the content and the model that produced it. A Turn whose text changes loses its vector and is re-embedded by the same background pass that embeds a new Turn; a vector produced by another embedding model is never ranked, counts as pending, and the condition is reported once naming both models. Recall over the current Conversation is exact rather than approximate — every Turn of it holding a valid vector is scored — so a growing corpus cannot quietly starve one Conversation's recall; `/pack` says when a recall could not see part of its Conversation because embedding has not caught up.
 
-The model runs **out of process**, under the project's own Bun. The harness's bundled runtime cannot load the model's native dependencies (`Could not load the "sharp" module`), so the worker is spawned on first use and reused for the session. Nothing leaves the machine and no API key is needed; the first run downloads the model and caches it.
+The model runs **out of process**, under the project's own Bun. The harness's bundled runtime cannot load the model's native dependencies (`Could not load the "sharp" module`), so the worker is spawned on first use and reused for the session. Nothing leaves the machine for recall and no API key is needed; the first run downloads the model and caches it. The one path that sends text elsewhere is the optional relevance judge on `recall_across_conversations`, below.
 
 ## Curated knowledge
 
@@ -274,6 +275,12 @@ PICHART_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<pr
 Recall into a Context Pack never leaves the current Conversation — that scoping has held since the first slice and still does. When the answer is somewhere else, the agent calls `recall_across_conversations`, which searches every ingested Conversation under the same relevance threshold and returns hits with the Conversation and Codebase they came from.
 
 It is a tool rather than a second recall tier on purpose: assembly stays deterministic, and a session that went looking elsewhere is readable in the transcript afterwards.
+
+Distance alone is weak here. The recall threshold was measured against off-topic text, but this search's candidates are Turns from other Conversations of the same Codebase, which share its vocabulary: against those, the threshold admitted 32 of 50, and the relevance judge refused 27 of them (`docs/research/jev.md`). So when the harness resolves a TypeSafe key, the search fetches up to 20 Turns by distance, asks `jev-1.13.0` about each in parallel ("is this earlier Turn about the same task as the request?"), drops those scoring below 0.5, and returns the rest nearest first, up to the number asked for. The result says how many the judge refused.
+
+**What is sent, and where.** For each candidate Turn, up to 1,200 characters of it — the same bounded text it is embedded as, which can include code and tool output — together with the query, to `api.typesafe.ai`, hosted in the US. TypeSafe does not train on inputs; retention is "as long as necessary", and zero retention is enterprise-only. The first judged search of a session says so. To stop it, set `PICHART_JUDGE=off` (in `~/.omp/agent/.env` to make it the default everywhere), or run `pi-chart judge off` for the running session. Without a key nothing is sent.
+
+**When the judge cannot answer** — a rate limit, an overload, no answer within 3 seconds, an answer that is not a probability — the search returns what distance alone admits and says it was not judged, and why. A rejected key is reported once and judging stops for the rest of the session. `pi-chart` shows whether the judge is on, off, keyless or rejected.
 
 ## The order of a pack
 

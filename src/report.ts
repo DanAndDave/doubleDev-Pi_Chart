@@ -506,17 +506,49 @@ export function renderConcept(concept: Concept): string {
 }
 
 /**
+ * What a relevance judge made of a search: how many Turns distance admitted
+ * and it refused, or why it was not asked for a verdict at all.
+ */
+export interface SearchJudgement {
+	refused?: number;
+	unjudged?: string;
+}
+
+/**
  * Renders a cross-Conversation search as a tool result.
  *
  * Each hit says where it came from: a recollection from another project is
- * only useful if the agent can tell that is what it is.
+ * only useful if the agent can tell that is what it is. A judged search says
+ * what the judge refused, and an unjudged one why, so the agent knows which
+ * standard the hits met.
  */
-export function renderSearch(found: FoundTurn[]): string {
+export function renderSearch(
+	found: FoundTurn[],
+	judgement: SearchJudgement = {},
+): string {
+	const notes: string[] = [];
+	if (judgement.unjudged !== undefined) {
+		notes.push(`(Relevance not judged: ${judgement.unjudged}. Ranked by distance alone.)`);
+	}
+	const refused = judgement.refused ?? 0;
 	if (found.length === 0) {
-		return "No conversation holds anything relevant to that.";
+		// Distance admitted something here, so "nothing relevant" would hide
+		// that the judge is what said so.
+		const empty =
+			refused > 0
+				? `No conversation holds anything relevant to that: the relevance judge ` +
+					`refused ${refused} ${refused === 1 ? "turn" : "turns"} that distance admitted.`
+				: "No conversation holds anything relevant to that.";
+		return [empty, ...notes].join("\n\n");
+	}
+	if (refused > 0) {
+		notes.push(
+			`(The relevance judge refused ${refused} more ` +
+				`${refused === 1 ? "turn" : "turns"} that distance admitted.)`,
+		);
 	}
 
-	return found
+	const hits = found
 		.map((hit) => {
 			const where = hit.codebase ? `${hit.codebase} ` : "";
 			// Filtered on the text, before it is decorated with a role: a tool
@@ -536,4 +568,5 @@ export function renderSearch(found: FoundTurn[]): string {
 			);
 		})
 		.join("\n\n");
+	return [hits, ...notes].join("\n\n");
 }
