@@ -1,5 +1,7 @@
 # The default Thread Store is embedded, with a server as the escape hatch
 
+Superseded by ADR-0008: concurrent sessions corrupted the single-process embedded store, and the Thread Store is now a Postgres server.
+
 The Thread Store's runtime only ever needed a connection, not a server the operator ran. Making that connection an embedded database removes the last external dependency of a fresh install. The store is PGlite — real Postgres compiled to WASM with an official pgvector build — running in the extension's own process and persisting to `~/.pi-chart/store`. It is the default, used whenever `PICHART_DATABASE_URL` is unset; a supplied URL selects a Postgres server instead.
 
 PGlite runs the same SQL dialect and the same pgvector index as a server, so the schema, migrations, and queries stay one `PostgresStore` behind an `Sql` interface that both a WASM database and a `bun:SQL` server connection satisfy. The backend moves where content lives, not what can be retrieved.

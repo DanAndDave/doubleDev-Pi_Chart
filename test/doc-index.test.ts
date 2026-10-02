@@ -62,7 +62,7 @@ describeStore("the concept index", () => {
 
 	beforeAll(async () => {
 		// The Store and the raw handle placing rows by hand share one
-		// connection: the embedded store is single-writer, so a second
+		// connection: the suites' PGlite is single-writer, so a second
 		// handle would not see the Store's writes.
 		sql = location.open();
 		store = new PostgresStore(sql, new StubEmbedder());
@@ -411,7 +411,7 @@ describeStore("a concept vector and the model that made it", () => {
 	let swapped: PostgresStore;
 
 	beforeAll(async () => {
-		// Two Stores over one connection: the embedded store is
+		// Two Stores over one connection: the suites' PGlite is
 		// single-writer, so `swapped` must read what `store` wrote.
 		const sql = location.open();
 		store = new PostgresStore(sql, new StubEmbedder());
@@ -546,7 +546,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 	let sql: Sql;
 
 	beforeAll(async () => {
-		// One connection shared with the raw handle: the embedded store is
+		// One connection shared with the raw handle: the suites' PGlite is
 		// single-writer, so vectors placed by hand must be written on the
 		// same handle the Store reads through.
 		sql = location.open();
@@ -735,7 +735,7 @@ describeStore("what the concept index refused", () => {
 
 	beforeAll(async () => {
 		// One shared connection: the raw handle places the fixture vectors
-		// the single-writer Store then reads back.
+		// Store then reads back, PGlite being single-writer.
 		sql = location.open();
 		store = new PostgresStore(sql, new StubEmbedder());
 		await store.migrate();
@@ -997,7 +997,7 @@ describeStore("a candidate set nothing can reorder", () => {
 
 	beforeAll(async () => {
 		// One shared connection: the raw handle reindexes the same rows the
-		// single-writer Store queries.
+		// Store queries, PGlite being single-writer.
 		sql = location.open();
 		store = new PostgresStore(sql, new StubEmbedder());
 		await store.migrate();

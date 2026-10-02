@@ -1,10 +1,11 @@
 import { SQL } from "bun";
+import { join } from "node:path";
 
 /**
  * The slice of Bun's `SQL` that the Thread Store actually uses, named so a
  * second backend can stand behind the same handle. The store is written
- * against this interface; `bunSql` wraps a server connection and
- * `pglite-sql` wraps an embedded one, and neither the store nor its query
+ * against this interface; `bunSql` wraps a server connection, and the test
+ * suites wrap an in-process PGlite, and neither the store nor its query
  * sites know which they hold.
  */
 export interface Sql {
@@ -45,10 +46,53 @@ export interface SqlQuery<Row = any>
 	compile(): { text: string; params: unknown[] };
 }
 
+/** What Bun's `SQL` is constructed from for a Unix-socket connection. */
+export interface SocketOptions {
+	path: string;
+	username: string;
+	password: string | undefined;
+	database: string;
+}
+
+/**
+ * The socket file a Postgres server listening on `port` makes in
+ * `directory`, which is where libpq's `host=<directory>` points.
+ */
+export function socketFile(directory: string, port: string | number = 5432): string {
+	return join(directory, `.s.PGSQL.${port}`);
+}
+
+/**
+ * What to hand Bun's `SQL` for a connection string. A saved connection is
+ * one string a person can also hand to `psql`, so a Unix socket is written
+ * the libpq way, `postgres://me@localhost:5432/pi_chart?host=/run/postgresql`.
+ * Bun refuses every socket URL form and accepts a socket path, so a `host`
+ * naming a directory becomes that directory's `.s.PGSQL.<port>`; anything
+ * else is the URL unchanged.
+ */
+export function connectionOptions(url: string): string | SocketOptions {
+	const parsed = new URL(url);
+	const host = parsed.searchParams.get("host");
+	if (!host?.startsWith("/")) return url;
+	return {
+		path: socketFile(host, parsed.port || 5432),
+		username: decodeURIComponent(parsed.username),
+		password: parsed.password === "" ? undefined : decodeURIComponent(parsed.password),
+		database: decodeURIComponent(parsed.pathname.slice(1)),
+	};
+}
+
 /**
  * A server-backed handle: Bun's `SQL` already implements every member of
  * `Sql` at runtime, so the one cast lives here rather than at each call.
+ * `limits` are Bun's own connection options, for a caller that only probes.
  */
-export function bunSql(url: string): Sql {
-	return new SQL(url) as unknown as Sql;
+export function bunSql(
+	url: string,
+	limits: { connectionTimeout?: number; max?: number } = {},
+): Sql {
+	const options = connectionOptions(url);
+	return new SQL(
+		typeof options === "string" ? { url: options, ...limits } : { ...options, ...limits },
+	) as unknown as Sql;
 }

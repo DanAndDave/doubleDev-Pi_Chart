@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
 
-import type { Sql, SqlFragment, SqlQuery } from "./sql.ts";
+import type { Sql, SqlFragment, SqlQuery } from "../src/sql.ts";
 
 /**
  * What the adapter needs from a database: run parameterised SQL, run raw
@@ -200,7 +200,7 @@ function txBackendOf(tx: Queryable): PgBackend {
 }
 
 /**
- * Open an embedded store at directory `dataDir`, with pgvector loaded and
+ * Open an in-process PGlite at directory `dataDir`, with pgvector loaded and
  * its extension created. Returns an `Sql` handle synchronously; the WASM
  * database opens on first use, so construction never blocks and every call
  * sees a ready store. The directory and any missing parents are created.
@@ -210,8 +210,8 @@ export function openPglite(dataDir: string): Sql {
 }
 
 async function openDb(dataDir: string): Promise<PgBackend> {
-	// PGlite's own `mkdir` is not recursive, so a nested default like
-	// `~/.pi-chart/store` throws on a machine that has never run it.
+	// PGlite's own `mkdir` is not recursive, so a nested directory throws
+	// unless its parents are made first.
 	await mkdir(dataDir, { recursive: true });
 	const db = await PGlite.create(dataDir, { extensions: { vector } });
 	await db.exec("CREATE EXTENSION IF NOT EXISTS vector;");

@@ -1,5 +1,6 @@
 import type { AssemblerConfig } from "./assembler.ts";
 
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -42,27 +43,19 @@ export interface Config {
 	 */
 	docMaxDistance: number;
 	/**
-	 * A server-backed Thread Store the operator supplied by pointing
-	 * `PICHART_DATABASE_URL` at it. Absent by default: with no setting the
-	 * store is embedded (see `storeDir`), and an empty setting declines a
-	 * store outright. Present only when `storeOrigin` is `supplied`.
+	 * The Thread Store's connection: the server `PICHART_DATABASE_URL` names,
+	 * or the one `/pi-chart setup` found and saved. Present only when
+	 * `storeOrigin` is `supplied` or `saved`.
 	 */
 	databaseUrl?: string;
 	/**
-	 * Where the Thread Store comes from. `own` is the embedded store this
-	 * project runs in-process and persists under `storeDir`, needing no
-	 * server; `supplied` is a pgvector Postgres the operator pointed
-	 * `PICHART_DATABASE_URL` at — a system package, Postgres.app, or a hosted
-	 * one; `declined` is an empty setting, a deliberate refusal. The store is
-	 * embedded unless a setting says otherwise.
+	 * Where the Thread Store comes from. `supplied` is a pgvector Postgres the
+	 * operator pointed `PICHART_DATABASE_URL` at; `saved` is the one setup
+	 * settled on and wrote to `SAVED_URL_PATH`; `unset` is neither, a fresh
+	 * install before setup, which connects to nothing rather than guess;
+	 * `declined` is an empty setting, a deliberate refusal.
 	 */
-	storeOrigin: "own" | "supplied" | "declined";
-	/**
-	 * Where the embedded store keeps its data, so it outlives the process.
-	 * Used only when `storeOrigin` is `own`; overridable with
-	 * `PICHART_STORE_DIR`.
-	 */
-	storeDir: string;
+	storeOrigin: "supplied" | "saved" | "unset" | "declined";
 	/** Where the machine-wide Doc Store bundle lives. */
 	docBundle: string;
 	/**
@@ -157,14 +150,34 @@ export const DEFAULT_GRAPH_SYMBOLS = 3;
 export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 /**
  * The connection string for the Postgres `compose.yaml` serves, on the port
- * it publishes. The extended default store is embedded and reads no port;
- * this exists so the operator can point `PICHART_DATABASE_URL` at the bundled
- * container when they want a server, and so a test can check the compose file
- * and this string still name the same store.
+ * it publishes: the candidate setup tries last among running servers, and
+ * the one it starts when none answers. A test checks the compose file and
+ * this string still name the same store.
  */
 export const DEFAULT_PG_PORT = 55432;
 export function defaultDatabaseUrl(port: number = DEFAULT_PG_PORT): string {
 	return `postgres://pi_chart:pi_chart@localhost:${port}/thread_store`;
+}
+
+/**
+ * Where setup saves the connection it settled on, so every later session
+ * uses the same server. Readable only by the operator: a compose or
+ * `PGPASSWORD` candidate carries a password.
+ */
+export const SAVED_URL_PATH = join(homedir(), ".pi-chart", "database.url");
+
+/**
+ * The connection setup saved, or nothing when there is none. Read by the
+ * caller and passed to `loadConfig`, so `loadConfig` stays a function of
+ * its arguments and a test never reads the operator's own file.
+ */
+export function readSavedUrl(path: string = SAVED_URL_PATH): string | undefined {
+	try {
+		const url = readFileSync(path, "utf8").trim();
+		return url === "" ? undefined : url;
+	} catch {
+		return undefined;
+	}
 }
 export const DEFAULT_TAIL_TOKENS = 25_000;
 export const DEFAULT_RECALL_TOKENS = 8_000;
@@ -221,7 +234,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_OPENSPEC",
 	"PICHART_PACK_TOKENS",
 	"PICHART_PACK_WARN_SHARE",
-	"PICHART_STORE_DIR",
+	"PICHART_PG_PORT",
 	"PICHART_RECALL_DEADLINE_MS",
 	"PICHART_RECALL_MAX_DISTANCE",
 	"PICHART_RECALL_TOKENS",
@@ -233,7 +246,15 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_TAIL_TURNS",
 ];
 
-export function loadConfig(env: Record<string, string | undefined>): Config {
+/**
+ * The settings, from the environment and the connection setup saved.
+ * `PICHART_DATABASE_URL` wins over `saved`, and an empty one declines the
+ * store outright.
+ */
+export function loadConfig(
+	env: Record<string, string | undefined>,
+	saved?: string,
+): Config {
 	const problems: string[] = [];
 	// Nothing reads a `CM_` variable. A session started with one would run
 	// on defaults while looking configured, which is the undiagnosable
@@ -250,6 +271,25 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 				: `${name} is not read: this is pi-chart now, and its settings are named PICHART_*.`,
 		);
 	}
+	// The embedded store this named a directory for is gone; a session
+	// started with it set would look configured and use nothing it says.
+	// Tested by name rather than read: nothing reads it, so it is not in
+	// `SETTINGS`.
+	if ("PICHART_STORE_DIR" in env) {
+		problems.push(
+			"PICHART_STORE_DIR is not read: the Thread Store is a Postgres server now; " +
+				"run `/pi-chart setup`.",
+		);
+	}
+	const supplied = env.PICHART_DATABASE_URL;
+	const storeOrigin: Config["storeOrigin"] =
+		supplied === ""
+			? "declined"
+			: supplied !== undefined
+				? "supplied"
+				: saved
+					? "saved"
+					: "unset";
 	return {
 		problems,
 		tailTurns: count(env.PICHART_TAIL_TURNS, DEFAULT_TAIL_TURNS),
@@ -264,16 +304,12 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
 		specsVerify: env.PICHART_SPECS !== "off",
 		docMaxDistance: distance(env.PICHART_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl:
-			env.PICHART_DATABASE_URL === undefined || env.PICHART_DATABASE_URL === ""
-				? undefined
-				: env.PICHART_DATABASE_URL,
-		storeOrigin:
-			env.PICHART_DATABASE_URL === undefined
-				? "own"
-				: env.PICHART_DATABASE_URL === ""
-					? "declined"
-					: "supplied",
-		storeDir: env.PICHART_STORE_DIR || join(homedir(), ".pi-chart", "store"),
+			storeOrigin === "supplied"
+				? supplied
+				: storeOrigin === "saved"
+					? saved
+					: undefined,
+		storeOrigin,
 		docBundle:
 			env.PICHART_DOC_BUNDLE ?? join(homedir(), ".pi-chart", "bundle"),
 		tailTokens: count(env.PICHART_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),

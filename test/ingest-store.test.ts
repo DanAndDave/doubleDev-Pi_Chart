@@ -1,7 +1,7 @@
 // Store-backed: what a sweep writes, and what it refuses to write again.
 // Both are claims about real SQL — statements issued, rows left alone — so a
-// fake would only prove our arithmetic. Runs on the embedded store by
-// default, or the server `PICHART_DATABASE_URL` names.
+// fake would only prove our arithmetic. Runs on PGlite, in-process, by
+// default, or on the server `PICHART_DATABASE_URL` names.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 

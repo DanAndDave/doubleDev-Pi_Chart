@@ -95,7 +95,9 @@ export function settings(fields: Partial<Config>): Config {
 	// complete value widens every field it mentions back to optional, and an
 	// explicit `undefined` in the override would erase a default rather than
 	// leave it alone.
-	const config = loadConfig({});
+	// As a set-up install: a harness wires its stores in directly, and a
+	// session that announced setup on every start would be testing that.
+	const config = loadConfig({}, "postgres://unused@localhost/pi_chart");
 	for (const [key, value] of Object.entries(fields)) {
 		if (value === undefined) continue;
 		(config as unknown as Record<string, unknown>)[key] = value;

@@ -2320,26 +2320,34 @@ describe("the graph store in a session", () => {
 	});
 });
 
-describe("wiring a session that declined the thread store", () => {
-	/** The extension as the harness loads it, with no database configured. */
-	function loaded(url: string): Record<string, CommandDefinition> {
+describe("wiring a session without a usable thread store", () => {
+	/** The extension as the harness loads it, with `url` as the store setting. */
+	function loaded(url: string): {
+		commands: Record<string, CommandDefinition>;
+		handlers: Record<string, LifecycleHandler>;
+		warned: string[];
+	} {
 		const commands: Record<string, CommandDefinition> = {};
+		const handlers: Record<string, LifecycleHandler> = {};
+		const warned: string[] = [];
 		const before = process.env.PICHART_DATABASE_URL;
 		process.env.PICHART_DATABASE_URL = url;
 		try {
 			piChart({
-				on: () => {},
+				on: (event: string, handler: LifecycleHandler) => {
+					handlers[event] = handler;
+				},
 				registerCommand: (name: string, command: CommandDefinition) => {
 					commands[name] = command;
 				},
 				registerTool: () => {},
-				logger: { info() {}, warn() {} },
+				logger: { info() {}, warn: (message: string) => warned.push(message) },
 			} as unknown as ExtensionAPI);
 		} finally {
 			if (before === undefined) delete process.env.PICHART_DATABASE_URL;
 			else process.env.PICHART_DATABASE_URL = before;
 		}
-		return commands;
+		return { commands, handlers, warned };
 	}
 
 	/** What a command wrote, which without a UI is this process's stdout. */
@@ -2361,13 +2369,73 @@ describe("wiring a session that declined the thread store", () => {
 	test("the graph store is registered whether or not a database is", async () => {
 		// Structure is derived from the Codebase alone: declining the
 		// record of what happened cannot withdraw it.
-		const commands = loaded("");
+		const { commands } = loaded("");
 		const written = await said(
 			commands["pi-chart"]?.handler("", {}) ?? Promise.resolve(),
 		);
 
 		expect(written).toContain("codebase graph");
 		expect(written).not.toContain("unavailable");
+	});
+
+	test("a store that never opened shuts down without raising", async () => {
+		const { handlers, warned } = loaded("postgres://nobody@127.0.0.1:1/pi_chart");
+		const ctx = { sessionManager: { getSessionId: () => "never-opened" } } as unknown as HandlerContext;
+
+		await handlers.session_start?.({}, ctx);
+		await handlers.session_shutdown?.({}, ctx);
+
+		// Reported once, at start, with the fix for where it came from.
+		expect(warned.some((message) => message.includes("PICHART_DATABASE_URL"))).toBe(true);
+	});
+
+	test("with nothing configured or saved, the session says to run setup, once", async () => {
+		// Its own process, with a home holding no saved connection: the one
+		// read `piChart` makes is of the operator's real file otherwise.
+		const home = await mkdtemp(join(tmpdir(), "pi-home-"));
+		const extension = join(import.meta.dir, "..", "src", "extension.ts");
+		const script = `
+			const { default: piChart } = await import(${JSON.stringify(extension)});
+			const handlers = {}, notified = [], warned = [];
+			piChart({
+				on: (event, handler) => { handlers[event] = handler; },
+				registerCommand: () => {},
+				registerTool: () => {},
+				logger: { info() {}, warn: (message) => warned.push(message) },
+			});
+			const ctx = {
+				ui: { notify: (message) => notified.push(message) },
+				sessionManager: { getSessionId: () => "fresh-install" },
+			};
+			// Twice, as a resumed session starts again: said once all the same.
+			await handlers.session_start({}, ctx);
+			await handlers.session_start({}, ctx);
+			console.log(JSON.stringify({ notified, warned }));
+			process.exit(0);
+		`;
+		const env: Record<string, string | undefined> = { ...process.env, HOME: home };
+		delete env.PICHART_DATABASE_URL;
+		const child = Bun.spawn([process.execPath, "-e", script], {
+			env,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [out, err, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		expect({ code, err }).toEqual({ code: 0, err: "" });
+		const { notified, warned } = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as {
+			notified: string[];
+			warned: string[];
+		};
+
+		const setup = notified.filter((message) => message.includes("/pi-chart setup"));
+		expect(setup).toHaveLength(1);
+		expect(setup[0]).toContain("not set up");
+		// Nothing was dialled, so nothing failed to connect.
+		expect(warned.filter((message) => message.includes("unavailable"))).toEqual([]);
 	});
 });
 

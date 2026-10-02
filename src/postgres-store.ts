@@ -1,5 +1,5 @@
 import type { Config } from "./config.ts";
-import { openPglite } from "./pglite-sql.ts";
+
 import { bunSql, type Sql } from "./sql.ts";
 
 import {
@@ -318,6 +318,13 @@ export const MIGRATION_VERSIONS: number[] = MIGRATIONS.map(
 	(migration) => migration.version,
 );
 
+/**
+ * The advisory lock key every session migrates under. Any constant does,
+ * so long as nothing else on a shared server picks it: this is "pich" as
+ * ASCII, inside 32 bits so the driver binds it exactly.
+ */
+const MIGRATION_LOCK = 0x70696368;
+
 /** `jsonb` arrives as text from the driver, so it is decoded on read. */
 type JsonColumn = string | unknown;
 
@@ -382,36 +389,43 @@ export class PostgresStore implements
 	}
 
 	/**
-	 * The store the configuration asks for, or nothing when it is declined.
-	 * `own` opens the embedded store at `config.storeDir`; `supplied` dials
-	 * the server the operator named; `declined` returns undefined, leaving the
-	 * caller on the harness's own history.
+	 * The store the configuration asks for, or nothing. `supplied` dials the
+	 * server the operator named and `saved` the one setup settled on; a
+	 * `declined` store and one not yet set up return undefined, leaving the
+	 * caller on the harness's own history rather than on a guessed server.
 	 */
 	static open(config: Config, embedder?: Embedder): PostgresStore | undefined {
-		if (config.storeOrigin === "declined") return undefined;
-		const sql =
-			config.storeOrigin === "supplied"
-				? bunSql(config.databaseUrl ?? "")
-				: openPglite(config.storeDir);
-		return new PostgresStore(sql, embedder);
+		if (config.storeOrigin === "declined" || config.storeOrigin === "unset") return undefined;
+		return new PostgresStore(bunSql(config.databaseUrl ?? ""), embedder);
 	}
 
+	/**
+	 * Applies every migration not yet applied, once between all the sessions
+	 * connecting at the same time. One transaction under an advisory lock:
+	 * a second session waits, then finds every version recorded and does
+	 * nothing; a version that fails part-way leaves nothing behind. Session
+	 * locks are not used because a crash between lock and unlock on a pooled
+	 * connection would leak one.
+	 */
 	async migrate(): Promise<void> {
-		await this.sql`CREATE TABLE IF NOT EXISTS schema_migrations (
-			version     INTEGER PRIMARY KEY,
-			applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-		)`;
+		await this.sql.begin(async (tx) => {
+			await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK}::bigint)`;
+			await tx`CREATE TABLE IF NOT EXISTS schema_migrations (
+				version     INTEGER PRIMARY KEY,
+				applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+			)`;
 
-		const applied = await this.sql`SELECT version FROM schema_migrations`;
-		const done = new Set(applied.map((row: { version: number }) => row.version));
+			const applied = await tx`SELECT version FROM schema_migrations`;
+			const done = new Set(applied.map((row: { version: number }) => row.version));
 
-		for (const migration of MIGRATIONS) {
-			if (done.has(migration.version)) continue;
-			for (const statement of migration.statements) {
-				await this.sql.unsafe(statement);
+			for (const migration of MIGRATIONS) {
+				if (done.has(migration.version)) continue;
+				for (const statement of migration.statements) {
+					await tx.unsafe(statement);
+				}
+				await tx`INSERT INTO schema_migrations ${tx({ version: migration.version })}`;
 			}
-			await this.sql`INSERT INTO schema_migrations ${this.sql({ version: migration.version })}`;
-		}
+		});
 	}
 
 	async close(): Promise<void> {

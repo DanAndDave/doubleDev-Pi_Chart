@@ -7,6 +7,9 @@ services:
   thread-store:
     image: pgvector/pgvector:pg17
     container_name: pi-chart-thread-store
+    # Up again after a reboot or a Docker restart: sessions started then use
+    # the saved connection and would otherwise find nothing there.
+    restart: unless-stopped
     environment:
       POSTGRES_USER: pi_chart
       POSTGRES_PASSWORD: pi_chart

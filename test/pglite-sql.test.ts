@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { makeSql, type PgBackend } from "../src/pglite-sql.ts";
+import { makeSql, type PgBackend } from "./pglite-sql.ts";
 
 /** A backend that records nothing runs; compile-only tests never execute. */
 function inertBackend(): PgBackend {

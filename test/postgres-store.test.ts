@@ -1,6 +1,6 @@
 // Store-backed seam: "the schema applies" and "SQL returns turns in order"
-// mean nothing against a fake, so these run against a real store — the
-// embedded one by default, or the server `PICHART_DATABASE_URL` names.
+// mean nothing against a fake, so these run against a real store — PGlite,
+// in-process, by default, or the server `PICHART_DATABASE_URL` names.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
@@ -9,7 +9,7 @@ import { loadConfig } from "../src/config.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import { readJournal } from "../src/journal.ts";
 import { MIGRATION_VERSIONS, PostgresStore } from "../src/postgres-store.ts";
-import type { Sql } from "../src/sql.ts";
+import { bunSql, type Sql } from "../src/sql.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import { budgets } from "./fixtures.ts";
 import { storeLocation } from "./store-support.ts";
@@ -70,7 +70,7 @@ describeStore("PostgresStore", () => {
 	});
 
 	test("what one process ingested, a later process reads", async () => {
-		// The embedded store persists to its data directory: a fresh handle
+		// PGlite persists to its data directory: a fresh handle
 		// after close stands in for a later process. On a server it is simply
 		// a second connection. Either way, durability is observable.
 		const durable = storeLocation();
@@ -108,7 +108,7 @@ describeStore("PostgresStore", () => {
 			},
 		]);
 
-		// Read back through the same store: the embedded store is single-writer,
+		// Read back through the same store: the suites' PGlite is single-writer,
 		// so a later process is modelled by close-and-reopen, not a live second
 		// connection. This asserts what was recorded survives a read-back.
 		const [turn] = await store.readAccounting("conv-1");
@@ -201,7 +201,7 @@ describeStore("PostgresStore", () => {
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		// Read back through the same store: the reasons a pack was reduced have
-		// to outlive the Call that recorded them. Embedded is single-writer, so
+		// to outlive the Call that recorded them. PGlite is single-writer, so
 		// durability across processes is covered by close-and-reopen elsewhere.
 		const [turn] = await store.readAccounting("conv-1");
 		const call = turn?.calls[0];
@@ -215,7 +215,7 @@ describeStore("PostgresStore", () => {
 });
 
 describeStore("the call a message came from", () => {
-	// One connection, shared: the embedded store is single-writer, so a
+	// One connection, shared: the suites' PGlite is single-writer, so a
 	// separate handle would not see this store's writes. The raw `sql` reads
 	// through the very handle the store wrote through.
 	let calls: PostgresStore;
@@ -337,20 +337,86 @@ describe("the schema's declared order", () => {
 });
 
 describe("choosing a store backend", () => {
-	// `open` picks the backend from `storeOrigin` without connecting: the
-	// embedded and server handles both open lazily, on first query.
+	// `open` dials lazily, on first query, so these connect to nothing.
 	test("a declined store is no store at all", () => {
 		expect(
 			PostgresStore.open(loadConfig({ PICHART_DATABASE_URL: "" })),
 		).toBeUndefined();
 	});
 
-	test("the default and a supplied URL each yield a store", () => {
-		expect(PostgresStore.open(loadConfig({}))).toBeInstanceOf(PostgresStore);
+	test("a store not yet set up is no store either, not a guess", () => {
+		expect(PostgresStore.open(loadConfig({}))).toBeUndefined();
+	});
+
+	test("a supplied and a saved url each yield a store", () => {
 		expect(
-			PostgresStore.open(
-				loadConfig({ PICHART_DATABASE_URL: "postgres://x/y" }),
-			),
+			PostgresStore.open(loadConfig({ PICHART_DATABASE_URL: "postgres://x/y" })),
 		).toBeInstanceOf(PostgresStore);
+		expect(PostgresStore.open(loadConfig({}, "postgres://x/y"))).toBeInstanceOf(
+			PostgresStore,
+		);
+	});
+});
+
+// Two sessions are two processes, each with its own connection; only a
+// server can stand for that, so these need PICHART_DATABASE_URL.
+const server = process.env.PICHART_DATABASE_URL;
+const describeServer = server ? describe : describe.skip;
+
+describeServer("sessions sharing one server", () => {
+	const scratch = `pi_chart_sessions_${process.pid}`;
+	let fresh: string;
+	let admin: Sql;
+
+	beforeAll(async () => {
+		admin = bunSql(server as string);
+		await admin.unsafe(`CREATE DATABASE ${scratch}`);
+		const url = new URL(server as string);
+		url.pathname = `/${scratch}`;
+		fresh = url.toString();
+	});
+
+	afterAll(async () => {
+		await admin.unsafe(`DROP DATABASE IF EXISTS ${scratch} WITH (FORCE)`);
+		await admin.end();
+	});
+
+	test("two sessions migrating an empty database at once each record a version once", async () => {
+		const first = new PostgresStore(bunSql(fresh));
+		const second = new PostgresStore(bunSql(fresh));
+		try {
+			await Promise.all([first.migrate(), second.migrate()]);
+
+			const reader = bunSql(fresh);
+			try {
+				const rows = await reader`
+					SELECT version, count(*)::int AS times FROM schema_migrations GROUP BY version`;
+				expect(rows.map((row: { version: number }) => row.version).sort((a: number, b: number) => a - b)).toEqual(
+					[...MIGRATION_VERSIONS],
+				);
+				expect(rows.every((row: { times: number }) => row.times === 1)).toBe(true);
+			} finally {
+				await reader.end();
+			}
+		} finally {
+			await first.close();
+			await second.close();
+		}
+	});
+
+	test("each session reads back the Turns the other ingested", async () => {
+		const journal = await readJournal(JOURNAL_FIXTURE);
+		const first = new PostgresStore(bunSql(fresh));
+		const second = new PostgresStore(bunSql(fresh));
+		try {
+			await Promise.all([first.migrate(), second.migrate()]);
+			await Promise.all([first.ingest("first", journal), second.ingest("second", journal)]);
+
+			expect(await first.recentTurns("second", 100)).toHaveLength(3);
+			expect(await second.recentTurns("first", 100)).toHaveLength(3);
+		} finally {
+			await first.close();
+			await second.close();
+		}
 	});
 });

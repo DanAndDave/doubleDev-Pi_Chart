@@ -20,6 +20,7 @@ import {
 import {
 	assemblerConfig,
 	loadConfig,
+	readSavedUrl,
 	setBudget,
 	type Config,
 } from "./config.ts";
@@ -313,6 +314,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const warnedNearCeiling = new Set<string>();
 	/** Said once a session: a Codebase with no graph is a condition, not an event. */
 	let missingGraphReported = false;
+	/** Said once: a store not set up is a condition, not an event. */
+	let setupAnnounced = false;
 	/** Said once: an index mid-swap is a condition, not a per-Call event. */
 	let unsearchedConceptsReported = false;
 	/** The whole-bundle indexing pass, so authoring can wait rather than race it. */
@@ -421,6 +424,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// force; retention in particular would be believed to be bounding a
 		// Store it never touched.
 		for (const problem of deps.config.problems) announce(problem);
+		// Before setup there is no store and none was guessed at. Said where
+		// it is seen, once: a resumed session starts again, and the fix is
+		// the same command either way.
+		if (deps.config.storeOrigin === "unset" && !setupAnnounced) {
+			setupAnnounced = true;
+			announce(
+				"The Thread Store is not set up, so nothing is recorded or recalled. " +
+					"Run `/pi-chart setup`.",
+			);
+		}
 
 		// Resolved whether or not judging is on, so `pi-chart judge auto`
 		// can turn it on mid-session. Resolving contacts nobody; only a
@@ -1819,7 +1832,7 @@ async function resolveJudge(
 }
 
 export default function piChart(pi: ExtensionAPI): void {
-	const config = loadConfig(process.env);
+	const config = loadConfig(process.env, readSavedUrl());
 
 	// Everything a Codebase alone can serve is unconditional: structure is
 	// derived from the Codebase, the bundle from disk, the Spec Store from
@@ -1841,8 +1854,8 @@ export default function piChart(pi: ExtensionAPI): void {
 	const embedder = new LocalEmbedder();
 	const store = PostgresStore.open(config, embedder);
 	if (!store) {
-		// A declined store: the Assembler still owns the window; the tail
-		// simply comes from the harness's own history, as it did before, and
+		// Declined, or not set up yet: the Assembler still owns the window;
+		// the tail simply comes from the harness's own history, and
 		// Accounting is held in memory so `/pack` still answers in-session.
 		register(pi, {
 			...shared,
@@ -1851,15 +1864,17 @@ export default function piChart(pi: ExtensionAPI): void {
 		});
 		return;
 	}
+	let opened = true;
 	const ready = store.migrate().catch((error: unknown) => {
+		opened = false;
 		// Naming the fix matters more than naming the error: a store that
 		// will not open means nothing is recorded and nothing is recalled.
-		// The embedded store fails only on a bad data directory; a supplied
-		// one, on a server that is not up.
+		// A supplied server is the operator's to bring up; a saved one is
+		// setup's to find again.
 		const fix =
 			config.storeOrigin === "supplied"
 				? `Check PICHART_DATABASE_URL and that its Postgres is up.`
-				: `Check PICHART_STORE_DIR is writable.`;
+				: "Run `/pi-chart setup` to find a server again.";
 		pi.logger.warn(
 			`[pi-chart] Thread Store unavailable, so nothing is recorded or recalled. ` +
 				`${fix} (${describe(error)})`,
@@ -1885,7 +1900,13 @@ export default function piChart(pi: ExtensionAPI): void {
 			// the embedder's worker is a process that must not outlive the
 			// session either way.
 			try {
-				await store.close();
+				await ready;
+				// A store that never opened was reported at start; its close
+				// re-raising that failure would only report it again, as an
+				// error at exit.
+				await store.close().catch((error: unknown) => {
+					if (opened) throw error;
+				});
 			} finally {
 				embedder.close();
 			}
