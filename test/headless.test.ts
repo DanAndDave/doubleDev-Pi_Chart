@@ -270,9 +270,9 @@ describeGraph("codebase structure against a live model", () => {
 			};
 			if (process.env.PICHART_BUN) env.PICHART_BUN = process.env.PICHART_BUN;
 
-			// Extracted here and awaited, so the run measures retrieval
-			// rather than whether background extraction finished in time.
-			await new GraphStore().refresh(cwd);
+			// Extracted here and awaited to the end of the run, so the run
+			// measures retrieval rather than whether extraction finished.
+			await (await new GraphStore().refresh(cwd)).finished;
 
 			const run = await runHeadless({
 				cwd,

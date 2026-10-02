@@ -31,7 +31,7 @@ import {
 	type DocWalk,
 	type WriteOutcome,
 } from "./doc-store.ts";
-import { GraphStore } from "./graph-store.ts";
+import { type Extraction, GraphStore } from "./graph-store.ts";
 import { type Check, describeChecks, Installation } from "./install.ts";
 import { describeTree, SpecStore } from "./spec-store.ts";
 import {
@@ -314,6 +314,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const warnedNearCeiling = new Set<string>();
 	/** Said once a session: a Codebase with no graph is a condition, not an event. */
 	let missingGraphReported = false;
+	/** Said once a session: graphify will refuse every refresh until someone acts. */
+	let sizeCapReported = false;
+	/**
+	 * The launch of the refresh this session asked for last, so ending the
+	 * session can let it start. Never the run itself: that outlives us.
+	 */
+	let lastLaunch: Promise<void> | undefined;
 	/** Said once: a store not set up is a condition, not an event. */
 	let setupAnnounced = false;
 	/** Said once: an index mid-swap is a condition, not a per-Call event. */
@@ -460,8 +467,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		if (deps.graph && deps.config.graphExtract) {
+			// A run that ended after its session did was seen by nobody.
+			inBackground("Graph Store extraction", reportExtractionFailure());
 			// Background, like Doc Store indexing: extracting a Codebase is
-			// seconds of work a first prompt must not wait for.
+			// seconds to minutes of work a first prompt must not wait for.
 			extract();
 		}
 
@@ -658,24 +667,55 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// being frozen. Notification-only and in the background, so nothing
 		// the user waits on grows; extraction is content-hash incremental,
 		// so an unchanged tree costs a scan rather than a build.
-		if (deps.config.graphExtract) extract();
+		if (deps.config.graphExtract) {
+			inBackground("Graph Store extraction", reportExtractionFailure());
+			extract();
+		}
 		await store(conversationId);
 	});
 
 	/**
-	 * Brings the Codebase's graph up to date, off the request path.
-	 *
-	 * Returns the work so shutdown can wait for it: measured on a headless
-	 * run, the refresh started at `agent_end` was still running when the
-	 * process exited, leaving the graph older than the edit that Turn had
-	 * just made.
+	 * Asks for the Codebase's graph to be brought up to date, off the
+	 * request path. The extraction runs detached and may outlive this
+	 * session; its failure is reported here if it ends while the session is
+	 * open, and by the next session otherwise.
 	 */
-	function extract(): Promise<void> {
+	function extract(): void {
 		const graph = deps.graph;
-		if (!graph) return Promise.resolve();
-		const work = graph.refresh(deps.codebase ?? process.cwd());
-		inBackground("Graph Store extraction", work);
-		return work.catch(() => undefined);
+		if (!graph) return;
+		const launching = graph.refresh(deps.codebase ?? process.cwd());
+		lastLaunch = launching.then(
+			() => undefined,
+			() => undefined,
+		);
+		inBackground(
+			"Graph Store extraction",
+			launching.then((launch) => {
+				inBackground(
+					"Graph Store extraction",
+					launch.finished.then(reportExtractionFailure),
+				);
+			}),
+		);
+	}
+
+	/**
+	 * Says how the last extraction failed, if it did and no session has said
+	 * so yet. A graph over graphify's size cap is announced once a session:
+	 * every later refresh is refused the same way until someone acts.
+	 */
+	async function reportExtractionFailure(): Promise<void> {
+		const graph = deps.graph;
+		if (!graph) return;
+		const failure = await graph.takeFailure(deps.codebase ?? process.cwd());
+		if (!failure) return;
+		if (failure.kind !== "size-cap") {
+			deps.report(`Graph Store extraction failed: ${failure.message}`);
+			return;
+		}
+		if (sizeCapReported) return;
+		sizeCapReported = true;
+		announce(failure.message);
 	}
 
 	// `agent_end` is notification-only: the harness does not wait for it, so a
@@ -688,10 +728,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// Store then refused every new client.
 		try {
 			await store(conversationOf(ctx));
-			// The extraction `agent_end` began, given the chance to finish:
-			// `refresh` returns the one already running for this Codebase,
-			// so this waits rather than extracting twice.
-			if (deps.config.graphExtract) await extract();
+			// The refresh the last Turn asked for, given the chance to
+			// start: measured on a headless run, a process that exited
+			// first left the graph older than the edit that Turn made. Its
+			// run is not waited for; it outlives the session by design.
+			await lastLaunch;
 			await retire();
 		} finally {
 			await deps.close?.();
@@ -1248,7 +1289,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				memoryBackend,
 				deps.graph !== undefined,
 			);
-			return `${describeChecks(done)}\n\nNow:\n${describeChecks(withJudge(after))}`;
+			return `${describeChecks(done)}\n\nNow:\n${describeChecks(
+				withJudge(await withExtraction(after)),
+			)}`;
 		}
 		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
 		if (verb === "judge") return switchJudge(rest.join(" "));
@@ -1261,8 +1304,40 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 		return describeChecks(
 			withJudge(
-				await install.check(deps.config, memoryBackend, deps.graph !== undefined),
+				await withExtraction(
+					await install.check(deps.config, memoryBackend, deps.graph !== undefined),
+				),
 			),
+		);
+	}
+
+	/**
+	 * The codebase graph line, with whether an extraction is running and
+	 * how the last one ended. Session state, like the judge's, so it is
+	 * added here rather than known to `Installation`.
+	 */
+	async function withExtraction(checks: Check[]): Promise<Check[]> {
+		const graph = deps.graph;
+		if (!graph || !deps.config.graphExtract) return checks;
+		const said: string[] = [];
+		try {
+			const state = await graph.extraction(deps.codebase ?? process.cwd());
+			if (state.running) said.push(`extracting since ${clock(state.running.since)}`);
+			if (state.last) {
+				said.push(
+					state.last.failure
+						? `last run failed: ${state.last.failure}`
+						: `last run: ok at ${clock(state.last.endedAt)}`,
+				);
+			}
+		} catch (error) {
+			said.push(`run state unknown: ${describe(error)}`);
+		}
+		if (said.length === 0) return checks;
+		return checks.map((check) =>
+			check.name === "codebase graph"
+				? { ...check, detail: `${check.detail}; ${said.join("; ")}` }
+				: check,
 		);
 	}
 
@@ -1651,14 +1726,31 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * Said once when a structure Budget is set and there is no graph to
 	 * serve it: an empty part with no explanation reads as a Codebase with
 	 * no structure worth carrying, which is a different thing entirely.
+	 *
+	 * Asked of the runner off the Call path, since it is a subprocess:
+	 * a first extraction still running is a wait, not a missing setting.
 	 */
 	function reportMissingGraph(): void {
 		if (missingGraphReported) return;
 		missingGraphReported = true;
-		announce(
-			`Structure is configured (${deps.config.graphSymbols} symbols) but this ` +
-				`codebase has no graph; run with PICHART_GRAPH=on to derive one, or set ` +
-				`PICHART_GRAPH_SYMBOLS=0 to stop asking for it.`,
+		const graph = deps.graph;
+		const codebase = deps.codebase ?? process.cwd();
+		inBackground(
+			"Graph Store status",
+			(async () => {
+				const running = graph
+					? (await graph.extraction(codebase).catch((): Extraction => ({}))).running
+					: undefined;
+				announce(
+					running
+						? `Structure is configured but this codebase's first extraction is ` +
+								`still running (started ${clock(running.since)}); structure ` +
+								`arrives when it finishes.`
+						: `Structure is configured (${deps.config.graphSymbols} symbols) but this ` +
+								`codebase has no graph; run with PICHART_GRAPH=on to derive one, or set ` +
+								`PICHART_GRAPH_SYMBOLS=0 to stop asking for it.`,
+				);
+			})(),
 		);
 	}
 
@@ -1797,6 +1889,13 @@ function describe(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** A time of day as the operator's clock shows it, HH:MM. */
+function clock(at: number): string {
+	const time = new Date(at);
+	const pad = (value: number) => String(value).padStart(2, "0");
+	return `${pad(time.getHours())}:${pad(time.getMinutes())}`;
+}
+
 /**
  * How a deadline waits when nothing else was injected: a timer that does
  * not hold the process open, because it bounds someone else's slowness and
@@ -1842,7 +1941,7 @@ export default function piChart(pi: ExtensionAPI): void {
 	const shared = {
 		config,
 		assemble: defaultAssemble,
-		graph: new GraphStore(),
+		graph: new GraphStore({ extractDeadlineMs: config.graphExtractDeadlineMs }),
 		walk: bundle,
 		author: bundle,
 		specs: new SpecStore(),

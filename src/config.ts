@@ -34,6 +34,13 @@ export interface Config {
 	 * asked for rather than assumed.
 	 */
 	graphExtract: boolean;
+	/**
+	 * How long one extraction may run before it is stopped with every
+	 * process it started, in milliseconds; zero means no deadline. It frees
+	 * a Codebase from a hung graphify rather than limiting a Codebase's
+	 * size, since nothing waits on an extraction.
+	 */
+	graphExtractDeadlineMs: number;
 	/** Whether to check the Codebase's OpenSpec tree at all. */
 	specsVerify: boolean;
 	/**
@@ -203,6 +210,12 @@ export const DEFAULT_PACK_WARN_SHARE = 0.75;
 /** Per-Store deadlines on the `context` path, in milliseconds. */
 export const DEFAULT_TAIL_DEADLINE_MS = 1_500;
 export const DEFAULT_RETRIEVAL_DEADLINE_MS = 5_000;
+/**
+ * An hour per extraction. A cold extraction of VS Code (15,543 code files)
+ * took 470 s with 12 workers, so a smaller machine or a Codebase two or
+ * three times that size still finishes well inside it.
+ */
+export const DEFAULT_GRAPH_EXTRACT_DEADLINE_MS = 3_600_000;
 
 /**
  * Every setting this reads, by name, so a variable written for the old
@@ -227,6 +240,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_GRAPH",
 	"PICHART_GRAPHIFY",
 	"PICHART_GRAPH_DEADLINE_MS",
+	"PICHART_GRAPH_EXTRACT_DEADLINE_MS",
 	"PICHART_GRAPH_SYMBOLS",
 	"PICHART_GRAPH_TOKENS",
 	"PICHART_JUDGE",
@@ -301,6 +315,10 @@ export function loadConfig(
 		docConcepts: count(env.PICHART_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
 		graphSymbols: count(env.PICHART_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
 		graphExtract: env.PICHART_GRAPH === "on",
+		graphExtractDeadlineMs: count(
+			env.PICHART_GRAPH_EXTRACT_DEADLINE_MS,
+			DEFAULT_GRAPH_EXTRACT_DEADLINE_MS,
+		),
 		specsVerify: env.PICHART_SPECS !== "off",
 		docMaxDistance: distance(env.PICHART_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl:

@@ -110,6 +110,17 @@ describe("what an unconfigured install does", () => {
 		expect(config.databaseUrl).toBe(saved);
 	});
 
+	test("an extraction may outlast a large codebase's cold build unless the operator moves the deadline", () => {
+		// VS Code's cold extraction measured 470 s; the deadline frees a hung
+		// graphify, it does not cap a Codebase's size.
+		expect(loadConfig({}).graphExtractDeadlineMs).toBeGreaterThan(470_000 * 2);
+		expect(
+			loadConfig({ PICHART_GRAPH_EXTRACT_DEADLINE_MS: "120000" }).graphExtractDeadlineMs,
+		).toBe(120_000);
+		// Zero is no deadline at all, not an extraction stopped at once.
+		expect(loadConfig({ PICHART_GRAPH_EXTRACT_DEADLINE_MS: "0" }).graphExtractDeadlineMs).toBe(0);
+	});
+
 	test("the settings list is what the code actually reads", async () => {
 		const root = projectRoot();
 		const read = new Set<string>();

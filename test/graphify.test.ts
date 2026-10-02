@@ -21,6 +21,12 @@ async function codebase(): Promise<string> {
 	return root;
 }
 
+/** One refresh, waited for to the end of its run, as no session does. */
+async function extracted(store: GraphStore, root: string): Promise<string> {
+	await (await store.refresh(root)).finished;
+	return (await store.extraction(root)).last?.output ?? "";
+}
+
 describeReal("against the real graphify", () => {
 	test(
 		"extracts this repository and finds a real caller",
@@ -28,7 +34,7 @@ describeReal("against the real graphify", () => {
 			const root = await codebase();
 			const store = new GraphStore();
 
-			await store.refresh(root);
+			await extracted(store, root);
 			const graph = await store.graph(root);
 			if (!graph) throw new Error("no graph after extraction");
 
@@ -64,7 +70,7 @@ describeReal("against the real graphify", () => {
 		async () => {
 			const root = await codebase();
 			const store = new GraphStore();
-			await store.refresh(root);
+			await extracted(store, root);
 
 			const graph = await store.graph(root);
 			const raw = JSON.parse(
@@ -87,33 +93,16 @@ describeReal("against the real graphify", () => {
 		"refreshing after an edit brings the graph up to date",
 		async () => {
 			const root = await codebase();
-			const commands: string[][] = [];
-			// The real executable, watched, so the test can see which
-			// commands ran as well as what they left behind.
-			const store = new GraphStore({
-				run: async (command, args) => {
-					commands.push(args);
-					const spawned = Bun.spawn([command, ...args], {
-						stdout: "pipe",
-						stderr: "pipe",
-					});
-					const [stdout, stderr, code] = await Promise.all([
-						new Response(spawned.stdout).text(),
-						new Response(spawned.stderr).text(),
-						spawned.exited,
-					]);
-					return { ok: code === 0, output: `${stdout}${stderr}` };
-				},
-			});
+			const store = new GraphStore();
 
-			await store.refresh(root);
+			await extracted(store, root);
 			const before = await store.graph(root);
 			const file = join(root, "src", "sections.ts");
 			await writeFile(
 				file,
 				`${await Bun.file(file).text()}\nexport function probeAfterEdit() {\n\treturn splitConcept;\n}\n`,
 			);
-			await store.refresh(root);
+			await extracted(store, root);
 
 			// The graph must actually have moved: asserting the command ran
 			// would pass even if refreshing did nothing.
@@ -124,10 +113,6 @@ describeReal("against the real graphify", () => {
 			expect(
 				after?.symbols.some((each) => each.label.includes("probeAfterEdit")),
 			).toBe(true);
-			// Only the graphify invocations: `run` also carries the version
-			// check and, on a machine without the venv, the install.
-			const extractions = commands.filter((args) => args[0] === "extract");
-			expect(extractions).toHaveLength(2);
 		},
 		TIMEOUT,
 	);
@@ -136,25 +121,10 @@ describeReal("against the real graphify", () => {
 		"refreshing a codebase nothing changed re-extracts nothing",
 		async () => {
 			const root = await codebase();
-			let last = "";
-			const store = new GraphStore({
-				run: async (command, args) => {
-					const spawned = Bun.spawn([command, ...args], {
-						stdout: "pipe",
-						stderr: "pipe",
-					});
-					const [stdout, stderr, code] = await Promise.all([
-						new Response(spawned.stdout).text(),
-						new Response(spawned.stderr).text(),
-						spawned.exited,
-					]);
-					last = `${stdout}${stderr}`;
-					return { ok: code === 0, output: last };
-				},
-			});
+			const store = new GraphStore();
 
-			await store.refresh(root);
-			await store.refresh(root);
+			await extracted(store, root);
+			const last = await extracted(store, root);
 
 			// graphify reports its own cache decision, which is the only
 			// honest evidence that the corpus was not re-parsed.
@@ -167,30 +137,15 @@ describeReal("against the real graphify", () => {
 		"refreshing after one edit costs that edit, not the corpus",
 		async () => {
 			const root = await codebase();
-			let last = "";
-			const store = new GraphStore({
-				run: async (command, args) => {
-					const spawned = Bun.spawn([command, ...args], {
-						stdout: "pipe",
-						stderr: "pipe",
-					});
-					const [stdout, stderr, code] = await Promise.all([
-						new Response(spawned.stdout).text(),
-						new Response(spawned.stderr).text(),
-						spawned.exited,
-					]);
-					last = `${stdout}${stderr}`;
-					return { ok: code === 0, output: last };
-				},
-			});
+			const store = new GraphStore();
 
-			await store.refresh(root);
+			await extracted(store, root);
 			const file = join(root, "src", "sections.ts");
 			await writeFile(
 				file,
 				`${await Bun.file(file).text()}\nexport function probeCost() {\n\treturn 1;\n}\n`,
 			);
-			await store.refresh(root);
+			const last = await extracted(store, root);
 
 			// The refresh that follows every Turn is affordable only
 			// because it costs the edit: this is that claim, against the
@@ -201,6 +156,33 @@ describeReal("against the real graphify", () => {
 			const again = Number(summary[2]);
 			expect(again).toBeLessThanOrEqual(3);
 			expect(cached).toBeGreaterThan(again * 10);
+		},
+		TIMEOUT,
+	);
+
+	test(
+		"a graph over graphify's size cap is refused, and said as such",
+		async () => {
+			const root = await codebase();
+			const store = new GraphStore();
+			await extracted(store, root);
+
+			// The cap reaches graphify through the environment the runner
+			// inherits; a graph this small is over a 1000-byte one.
+			const before = process.env.GRAPHIFY_MAX_GRAPH_BYTES;
+			process.env.GRAPHIFY_MAX_GRAPH_BYTES = "1000";
+			try {
+				await extracted(store, root);
+			} finally {
+				if (before === undefined) delete process.env.GRAPHIFY_MAX_GRAPH_BYTES;
+				else process.env.GRAPHIFY_MAX_GRAPH_BYTES = before;
+			}
+
+			// graphify's wording is text, not an API: a pin move that changes
+			// it turns this into a plain failure, and this test says so.
+			const failure = await store.takeFailure(root);
+			expect(failure?.kind).toBe("size-cap");
+			expect(await store.graph(root)).toBeDefined();
 		},
 		TIMEOUT,
 	);

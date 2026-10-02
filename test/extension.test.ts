@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DocStore } from "../src/doc-store.ts";
-import { GraphStore, PINNED_GRAPHIFY } from "../src/graph-store.ts";
+import { GraphStore, type Outcome, PINNED_GRAPHIFY } from "../src/graph-store.ts";
 import { SpecStore } from "../src/spec-store.ts";
 import { Installation } from "../src/install.ts";
 import { readJournal } from "../src/journal.ts";
@@ -2023,26 +2023,77 @@ describe("the graph store in a session", () => {
 		"utf8",
 	);
 
-	function graphStore(options: { graph?: string; fails?: boolean } = {}) {
+	/**
+	 * A Graph Store whose runner is scripted: launches are recorded, each
+	 * runner exits when `exited` says, and the last run's outcome and the
+	 * running state are whatever the test sets them to, as the real runner
+	 * would have left them.
+	 */
+	function graphStore(
+		options: {
+			graph?: string;
+			fails?: boolean;
+			exited?: () => Promise<unknown>;
+			launch?: () => Promise<void>;
+		} = {},
+	) {
 		const refreshed: string[] = [];
+		const state: { outcome?: Outcome; running?: { since: number } } = {};
+		const claimed = new Set<string>();
 		const store = new GraphStore({
 			home: "/home/test/.pi-chart/graphify",
 			exists: async (path) =>
 				path.endsWith("bin/graphify") ||
+				path.includes("/runs/") ||
 				(options.graph !== undefined && path.endsWith("graph.json")),
 			changedAt: async () => (options.graph === undefined ? undefined : 1),
-			read: async () => {
+			read: async (path) => {
+				if (path.endsWith("outcome.json")) {
+					if (!state.outcome) throw new Error("ENOENT");
+					return JSON.stringify(state.outcome);
+				}
 				if (options.fails) throw new Error("graph unreadable");
 				return options.graph ?? graphJson;
 			},
 			makeDirectory: async () => {},
-			run: async (_command, args) => {
-				refreshed.push(args.join(" "));
-				return { ok: true, output: "" };
+			write: async () => {},
+			claim: async (path) => {
+				if (claimed.has(path)) return false;
+				claimed.add(path);
+				return true;
 			},
+			launch: async (_command, args) => {
+				await options.launch?.();
+				refreshed.push(args[args.indexOf("--codebase") + 1] ?? "");
+				return { exited: options.exited?.() ?? Promise.resolve(0) };
+			},
+			run: async (_command, args) =>
+				args[1] === "status"
+					? {
+							ok: true,
+							output: JSON.stringify({
+								running: state.running ?? null,
+								last: state.outcome ?? null,
+							}),
+						}
+					: { ok: true, output: `graphify ${PINNED_GRAPHIFY}` },
 		});
-		return { store, refreshed };
+		return { store, refreshed, state };
 	}
+
+	const failedRun = (runId: string, output = "tree-sitter exploded"): Outcome => ({
+		runId,
+		startedAt: 1,
+		endedAt: 2,
+		exitCode: 1,
+		output,
+	});
+	const sizeCapped = (runId: string): Outcome =>
+		failedRun(
+			runId,
+			"ValueError: graph file /work/project/graphify-out/graph.json is " +
+				"544_123_456 bytes, exceeds 536_870_912-byte cap",
+		);
 
 	const config = (graphSymbols: number, graphExtract = false) => ({
 		tailTurns: DEFAULT_TAIL_TURNS,
@@ -2107,33 +2158,72 @@ describe("the graph store in a session", () => {
 		await cm.sessionStart({}, ctx());
 		await cm.settle();
 
-		expect(refreshed).toContain("extract /work/project --code-only");
+		expect(refreshed).toEqual(["/work/project"]);
 	});
 
-	test("a failure to extract is reported and the session goes on", async () => {
-		const store = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => undefined,
-			read: async () => graphJson,
-			makeDirectory: async () => {},
-			run: async (_command, args) =>
-				args[0] === "--version"
-					? { ok: true, output: `graphify ${PINNED_GRAPHIFY}` }
-					: { ok: false, output: "tree-sitter exploded" },
-		});
+	test("a failure left by an earlier session is reported at session start, once", async () => {
+		// Its session ended before the run did, so nobody else saw it.
+		const { store, state } = graphStore();
+		state.outcome = failedRun("earlier");
 		const cm = harness({ config: config(2, true), graph: store });
 
 		await cm.sessionStart({}, ctx());
+		await cm.settle();
+		await cm.agentEnd({}, ctx());
 		await cm.settle();
 		const result = await cm.context(
 			{ messages: [{ role: "user", content: "hello" }] },
 			ctx(),
 		);
 
-		expect(cm.reported.join("\n")).toContain("Graph Store extraction failed");
-		expect(cm.reported.join("\n")).toContain("tree-sitter exploded");
+		const said = cm.reported.filter((each) => each.includes("tree-sitter exploded"));
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain("Graph Store extraction failed");
 		expect(result?.messages).toHaveLength(1);
+	});
+
+	test("a run that fails while its session is open is reported when it ends, once", async () => {
+		const launched = Promise.withResolvers<void>();
+		const ended = Promise.withResolvers<unknown>();
+		const { store, state } = graphStore({
+			launch: async () => launched.resolve(),
+			exited: () => ended.promise,
+		});
+		const cm = harness({ config: config(2, true), graph: store });
+
+		await cm.agentEnd({}, ctx());
+		await launched.promise;
+		// The run fails after the Turn has already looked for a failure.
+		state.outcome = failedRun("this-session");
+		ended.resolve(1);
+		await cm.settle();
+		// The next Turn claims again, and finds it already said.
+		await cm.agentEnd({}, ctx());
+		await cm.settle();
+
+		const said = cm.reported.filter((each) => each.includes("tree-sitter exploded"));
+		expect(said).toHaveLength(1);
+	});
+
+	test("a graph past graphify's size cap is said once, and its structure still carried", async () => {
+		const { store, state } = graphStore({ graph: graphJson });
+		const cm = harness({ config: config(2, true), graph: store });
+		const prompt = [{ role: "user", content: "who calls assemble?" }];
+
+		const packs: string[] = [];
+		for (const turn of ["one", "two", "three"]) {
+			// Every refresh is refused again, each its own run.
+			state.outcome = sizeCapped(turn);
+			await cm.agentEnd({}, ctx());
+			await cm.settle();
+			packs.push(JSON.stringify((await cm.context({ messages: prompt }, ctx()))?.messages));
+		}
+
+		const said = cm.reported.filter((each) => each.includes("GRAPHIFY_MAX_GRAPH_BYTES"));
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain("544 MB");
+		expect(said[0]).toContain(".graphifyignore");
+		for (const pack of packs) expect(pack).toContain("[codebase structure:");
 	});
 
 	test("extraction is declined when it is switched off", async () => {
@@ -2161,41 +2251,62 @@ describe("the graph store in a session", () => {
 
 		await cm.agentEnd({}, ctx());
 		await cm.settle();
-		expect(refreshed).toContain("extract /work/project --code-only");
+		expect(refreshed).toEqual(["/work/project"]);
 	});
 
-	test("shutdown waits for the refresh a turn started", async () => {
-		// Measured on a headless run: the extraction `agent_end` began was
-		// still running when the process exited, leaving the graph older
-		// than the edit that Turn had just made.
-		const { store, refreshed } = graphStore({ graph: graphJson });
-		const cm = harness({
-			config: config(2, true),
-			graph: store,
-			codebase: "/work/project",
-		});
+	test("ending a session does not wait for the extraction it started", async () => {
+		// A cold extraction of a large Codebase outlasts most sessions; it
+		// carries on without them.
+		const { promise: never } = Promise.withResolvers<unknown>();
+		const { store, refreshed } = graphStore({ graph: graphJson, exited: () => never });
+		const cm = harness({ config: config(2, true), graph: store });
 
+		await cm.agentEnd({}, ctx());
 		await cm.sessionShutdown({}, ctx());
 
-		expect(refreshed).toContain("extract /work/project --code-only");
+		expect(refreshed).toHaveLength(1);
+	});
+
+	test("the refresh the last turn asked for is launched before the session ends", async () => {
+		// Measured on a headless run: the process exited with the refresh
+		// `agent_end` asked for still unstarted, leaving the graph older
+		// than the edit that Turn had just made.
+		const events: string[] = [];
+		const gate = Promise.withResolvers<void>();
+		const { store, refreshed } = graphStore({
+			graph: graphJson,
+			launch: async () => {
+				await gate.promise;
+				events.push("launched");
+			},
+		});
+		const cm = harness({
+			config: { ...config(2, true), retainDays: 30 },
+			graph: store,
+			// The step shutdown takes after the launch it waits for.
+			retire: async () => {
+				events.push("retired");
+				return 0;
+			},
+		});
+
+		void cm.agentEnd({}, ctx());
+		const ending = cm.sessionShutdown({}, ctx());
+		events.push("let through");
+		gate.resolve();
+		await ending;
+
+		expect(events).toEqual(["let through", "launched", "retired"]);
+		// Launched once, by the Turn: shutdown adds no scan of its own.
+		expect(refreshed).toHaveLength(1);
 	});
 
 	test("a turn is not delayed by the refresh that follows it", async () => {
 		const { promise: never } = Promise.withResolvers<void>();
-		const store = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => 1,
-			read: async () => graphJson,
-			makeDirectory: async () => {},
-			run: async (_command, args) =>
-				args[0] === "--version"
-					? { ok: true, output: `graphify ${PINNED_GRAPHIFY}` }
-					: never.then(() => ({ ok: true, output: "" })),
-		});
+		const { store } = graphStore({ graph: graphJson, launch: () => never });
 		const cm = harness({ config: config(2, true), graph: store });
 
-		// Returns while the extraction is still running: `agent_end` is
+		// Returns while the launch is still pending: `agent_end` is
 		// notification-only, and nothing the user waits on may grow.
 		await cm.agentEnd({}, ctx());
 
@@ -2207,17 +2318,8 @@ describe("the graph store in a session", () => {
 	});
 
 	test("a failed refresh leaves the previous graph readable", async () => {
-		const store = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => 1,
-			read: async () => graphJson,
-			makeDirectory: async () => {},
-			run: async (_command, args) =>
-				args[0] === "--version"
-					? { ok: true, output: `graphify ${PINNED_GRAPHIFY}` }
-					: { ok: false, output: "tree-sitter exploded" },
-		});
+		const { store, state } = graphStore({ graph: graphJson });
+		state.outcome = failedRun("r1");
 		const cm = harness({ config: config(2, true), graph: store });
 
 		await cm.agentEnd({}, ctx());
@@ -2310,6 +2412,7 @@ describe("the graph store in a session", () => {
 
 		await cm.context({ messages: prompt }, ctx());
 		await cm.context({ messages: prompt }, ctx());
+		await cm.settle();
 
 		const said = cm.reported.filter((each) =>
 			each.includes("codebase has no graph"),
@@ -2317,6 +2420,60 @@ describe("the graph store in a session", () => {
 		// A condition, not a per-Call event — and not silence, which reads
 		// as a Codebase with no structure worth carrying.
 		expect(said).toHaveLength(1);
+	});
+
+	test("a codebase whose first extraction is running says so, not that it has none", async () => {
+		const { store, state } = graphStore();
+		state.running = { since: new Date(2026, 9, 2, 14, 5).getTime() };
+		const cm = harness({ config: config(2, true), graph: store });
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+		await cm.settle();
+
+		expect(result?.messages).toHaveLength(1);
+		const said = cm.reported.join("\n");
+		expect(said).toContain("first extraction is still running (started 14:05)");
+		// Extraction is already on: telling the operator to switch it on
+		// sends them after a setting that is not the problem.
+		expect(said).not.toContain("PICHART_GRAPH=on");
+	});
+
+	describe("the codebase graph line in /pi-chart", () => {
+		const install = () =>
+			new Installation({
+				reachable: async () => true,
+				bun: async () => "/usr/bin/bun",
+				exists: async () => false,
+			});
+
+		async function graphLine(cm: Harness): Promise<string> {
+			cm.shown.length = 0;
+			await cm.commands["pi-chart"]?.handler("", {});
+			return cm.shown.join("\n").split("\n").find((line) => line.includes("codebase graph")) ?? "";
+		}
+
+		test("says an extraction is running, and since when", async () => {
+			const { store, state } = graphStore();
+			state.running = { since: new Date(2026, 9, 2, 9, 30).getTime() };
+			const cm = harness({ config: config(2, true), graph: store, install: install() });
+
+			expect(await graphLine(cm)).toContain("extracting since 09:30");
+		});
+
+		test("says how the last extraction ended", async () => {
+			const { store, state } = graphStore();
+			state.outcome = sizeCapped("r1");
+			const failed = harness({ config: config(2, true), graph: store, install: install() });
+			expect(await graphLine(failed)).toContain("last run failed: size-cap");
+
+			const ok = graphStore();
+			ok.state.outcome = { ...failedRun("r2"), exitCode: 0, endedAt: new Date(2026, 9, 2, 8, 0).getTime() };
+			const fine = harness({ config: config(2, true), graph: ok.store, install: install() });
+			expect(await graphLine(fine)).toContain("last run: ok at 08:00");
+		});
 	});
 });
 

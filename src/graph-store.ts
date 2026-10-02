@@ -1,7 +1,9 @@
-import { mkdir, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, open, realpath, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
+import { DEFAULT_GRAPH_EXTRACT_DEADLINE_MS } from "./config.ts";
 import { readGraph } from "./graph.ts";
 import { runProcess, type CommandResult, type RunCommand } from "./process.ts";
 import { prepare, type PreparedGraph } from "./symbols.ts";
@@ -19,18 +21,81 @@ export const PINNED_GRAPHIFY = "0.9.63";
 const OUTPUT = join("graphify-out", "graph.json");
 
 /**
- * How long each command behind this Store may take before it is stopped.
- *
- * Measured on this machine: `extract --code-only` takes 2.0 s over this
- * Codebase's 69 files, `--version` 0.1 s, `python3 -m venv` 2.1 s and a
- * cached `pip install` 0.7 s. Each deadline is set against the shape of
- * the command rather than this Codebase's size — extraction has to survive
- * a large repository, and an install downloads on a cold machine — so it
- * bounds hanging rather than setting a target.
+ * The runner that owns each extraction, run by the private environment's
+ * Python. Resolved beside this file, as the embedder resolves its worker:
+ * omp loads `src/` directly, so there is no build to copy it into.
  */
-const EXTRACT_MS = 60_000;
+export const RUNNER = new URL("./graphify-runner.py", import.meta.url).pathname;
+
+/**
+ * How long each command this Store waits on may take before it is stopped.
+ *
+ * Measured on this machine: `--version` takes 0.1 s, `python3 -m venv`
+ * 2.1 s and a cached `pip install` 0.7 s. Each deadline is set against the
+ * shape of the command, since an install downloads on a cold machine, so
+ * it bounds hanging rather than setting a target. Extraction is not among
+ * them: nothing waits on it, and the runner holds it to its own deadline.
+ */
 const VERSION_MS = 10_000;
 const INSTALL_MS = 300_000;
+
+/**
+ * How often a refresh whose runner found the Codebase held asks whether
+ * the holder's run has ended: often enough that its failure is reported
+ * within seconds of it, and one cheap subprocess each time.
+ */
+const STATUS_POLL_MS = 5_000;
+
+/** What a spawned runner gives back: when its process ends. */
+export interface Spawned {
+	exited: Promise<unknown>;
+}
+
+/** A refresh, once its runner is on its way. */
+export interface Launch {
+	/**
+	 * Settles when the run that serves this refresh has ended: the one
+	 * its runner did, or, when another runner already held the Codebase,
+	 * that runner's. Never rejects: how the run ended is read from its
+	 * outcome, by whichever session gets there first.
+	 */
+	finished: Promise<void>;
+}
+
+/** How the last completed extraction of a Codebase ended, as the runner wrote it. */
+export interface Outcome {
+	runId: string;
+	startedAt: number;
+	endedAt: number;
+	/** The process's exit code; negative for a signal. */
+	exitCode: number;
+	/** Present when the run was stopped rather than ending by itself. */
+	stopped?: "deadline";
+	/** The deadline it was held to, when it was stopped at it. */
+	deadlineMs?: number;
+	/** What graphify printed last. */
+	output: string;
+}
+
+/** A Codebase's extraction state, as far as the kernel and the runner can say. */
+export interface Extraction {
+	running?: { since: number };
+	/** The last completed run, with what kind of failure it was if it failed. */
+	last?: Outcome & { failure?: ExtractionFailureKind };
+}
+
+export type ExtractionFailureKind = "size-cap" | "deadline" | "failed";
+
+/** An extraction that did not land, with what it means. */
+export class ExtractionFailure extends Error {
+	constructor(
+		readonly kind: ExtractionFailureKind,
+		message: string,
+	) {
+		super(message);
+		this.name = "ExtractionFailure";
+	}
+}
 
 export interface GraphStoreOptions {
 	run?: RunCommand;
@@ -41,6 +106,16 @@ export interface GraphStoreOptions {
 	makeDirectory?: (path: string) => Promise<void>;
 	/** When the extraction last changed, for caching what was parsed. */
 	changedAt?: (path: string) => Promise<number | undefined>;
+	/** Writes a whole file. */
+	write?: (path: string, content: string) => Promise<void>;
+	/** Creates a file only if it does not exist yet; whether this call made it. */
+	claim?: (path: string) => Promise<boolean>;
+	/** Starts a program that outlives this process. */
+	launch?: (command: string, args: string[]) => Promise<Spawned>;
+	/** Waits between asking whether another runner's run has ended. */
+	pause?: (ms: number) => Promise<void>;
+	/** How long one extraction may run, in milliseconds; zero is no deadline. */
+	extractDeadlineMs?: number;
 }
 
 /**
@@ -57,6 +132,11 @@ export class GraphStore {
 	private readonly exists: (path: string) => Promise<boolean>;
 	private readonly makeDirectory: (path: string) => Promise<void>;
 	private readonly changedAt: (path: string) => Promise<number | undefined>;
+	private readonly write: (path: string, content: string) => Promise<void>;
+	private readonly claim: (path: string) => Promise<boolean>;
+	private readonly launch: (command: string, args: string[]) => Promise<Spawned>;
+	private readonly pause: (ms: number) => Promise<void>;
+	private readonly extractDeadlineMs: number;
 	/**
 	 * What each Codebase's extraction parsed and indexed to, valid while
 	 * the file is untouched. A failure is remembered too: re-parsing a
@@ -71,8 +151,12 @@ export class GraphStore {
 		string,
 		{ changedAt: number; graph?: PreparedGraph; failure?: Error }
 	>();
-	/** Refreshes in flight, so concurrent sessions do not collide. */
-	private readonly refreshing = new Map<string, Promise<void>>();
+	/**
+	 * Launches in flight, so two refreshes asked for together start one
+	 * runner, and since when. Across processes the runner's lock does the
+	 * same job.
+	 */
+	private readonly refreshing = new Map<string, { since: number; launch: Promise<Launch> }>();
 	private installing?: Promise<void>;
 
 	constructor(options: GraphStoreOptions = {}) {
@@ -83,6 +167,11 @@ export class GraphStore {
 		this.exists = options.exists ?? pathExists;
 		this.makeDirectory = options.makeDirectory ?? makeDirectory;
 		this.changedAt = options.changedAt ?? changedAt;
+		this.write = options.write ?? ((path, content) => writeFile(path, content));
+		this.claim = options.claim ?? claimFile;
+		this.launch = options.launch ?? launchDetached;
+		this.pause = options.pause ?? pause;
+		this.extractDeadlineMs = options.extractDeadlineMs ?? DEFAULT_GRAPH_EXTRACT_DEADLINE_MS;
 	}
 
 	/** The graphify executable inside the private environment. */
@@ -90,44 +179,136 @@ export class GraphStore {
 		return join(this.home, "bin", "graphify");
 	}
 
-	/**
-	 * Brings a Codebase's graph up to date, installing graphify first if the
-	 * machine does not have it.
-	 *
-	 * Always the same command: `extract --code-only` is itself incremental,
-	 * skipping files whose content hash is unchanged, so it costs the edit
-	 * rather than the corpus. graphify's `update` is no cheaper and drops
-	 * `--code-only`, which quietly widens the artifact in the user's
-	 * repository to include their documentation.
-	 */
-	async refresh(codebase: string): Promise<void> {
-		// One at a time per Codebase: two sessions opened together would
-		// otherwise run two extractions over one `graphify-out/`, which
-		// graphify does not lock.
-		const running = this.refreshing.get(codebase);
-		if (running) return running;
-
-		const started = this.extract(codebase).finally(() => {
-			this.refreshing.delete(codebase);
-		});
-		this.refreshing.set(codebase, started);
-		return started;
+	/** The private environment's interpreter, which the runner runs under. */
+	private get python(): string {
+		return join(this.home, "bin", "python");
 	}
 
-	private async extract(codebase: string): Promise<void> {
-		await this.install();
+	/**
+	 * Asks for a Codebase's graph to be brought up to date, installing
+	 * graphify first if the machine does not have it. Resolves once the
+	 * runner is launched, not when it finishes: an extraction may outlive
+	 * the session that asked for it.
+	 *
+	 * The request is written before the runner starts, so a runner already
+	 * holding the Codebase sees it and extracts once more when it is done:
+	 * an edit made during a long extraction still reaches the graph.
+	 *
+	 * Always the same command (the runner's): `extract --code-only` is
+	 * itself incremental, skipping files whose content hash is unchanged,
+	 * so it costs the edit rather than the corpus. graphify's `update` is no
+	 * cheaper and drops `--code-only`, which quietly widens the artifact in
+	 * the user's repository to include their documentation.
+	 */
+	async refresh(codebase: string): Promise<Launch> {
+		const launching = this.refreshing.get(codebase);
+		if (launching) return launching.launch;
 
-		const result = await this.run(
+		const launch = this.launchRun(codebase).finally(() => {
+			this.refreshing.delete(codebase);
+		});
+		this.refreshing.set(codebase, { since: Date.now(), launch });
+		return launch;
+	}
+
+	private async launchRun(codebase: string): Promise<Launch> {
+		await this.install();
+		const state = await this.stateDirectory(codebase);
+		await this.makeDirectory(state);
+		await this.write(join(state, "requested"), "");
+		const spawned = await this.launch(this.python, [
+			RUNNER,
+			"run",
+			state,
+			"--codebase",
+			codebase,
+			"--graphify",
 			this.executable,
-			["extract", codebase, "--code-only"],
-			undefined,
-			EXTRACT_MS,
-		);
-		if (!result.ok) {
-			throw new Error(
-				`graphify extract failed for ${codebase}: ${result.output}`,
-			);
+			"--deadline-ms",
+			String(this.extractDeadlineMs),
+		]);
+		return { finished: this.served(state, spawned) };
+	}
+
+	/**
+	 * Waits out the run that serves a request. A runner that finds the
+	 * Codebase held exits at once, leaving the holder to pick the request
+	 * up, so its exit says nothing; the lock says when that run is over.
+	 */
+	private async served(state: string, spawned: Spawned): Promise<void> {
+		try {
+			await spawned.exited;
+			while ((await this.status(state)).running) await this.pause(STATUS_POLL_MS);
+		} catch {
+			// An unreadable status ends the wait; the outcome is read anyway.
 		}
+	}
+
+	/**
+	 * The last run's failure, if it failed and no session has reported it
+	 * yet. Claimed as it is returned, so two sessions open in one Codebase
+	 * do not both report the same run.
+	 */
+	async takeFailure(codebase: string): Promise<ExtractionFailure | undefined> {
+		const state = await this.stateDirectory(codebase);
+		const outcome = await this.outcome(state);
+		if (!outcome || !failed(outcome)) return undefined;
+		if (!(await this.claim(join(state, `reported.${outcome.runId}`)))) return undefined;
+		return classify(codebase, outcome);
+	}
+
+	/**
+	 * Whether an extraction of the Codebase is running, and how the last one
+	 * ended. Running is what the runner's lock says, so a killed runner is
+	 * never mistaken for a live one.
+	 */
+	async extraction(codebase: string): Promise<Extraction> {
+		// Installing graphify comes before any runner, and can take minutes.
+		const launching = this.refreshing.get(codebase);
+		const state = await this.stateDirectory(codebase);
+		// Nothing was ever launched here, so there is no runner to ask.
+		if (!(await this.exists(state))) {
+			return launching ? { running: { since: launching.since } } : {};
+		}
+		const status = await this.status(state);
+		const last = status.last ?? undefined;
+		const running = status.running ?? (launching ? { since: launching.since } : undefined);
+		return {
+			running: running ? { since: running.since } : undefined,
+			last: last && failed(last) ? { ...last, failure: classify(codebase, last).kind } : last,
+		};
+	}
+
+	private async status(
+		state: string,
+	): Promise<{ running: { since: number } | null; last: Outcome | null }> {
+		const result = await this.run(this.python, [RUNNER, "status", state], undefined, VERSION_MS);
+		if (!result.ok) throw new Error(`could not read extraction status: ${result.output}`);
+		return JSON.parse(result.output) as {
+			running: { since: number } | null;
+			last: Outcome | null;
+		};
+	}
+
+	private async outcome(state: string): Promise<Outcome | undefined> {
+		try {
+			return JSON.parse(await this.read(join(state, "outcome.json"))) as Outcome;
+		} catch {
+			// No run has completed yet, which is not a failure.
+			return undefined;
+		}
+	}
+
+	/**
+	 * Where a Codebase's runs keep their lock, request and outcome: beside
+	 * the private environment rather than in the Codebase, keyed by its real
+	 * path so a symlinked checkout shares its lock with the checkout itself.
+	 */
+	private async stateDirectory(codebase: string): Promise<string> {
+		// A path that cannot be resolved still needs a stable key; it is its own.
+		const real = await realpath(codebase).catch(() => resolve(codebase));
+		const key = createHash("sha256").update(real).digest("hex").slice(0, 16);
+		return join(this.home, "runs", key);
 	}
 
 	/** Installs graphify at the pinned version, unless that is already there. */
@@ -233,6 +414,88 @@ export class GraphStore {
 	}
 }
 
+function failed(outcome: Outcome): boolean {
+	return outcome.exitCode !== 0 || outcome.stopped !== undefined;
+}
+
+/** graphify's refusal of a graph over its size cap, as 0.9.63 words it. */
+const SIZE_CAP = /is ([\d_]+) bytes, exceeds ([\d_]+)-byte cap/;
+
+/** What a failed outcome means, in words that say what to do about it. */
+function classify(codebase: string, outcome: Outcome): ExtractionFailure {
+	const output = outcome.output.trim();
+	if (outcome.stopped === "deadline") {
+		return new ExtractionFailure(
+			"deadline",
+			`graphify extract for ${codebase} was stopped after ` +
+				`${duration(outcome.deadlineMs ?? 0)}, the deadline ` +
+				"PICHART_GRAPH_EXTRACT_DEADLINE_MS sets; raise it if this " +
+				`Codebase needs longer. It had printed: ${output}`,
+		);
+	}
+	const capped = SIZE_CAP.exec(output);
+	if (capped?.[1] && capped[2]) {
+		const size = Number(capped[1].replaceAll("_", ""));
+		const cap = Number(capped[2].replaceAll("_", ""));
+		// Measured on VS Code: reading its 544 MB graph took 4.0 s and
+		// 2.6 GiB, which is what raising the cap buys into every session.
+		return new ExtractionFailure(
+			"size-cap",
+			`This codebase's graph is ${megabytes(size)}, over graphify's ` +
+				`${megabytes(cap)} cap, so graphify will not refresh it; structure ` +
+				"comes from the existing graph, marked older where files changed. " +
+				"Set GRAPHIFY_MAX_GRAPH_BYTES to raise the cap, or list generated " +
+				"and vendored paths in .graphifyignore to shrink the graph. A larger " +
+				"graph is slower to read and larger in memory: a 544 MB graph " +
+				"measured 4.0 s and 2.6 GiB.",
+		);
+	}
+	return new ExtractionFailure(
+		"failed",
+		`graphify extract failed for ${codebase} (exit ${outcome.exitCode}): ${output}`,
+	);
+}
+
+function megabytes(bytes: number): string {
+	return `${Math.round(bytes / 1_000_000)} MB`;
+}
+
+/** A deadline as an operator would set it: minutes, or seconds under one. */
+function duration(ms: number): string {
+	return ms < 60_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`;
+}
+
+/** A wait that never keeps this process alive on its own. */
+function pause(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms).unref());
+}
+
+/** `O_EXCL`: of two sessions claiming one run, exactly one succeeds. */
+async function claimFile(path: string): Promise<boolean> {
+	try {
+		await (await open(path, "wx")).close();
+		return true;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+		throw error;
+	}
+}
+
+/**
+ * A process in its own group with nothing attached, so ending this session
+ * neither waits for it nor takes it down.
+ */
+async function launchDetached(command: string, args: string[]): Promise<Spawned> {
+	const spawned = Bun.spawn([command, ...args], {
+		detached: true,
+		stdio: ["ignore", "ignore", "ignore"],
+		// The environment as it is now, not as Bun captured it at start:
+		// GRAPHIFY_MAX_GRAPH_BYTES reaches graphify only through this.
+		env: process.env,
+	});
+	spawned.unref();
+	return { exited: spawned.exited };
+}
 
 async function makeDirectory(path: string): Promise<void> {
 	await mkdir(path, { recursive: true });
