@@ -36,7 +36,7 @@ export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 	const byStem = new Map<string, string[]>();
 	for (const symbol of graph.symbols) {
 		const key = canonical(symbol.label);
-		if (key.length > 0) byName.set(key, [...(byName.get(key) ?? []), symbol]);
+		if (key.length > 0) append(byName, key, symbol);
 		const file = normalisePath(symbol.file);
 		if (file === "") continue;
 		const known = byFile.get(file);
@@ -44,15 +44,14 @@ export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 		else {
 			byFile.set(file, [symbol]);
 			const stem = canonical(stemOf(file));
-			if (stem.length > 0) byStem.set(stem, [...(byStem.get(stem) ?? []), file]);
+			if (stem.length > 0) append(byStem, stem, file);
 		}
 	}
 
 	const incident = new Map<string, GraphEdge[]>();
 	for (const edge of graph.edges) {
-		for (const end of [edge.from.id, edge.to.id]) {
-			incident.set(end, [...(incident.get(end) ?? []), edge]);
-		}
+		append(incident, edge.from.id, edge);
+		append(incident, edge.to.id, edge);
 	}
 
 	return {
@@ -64,6 +63,13 @@ export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 		byStem,
 		incident,
 	};
+}
+
+/** In place: copying the list per entry made indexing quadratic in a symbol's edges. */
+function append<T>(map: Map<string, T[]>, key: string, value: T): void {
+	const list = map.get(key);
+	if (list) list.push(value);
+	else map.set(key, [value]);
 }
 
 /** Forward slashes, no leading `./` or `/`: one spelling per file. */

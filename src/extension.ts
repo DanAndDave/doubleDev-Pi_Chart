@@ -474,6 +474,19 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			extract();
 		}
 
+		if (deps.graph && deps.config.graphSymbols > 0) {
+			// Read now, so the first Call finds the graph read rather than
+			// waiting on a read of hundreds of megabytes. The Call that needs
+			// the graph reports a failure; saying it here too says it twice.
+			inBackground(
+				"Graph Store read",
+				deps.graph.graph(deps.codebase ?? process.cwd()).then(
+					() => undefined,
+					() => undefined,
+				),
+			);
+		}
+
 		if (deps.docs && deps.bundle) {
 			const docs = deps.docs;
 			const bundle = deps.bundle;
@@ -1695,6 +1708,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			if (!graph) {
 				reportMissingGraph();
 				return { value: [], unavailable: "unconfigured" };
+			}
+			const newer = store.takeLoadFailure(codebase);
+			if (newer) {
+				reportSafely(
+					`Graph Store could not read the newer graph, structure is from ` +
+						`the one before it: ${describe(newer)}`,
+				);
 			}
 			// Over-fetch, as the other Stores do, so what the Budget excluded
 			// is visible in the accounting rather than invisible.

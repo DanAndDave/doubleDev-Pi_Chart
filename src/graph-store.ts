@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { DEFAULT_GRAPH_EXTRACT_DEADLINE_MS } from "./config.ts";
-import { readGraph } from "./graph.ts";
+import { loadInWorker, type Load, type Loaded } from "./graph-load.ts";
+import { GraphFormatError } from "./graph.ts";
 import { runProcess, type CommandResult, type RunCommand } from "./process.ts";
 import { prepare, type PreparedGraph } from "./symbols.ts";
 
@@ -49,6 +50,19 @@ const STATUS_POLL_MS = 5_000;
 /** What a spawned runner gives back: when its process ends. */
 export interface Spawned {
 	exited: Promise<unknown>;
+}
+
+/**
+ * One Codebase's extraction as this session has read it: the graph in
+ * use, the newer extraction that could not be read, and the read running.
+ */
+interface Loading {
+	/** The modified time the latest read started from. */
+	seenAt: number;
+	current?: { graph: PreparedGraph; hash: string };
+	/** No hash when the reader died before saying what it read. */
+	broken?: { hash?: string; error: Error; reported: boolean };
+	inFlight?: Promise<void>;
 }
 
 /** A refresh, once its runner is on its way. */
@@ -101,7 +115,10 @@ export interface GraphStoreOptions {
 	run?: RunCommand;
 	/** Where the private interpreter lives. Machine-wide, not per Codebase. */
 	home?: string;
+	/** Reads files other than the extraction: the runner's outcome. */
 	read?: (path: string) => Promise<string>;
+	/** Reads the extraction itself, off the session's thread. */
+	load?: Load;
 	exists?: (path: string) => Promise<boolean>;
 	makeDirectory?: (path: string) => Promise<void>;
 	/** When the extraction last changed, for caching what was parsed. */
@@ -137,20 +154,17 @@ export class GraphStore {
 	private readonly launch: (command: string, args: string[]) => Promise<Spawned>;
 	private readonly pause: (ms: number) => Promise<void>;
 	private readonly extractDeadlineMs: number;
+	private readonly load: Load;
 	/**
-	 * What each Codebase's extraction parsed and indexed to, valid while
-	 * the file is untouched. A failure is remembered too: re-parsing a
-	 * broken graph on every Call would cost the same work and report the
-	 * same complaint every time.
+	 * What each Codebase's extraction was read to. A failure is remembered
+	 * by the hash of what failed, so a broken file is not read again until
+	 * it changes.
 	 *
 	 * The indexes ride with the parse rather than in a memo of their own:
 	 * two caches over one file with no shared trigger is how a stale index
 	 * outlives the graph it describes.
 	 */
-	private readonly parsed = new Map<
-		string,
-		{ changedAt: number; graph?: PreparedGraph; failure?: Error }
-	>();
+	private readonly loaded = new Map<string, Loading>();
 	/**
 	 * Launches in flight, so two refreshes asked for together start one
 	 * runner, and since when. Across processes the runner's lock does the
@@ -164,6 +178,7 @@ export class GraphStore {
 		this.home =
 			options.home ?? join(homedir(), ".pi-chart", "graphify");
 		this.read = options.read ?? readText;
+		this.load = options.load ?? loadInWorker;
 		this.exists = options.exists ?? pathExists;
 		this.makeDirectory = options.makeDirectory ?? makeDirectory;
 		this.changedAt = options.changedAt ?? changedAt;
@@ -363,31 +378,89 @@ export class GraphStore {
 	 * The Codebase's graph, indexed, or `undefined` when it has never been
 	 * extracted.
 	 *
-	 * Parsed and indexed once, kept until the extraction changes: this runs
-	 * on the request path, and a graph for a few thousand source files is
-	 * tens of megabytes — hundreds of milliseconds no prompt should pay
-	 * twice, plus indexes over every symbol and every edge.
+	 * Read once and kept until the extraction changes, and then read again
+	 * in the background: a Call is served the graph already read rather
+	 * than waiting on a newer one, one read at a time. Only a Call that
+	 * finds no graph read yet waits, and its caller bounds the wait.
 	 */
 	async graph(codebase: string): Promise<PreparedGraph | undefined> {
 		const path = join(codebase, OUTPUT);
 		const at = await this.changedAt(path);
 		if (at === undefined) return undefined;
 
-		const cached = this.parsed.get(codebase);
-		if (cached && cached.changedAt === at) {
-			if (cached.failure) throw cached.failure;
-			return cached.graph;
+		let entry = this.loaded.get(codebase);
+		if (!entry) {
+			entry = { seenAt: at };
+			this.loaded.set(codebase, entry);
+			this.startLoad(entry, path, at);
+		} else if (entry.seenAt !== at && !entry.inFlight) {
+			this.startLoad(entry, path, at);
 		}
 
+		if (entry.current) return entry.current.graph;
+		await entry.inFlight;
+		const read: Loading = entry;
+		if (read.current) return read.current.graph;
+		throw read.broken?.error ?? new Error("graph was not read");
+	}
+
+	/**
+	 * Why the newest extraction could not be read while an older graph is
+	 * still served, if no one has been told yet. Claimed as it is returned.
+	 */
+	takeLoadFailure(codebase: string): Error | undefined {
+		const entry = this.loaded.get(codebase);
+		if (!entry?.current || !entry.broken || entry.broken.reported) return undefined;
+		entry.broken.reported = true;
+		return entry.broken.error;
+	}
+
+	private startLoad(entry: Loading, path: string, at: number): void {
+		entry.seenAt = at;
+		entry.inFlight = this.reload(entry, path, at).finally(() => {
+			entry.inFlight = undefined;
+		});
+	}
+
+	/**
+	 * Reads the extraction and takes in what it came to. Never rejects: a
+	 * failure is kept on the entry, beside whatever graph is still in use.
+	 *
+	 * Dated by the modified time seen before the read, so a file written
+	 * again during it makes the graph look older than it is, never newer.
+	 */
+	private async reload(entry: Loading, path: string, at: number): Promise<void> {
+		const skip = [entry.current?.hash, entry.broken?.hash].filter(
+			(hash): hash is string => hash !== undefined,
+		);
+		let loaded: Loaded;
 		try {
-			const graph = prepare(readGraph(await this.read(path)), at);
-			this.parsed.set(codebase, { changedAt: at, graph });
-			return graph;
+			loaded = await this.load(path, skip);
 		} catch (error) {
-			const failure = error instanceof Error ? error : new Error(String(error));
-			this.parsed.set(codebase, { changedAt: at, failure });
-			throw failure;
+			// No hash: whatever the file holds, the next change of it is read.
+			entry.broken = { error: asError(error), reported: false };
+			return;
 		}
+		if ("skipped" in loaded) {
+			// The same content as the graph in use: as recent as the rewrite.
+			if (entry.current?.hash === loaded.hash) {
+				entry.current = {
+					hash: loaded.hash,
+					graph: { ...entry.current.graph, extractedAt: at },
+				};
+			}
+			return;
+		}
+		if ("failure" in loaded) {
+			entry.broken = {
+				hash: loaded.hash,
+				error: new GraphFormatError(loaded.failure),
+				reported: false,
+			};
+			return;
+		}
+		entry.current = { hash: loaded.hash, graph: prepare(loaded.graph, at) };
+		entry.broken = undefined;
 	}
 
 	/**
@@ -468,6 +541,10 @@ function duration(ms: number): string {
 /** A wait that never keeps this process alive on its own. */
 function pause(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms).unref());
+}
+
+function asError(error: unknown): Error {
+	return error instanceof Error ? error : new Error(String(error));
 }
 
 /** `O_EXCL`: of two sessions claiming one run, exactly one succeeds. */

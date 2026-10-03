@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
+import { readExtraction, type Loaded } from "../src/graph-load.ts";
 import {
 	GraphStore,
 	type Outcome,
@@ -62,12 +63,12 @@ function store(options: {
 		changedAt: async () =>
 			options.changedAt ? options.changedAt() : extracted ? 1 : undefined,
 		read: async (path) => {
-			if (path.endsWith("outcome.json")) {
-				if (!options.outcome) throw new Error("ENOENT");
+			if (path.endsWith("outcome.json") && options.outcome) {
 				return JSON.stringify(options.outcome);
 			}
-			return options.graph ?? FIXTURE;
+			throw new Error("ENOENT");
 		},
+		load: async (_path, skip) => readExtraction(options.graph ?? FIXTURE, skip),
 		makeDirectory: async () => {},
 		write: async () => {},
 		claim: async (path) => {
@@ -409,55 +410,59 @@ describe("how the last extraction ended", () => {
 	});
 });
 
+/**
+ * A Graph Store whose reads of the extraction are held until the test
+ * finishes them, so what a Call is served while a read runs is visible.
+ */
+function loading() {
+	const clock: { at: number | undefined } = { at: 1 };
+	interface Held {
+		finish: (text: string) => void;
+		crash: (error: Error) => void;
+	}
+	const loads: Held[] = [];
+	const waiting: { index: number; resolve: (held: Held) => void }[] = [];
+	const graphStore = new GraphStore({
+		home: "/home/test/.pi-chart/graphify",
+		exists: async () => true,
+		changedAt: async () => clock.at,
+		load: (_path, skip) => {
+			const { promise, resolve, reject } = Promise.withResolvers<Loaded>();
+			const held = {
+				finish: (text: string) => resolve(readExtraction(text, skip)),
+				crash: reject,
+			};
+			loads.push(held);
+			for (const each of waiting.filter((one) => one.index === loads.length - 1)) {
+				each.resolve(held);
+			}
+			return promise;
+		},
+		makeDirectory: async () => {},
+		run: async () => ({ ok: true, output: "" }),
+	});
+	/** The read at this index, once the Store has asked for it. */
+	function started(index: number): Promise<Held> {
+		const held = loads[index];
+		if (held) return Promise.resolve(held);
+		const { promise, resolve } = Promise.withResolvers<Held>();
+		waiting.push({ index, resolve });
+		return promise;
+	}
+	return { graphStore, loads, started, clock };
+}
+
+/** Lets a finished read be taken in before the next Call. */
+const settled = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+/** The same graph with different text, so it hashes as a newer extraction. */
+const REWRITTEN = `${FIXTURE}\n`;
+
 describe("reading a codebase's graph", () => {
 	test("a codebase that has never been extracted has no graph", async () => {
 		const { store: graphStore } = store({ present: ["bin/graphify"] });
 
 		expect(await graphStore.graph("/work/project")).toBeUndefined();
-	});
-
-	test("an unchanged extraction is parsed once", async () => {
-		let reads = 0;
-		const graphStore = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => 42,
-			read: async () => {
-				reads++;
-				return FIXTURE;
-			},
-			makeDirectory: async () => {},
-			run: async () => ({ ok: true, output: "" }),
-		});
-
-		await graphStore.graph("/work/project");
-		await graphStore.graph("/work/project");
-
-		// Parsing runs on the request path, and a real graph is tens of
-		// megabytes.
-		expect(reads).toBe(1);
-	});
-
-	test("a changed extraction is parsed again", async () => {
-		let reads = 0;
-		let at = 1;
-		const graphStore = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => at,
-			read: async () => {
-				reads++;
-				return FIXTURE;
-			},
-			makeDirectory: async () => {},
-			run: async () => ({ ok: true, output: "" }),
-		});
-
-		await graphStore.graph("/work/project");
-		at = 2;
-		await graphStore.graph("/work/project");
-
-		expect(reads).toBe(2);
 	});
 
 	test("an extracted codebase yields its programmatic connections", async () => {
@@ -473,44 +478,10 @@ describe("reading a codebase's graph", () => {
 		]);
 	});
 
-	test("an unreadable graph is reported once, not re-parsed every call", async () => {
-		let reads = 0;
-		const graphStore = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => 7,
-			read: async () => {
-				reads++;
-				return "{ not json";
-			},
-			makeDirectory: async () => {},
-			run: async () => ({ ok: true, output: "" }),
-		});
-
-		await expect(graphStore.graph("/work/project")).rejects.toThrow(/not JSON/);
-		await expect(graphStore.graph("/work/project")).rejects.toThrow(/not JSON/);
-
-		expect(reads).toBe(1);
-	});
-
-	test("an unreadable graph is reported, not guessed at", async () => {
+	test("the indexes are built with the read, not per call", async () => {
 		const { store: graphStore } = store({
 			present: ["bin/graphify", "graphify-out/graph.json"],
-			graph: "{ not json",
-		});
-
-		await expect(graphStore.graph("/work/project")).rejects.toThrow(
-			/not JSON/,
-		);
-	});
-	test("the indexes are built with the parse, not per call", async () => {
-		const graphStore = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => 42,
-			read: async () => FIXTURE,
-			makeDirectory: async () => {},
-			run: async () => ({ ok: true, output: "" }),
+			changedAt: () => 42,
 		});
 
 		const first = await graphStore.graph("/work/project");
@@ -525,23 +496,164 @@ describe("reading a codebase's graph", () => {
 		expect(first?.extractedAt).toBe(42);
 	});
 
-	test("a changed extraction invalidates the indexes with the parse", async () => {
-		let at = 1;
-		const graphStore = new GraphStore({
-			home: "/home/test/.pi-chart/graphify",
-			exists: async () => true,
-			changedAt: async () => at,
-			read: async () => FIXTURE,
-			makeDirectory: async () => {},
-			run: async () => ({ ok: true, output: "" }),
-		});
+	test("a call before any graph is read waits for the first read", async () => {
+		const { graphStore, loads, started } = loading();
 
-		const first = await graphStore.graph("/work/project");
-		at = 2;
+		let answered = false;
+		const first = graphStore.graph("/work/project").finally(() => {
+			answered = true;
+		});
+		const second = graphStore.graph("/work/project");
+		const read = await started(0);
+		await settled();
+
+		expect(answered).toBe(false);
+		read.finish(FIXTURE);
+		expect((await first)?.extractedAt).toBe(1);
+		expect(await second).toBe(await first);
+		// Two Calls arriving together still read the file once.
+		expect(loads.length).toBe(1);
+	});
+
+	/** A Store that has read the fixture once, as at time 1. */
+	async function readOnce() {
+		const held = loading();
+		const reading = held.graphStore.graph("/work/project");
+		(await held.started(0)).finish(FIXTURE);
+		return { ...held, older: await reading };
+	}
+
+	test("an unchanged extraction is read once", async () => {
+		const { graphStore, loads } = await readOnce();
+
+		await graphStore.graph("/work/project");
+		await graphStore.graph("/work/project");
+
+		expect(loads.length).toBe(1);
+	});
+
+	test("a call while a newer extraction is read is served the graph already read", async () => {
+		const { graphStore, loads, started, clock, older } = await readOnce();
+
+		clock.at = 2;
+		// Answered while the newer read is still held: nothing waits on it.
+		expect(await graphStore.graph("/work/project")).toBe(older);
+		expect(loads.length).toBe(2);
+
+		(await started(1)).finish(REWRITTEN);
+		await settled();
+		const newer = await graphStore.graph("/work/project");
+
+		expect(newer).not.toBe(older);
+		expect(newer?.extractedAt).toBe(2);
+	});
+
+	test("calls that find the same change share one read of it", async () => {
+		const { graphStore, loads, clock } = await readOnce();
+
+		clock.at = 2;
+		await Promise.all([
+			graphStore.graph("/work/project"),
+			graphStore.graph("/work/project"),
+			graphStore.graph("/work/project"),
+		]);
+
+		expect(loads.length).toBe(2);
+	});
+
+	test("a change made during a read is read by the next call, after it", async () => {
+		const { graphStore, loads, started, clock } = await readOnce();
+
+		clock.at = 2;
+		await graphStore.graph("/work/project");
+		clock.at = 3;
+		await graphStore.graph("/work/project");
+		// One read at a time: the second change waits for the first read.
+		expect(loads.length).toBe(2);
+
+		(await started(1)).finish(REWRITTEN);
+		await settled();
+		await graphStore.graph("/work/project");
+		expect(loads.length).toBe(3);
+
+		(await started(2)).finish(`${REWRITTEN}\n`);
+		await settled();
+		expect((await graphStore.graph("/work/project"))?.extractedAt).toBe(3);
+	});
+
+	test("a rewrite with the same content keeps the graph, as recent as the rewrite", async () => {
+		const { graphStore, started, clock, older } = await readOnce();
+
+		clock.at = 5;
+		await graphStore.graph("/work/project");
+		(await started(1)).finish(FIXTURE);
+		await settled();
 		const again = await graphStore.graph("/work/project");
 
-		expect(again).not.toBe(first);
-		expect(again?.extractedAt).toBe(2);
+		// Not indexed again: the indexes are the ones already built.
+		expect(again?.byName).toBe(older?.byName);
+		expect(again?.incident).toBe(older?.incident);
+		// Files edited before the rewrite are no longer outgrown by it.
+		expect(again?.extractedAt).toBe(5);
+	});
+
+	test("an unreadable graph with none read before is reported, and not read again", async () => {
+		const { graphStore, loads, started } = loading();
+		const reading = graphStore.graph("/work/project");
+		(await started(0)).finish("{ not json");
+
+		await expect(reading).rejects.toThrow(/not JSON/);
+		await expect(graphStore.graph("/work/project")).rejects.toThrow(/not JSON/);
+		expect(loads.length).toBe(1);
+	});
+
+	test("a reader that crashed is a failure, and the next change reads again", async () => {
+		const { graphStore, loads, started, clock } = loading();
+		const reading = graphStore.graph("/work/project");
+		(await started(0)).crash(new Error("graph reader exited (code 1) without answering"));
+
+		await expect(reading).rejects.toThrow(/without answering/);
+		await expect(graphStore.graph("/work/project")).rejects.toThrow(/without answering/);
+		expect(loads.length).toBe(1);
+
+		clock.at = 2;
+		const retried = graphStore.graph("/work/project");
+		(await started(1)).finish(FIXTURE);
+		expect((await retried)?.extractedAt).toBe(2);
+	});
+
+	test("a newer extraction that cannot be read leaves the graph in use, reported once", async () => {
+		const { graphStore, loads, started, clock, older } = await readOnce();
+		expect(graphStore.takeLoadFailure("/work/project")).toBeUndefined();
+
+		clock.at = 2;
+		await graphStore.graph("/work/project");
+		(await started(1)).finish("{ not json");
+		await settled();
+
+		expect(await graphStore.graph("/work/project")).toBe(older);
+		expect(graphStore.takeLoadFailure("/work/project")?.message).toMatch(/not JSON/);
+		expect(graphStore.takeLoadFailure("/work/project")).toBeUndefined();
+		// Not read again while it is unchanged.
+		await graphStore.graph("/work/project");
+		expect(loads.length).toBe(2);
+
+		// Rewritten with the same broken content: not reported a second time.
+		clock.at = 3;
+		await graphStore.graph("/work/project");
+		(await started(2)).finish("{ not json");
+		await settled();
+		expect(await graphStore.graph("/work/project")).toBe(older);
+		expect(graphStore.takeLoadFailure("/work/project")).toBeUndefined();
+
+		// Changed again, and readable this time.
+		clock.at = 4;
+		await graphStore.graph("/work/project");
+		(await started(3)).finish(REWRITTEN);
+		await settled();
+		const newer = await graphStore.graph("/work/project");
+		expect(newer).not.toBe(older);
+		expect(newer?.extractedAt).toBe(4);
 	});
 });
 

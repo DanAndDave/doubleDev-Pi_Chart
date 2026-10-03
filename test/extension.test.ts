@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { DocStore } from "../src/doc-store.ts";
+import { readExtraction } from "../src/graph-load.ts";
 import { GraphStore, type Outcome, PINNED_GRAPHIFY } from "../src/graph-store.ts";
 import { SpecStore } from "../src/spec-store.ts";
 import { Installation } from "../src/install.ts";
@@ -2048,12 +2049,14 @@ describe("the graph store in a session", () => {
 				(options.graph !== undefined && path.endsWith("graph.json")),
 			changedAt: async () => (options.graph === undefined ? undefined : 1),
 			read: async (path) => {
-				if (path.endsWith("outcome.json")) {
-					if (!state.outcome) throw new Error("ENOENT");
+				if (path.endsWith("outcome.json") && state.outcome) {
 					return JSON.stringify(state.outcome);
 				}
+				throw new Error("ENOENT");
+			},
+			load: async (_path, skip) => {
 				if (options.fails) throw new Error("graph unreadable");
-				return options.graph ?? graphJson;
+				return readExtraction(options.graph ?? graphJson, skip);
 			},
 			makeDirectory: async () => {},
 			write: async () => {},
@@ -2145,6 +2148,74 @@ describe("the graph store in a session", () => {
 
 		expect(result?.messages).toHaveLength(1);
 		expect(cm.reported.join("\n")).toContain("Graph Store unavailable");
+	});
+
+	/** A Graph Store whose reads are counted and whose extraction can change. */
+	function counted(texts: string[]) {
+		const clock = { at: 1 };
+		const loads: number[] = [];
+		const store = new GraphStore({
+			home: "/home/test/.pi-chart/graphify",
+			exists: async () => true,
+			changedAt: async (path) => (path.endsWith("graph.json") ? clock.at : 0),
+			load: async (_path, skip) => {
+				loads.push(clock.at);
+				return readExtraction(texts[loads.length - 1] ?? graphJson, skip);
+			},
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+		return { store, loads, clock };
+	}
+
+	test("the graph is read at session start, so the first call does not read it", async () => {
+		const { store, loads } = counted([graphJson]);
+		const cm = harness({ config: config(2), graph: store, codebase: "/work/project" });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+		expect(loads).toEqual([1]);
+
+		const result = await cm.context(
+			{ messages: [{ role: "user", content: "who calls assemble?" }] },
+			ctx(),
+		);
+
+		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
+		expect(loads).toEqual([1]);
+	});
+
+	test("no graph is read at session start when no structure is wanted", async () => {
+		const { store, loads } = counted([graphJson]);
+		const cm = harness({ config: config(0), graph: store, codebase: "/work/project" });
+
+		await cm.sessionStart({}, ctx());
+		await cm.settle();
+
+		expect(loads).toEqual([]);
+	});
+
+	test("a newer graph that cannot be read is said once, and structure is still carried", async () => {
+		const { store, loads, clock } = counted([graphJson, "{ not json"]);
+		const cm = harness({ config: config(2), graph: store, codebase: "/work/project" });
+		const prompt = { messages: [{ role: "user", content: "who calls assemble?" }] };
+
+		await cm.context(prompt, ctx());
+		clock.at = 2;
+		// Starts the newer read, served from the graph already read.
+		await cm.context(prompt, ctx());
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(loads).toEqual([1, 2]);
+
+		const first = await cm.context(prompt, ctx());
+		const second = await cm.context(prompt, ctx());
+
+		expect(JSON.stringify(first?.messages)).toContain("[codebase structure:");
+		expect(JSON.stringify(second?.messages)).toContain("[codebase structure:");
+		const said = cm.reported.filter((each) => each.includes("could not read the newer graph"));
+		expect(said).toHaveLength(1);
+		expect(said[0]).toContain("not JSON");
+		expect(cm.reported.join("\n")).not.toContain("Graph Store unavailable");
 	});
 
 	test("the codebase is extracted at session start, off the request path", async () => {
@@ -2367,7 +2438,7 @@ describe("the graph store in a session", () => {
 			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async (path) => (path.endsWith("graph.json") ? 10 : 20),
-			read: async () => graphJson,
+			load: async (_path, skip) => readExtraction(graphJson, skip),
 			makeDirectory: async () => {},
 			run: async () => ({ ok: true, output: "" }),
 		});
@@ -2383,12 +2454,40 @@ describe("the graph store in a session", () => {
 		);
 	});
 
+	test("structure served while a newer graph is read is marked against the graph it came from", async () => {
+		// Read at 10; the file is edited at 15; the extraction changes at 20
+		// and its read never finishes, so the Call is served the graph from 10.
+		const graphAt = { at: 10 };
+		let loads = 0;
+		const store = new GraphStore({
+			home: "/home/test/.pi-chart/graphify",
+			exists: async () => true,
+			changedAt: async (path) => (path.endsWith("graph.json") ? graphAt.at : 15),
+			load: async (_path, skip) => {
+				loads += 1;
+				if (loads > 1) return new Promise<never>(() => {});
+				return readExtraction(graphJson, skip);
+			},
+			makeDirectory: async () => {},
+			run: async () => ({ ok: true, output: "" }),
+		});
+		const cm = harness({ config: config(2), graph: store });
+		const prompt = { messages: [{ role: "user", content: "who calls assemble?" }] };
+
+		await cm.context(prompt, ctx());
+		graphAt.at = 20;
+		const result = await cm.context(prompt, ctx());
+
+		expect(loads).toBe(2);
+		expect(JSON.stringify(result?.messages)).toContain("(older than the codebase)");
+	});
+
 	test("structure from an untouched file is not marked", async () => {
 		const store = new GraphStore({
 			home: "/home/test/.pi-chart/graphify",
 			exists: async () => true,
 			changedAt: async (path) => (path.endsWith("graph.json") ? 20 : 10),
-			read: async () => graphJson,
+			load: async (_path, skip) => readExtraction(graphJson, skip),
 			makeDirectory: async () => {},
 			run: async () => ({ ok: true, output: "" }),
 		});
