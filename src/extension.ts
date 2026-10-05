@@ -684,7 +684,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			inBackground("Graph Store extraction", reportExtractionFailure());
 			extract();
 		}
-		await store(conversationId);
+		await store(conversationId, leafOf(ctx));
 	});
 
 	/**
@@ -740,7 +740,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// released its pool held 200 sockets after 16.5 hours, and the
 		// Store then refused every new client.
 		try {
-			await store(conversationOf(ctx));
+			await store(conversationOf(ctx), leafOf(ctx));
 			// The refresh the last Turn asked for, given the chance to
 			// start: measured on a headless run, a process that exited
 			// first left the graph older than the edit that Turn made. Its
@@ -750,6 +750,38 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		} finally {
 			await deps.close?.();
 		}
+	});
+
+	// `/tree` and `/branch` move the leaf inside the same Journal. Turns past
+	// where the branch left and the branch taken part are no longer on it, so
+	// the store lets them go and takes the branch's own before the next Call
+	// reads its tail.
+	pi.on("session_tree", async (event, ctx) => {
+		ui = ctx.ui;
+		const sink = deps.ingest;
+		if (!sink) return;
+		const conversationId = conversationOf(ctx);
+		const branchTo = ctx.sessionManager?.getBranch;
+		const left = event.oldLeafId ? (branchTo?.(event.oldLeafId) ?? []) : [];
+		const taken = branchTo?.() ?? [];
+		const leafId = taken.at(-1)?.id;
+		// After a sweep already reading the Journal, so it cannot write the
+		// abandoned Turns after them; and registered as one, so a sweep
+		// starting meanwhile waits for it instead.
+		const running = sweeping.get(conversationId);
+		const rewind: Promise<void> = (async () => {
+			await running;
+			try {
+				await sink.rewind(conversationId, rewoundFrom(left, taken));
+				// No leaf: the branch is empty, and a Journal read without
+				// one would follow the last entry written, the branch left.
+				if (leafId) await ingestJournal(conversationId, sink, deps.codebase, leafId);
+			} catch (error) {
+				reportSafely(`Rewind failed; the store may hold an abandoned branch: ${describe(error)}`);
+			}
+		})().finally(() => release(conversationId, rewind));
+		sweeping.set(conversationId, rewind);
+		await rewind;
 	});
 
 	/**
@@ -781,22 +813,27 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * overlap on a short run, and two concurrent passes would select the same
 	 * unembedded rows and embed them twice.
 	 */
-	function store(conversationId: string): Promise<void> {
+	function store(conversationId: string, leafId?: string): Promise<void> {
 		const running = sweeping.get(conversationId);
 		if (running) return running;
 
-		const sweep = runSweep(conversationId).finally(() => {
-			sweeping.delete(conversationId);
-		});
+		const sweep: Promise<void> = runSweep(conversationId, leafId).finally(() =>
+			release(conversationId, sweep),
+		);
 		sweeping.set(conversationId, sweep);
 		return sweep;
 	}
 
-	async function runSweep(conversationId: string): Promise<void> {
+	/** Ends a Conversation's turn in `sweeping`, unless another took it over. */
+	function release(conversationId: string, work: Promise<void>): void {
+		if (sweeping.get(conversationId) === work) sweeping.delete(conversationId);
+	}
+
+	async function runSweep(conversationId: string, leafId?: string): Promise<void> {
 		if (!deps.ingest) return;
 		let ingested: JournalTurn[] | undefined;
 		try {
-			ingested = await ingestJournal(conversationId, deps.ingest, deps.codebase);
+			ingested = await ingestJournal(conversationId, deps.ingest, deps.codebase, leafId);
 		} catch (error) {
 			deps.report(`Ingest failed: ${describe(error)}`);
 			return;
@@ -1604,6 +1641,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		conversationId: string,
 		sink: TurnSink,
 		codebase?: string,
+		leafId?: string,
 	): Promise<JournalTurn[] | undefined> {
 		const path = await (deps.findJournal ?? findJournal)(conversationId);
 		if (!path) {
@@ -1614,7 +1652,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 			return;
 		}
-		const recorded = await readJournal(path);
+		const recorded = await readJournal(path, leafId);
 		if (recorded.length === 0) {
 			// Read, and there was nothing in it. Said aloud because it looks
 			// exactly like a healthy Store holding nothing yet, and the two want
@@ -1802,6 +1840,29 @@ function positioned(turns: Turn[], currentIndex: number): Turn[] {
 
 function conversationOf(ctx: HandlerContext): string {
 	return ctx.sessionManager?.getSessionId?.() ?? UNKNOWN_CONVERSATION;
+}
+
+/** The entry the harness's branch ends at, where ingest reads back from. */
+function leafOf(ctx: HandlerContext): string | undefined {
+	return ctx.sessionManager?.getBranch?.().at(-1)?.id;
+}
+
+/**
+ * The first Turn a rewind may have changed: the one the branch left and the
+ * branch taken part in. Every Turn before it lies wholly on both and is
+ * kept. Counted against the branch left, not the store's head, because the
+ * store holds the branch left: a branch taken that runs longer would
+ * otherwise keep the left one's Turns below its own leaf. Prompts are
+ * counted as `addressOf` counts them; discarding one Turn too many costs
+ * only its re-ingest. With no branch left to compare, nothing is kept.
+ */
+function rewoundFrom(left: BranchEntry[], taken: BranchEntry[]): number {
+	let prompts = 0;
+	for (const [index, entry] of taken.entries()) {
+		if (!entry.id || entry.id !== left[index]?.id) break;
+		if (entry.message?.role === "user") prompts++;
+	}
+	return Math.max(prompts - 1, 0);
 }
 
 /**

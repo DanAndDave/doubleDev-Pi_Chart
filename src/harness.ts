@@ -22,6 +22,7 @@ export interface MemoryStatus {
 }
 
 export interface BranchEntry {
+	id?: string;
 	type?: string;
 	message?: {
 		role?: string;
@@ -35,7 +36,8 @@ export interface BranchEntry {
 export interface HandlerContext {
 	sessionManager?: {
 		getSessionId?: () => string | undefined;
-		getBranch?: () => BranchEntry[];
+		/** The path from the root to `fromId`, or to the current leaf. */
+		getBranch?: (fromId?: string) => BranchEntry[];
 	};
 	memory?: { status?: () => Promise<MemoryStatus> | MemoryStatus };
 	ui?: { notify?: (message: string, level: string) => void };
@@ -59,6 +61,17 @@ export type ContextHandler = (
 
 export type LifecycleHandler = (
 	event: unknown,
+	ctx: HandlerContext,
+) => Promise<void>;
+
+/** A move of the leaf inside the Conversation's tree, by `/tree` or `/branch`. */
+export interface SessionTreeEvent {
+	/** Where the branch ended before the move; absent at the session root. */
+	oldLeafId?: string | null;
+}
+
+export type SessionTreeHandler = (
+	event: SessionTreeEvent,
 	ctx: HandlerContext,
 ) => Promise<void>;
 
@@ -142,6 +155,7 @@ export interface ExtensionAPI {
 		event: "session_start" | "agent_end" | "session_shutdown",
 		handler: LifecycleHandler,
 	): void;
+	on(event: "session_tree", handler: SessionTreeHandler): void;
 	on(event: "auto_compaction_start", handler: CompactionStartHandler): void;
 	on(event: "auto_compaction_end", handler: LifecycleHandler): void;
 	on(event: "session_before_compact", handler: BeforeCompactHandler): void;

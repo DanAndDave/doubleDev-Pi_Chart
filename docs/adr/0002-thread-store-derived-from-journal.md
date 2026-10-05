@@ -6,5 +6,6 @@ omp already persists every Turn to an append-only JSONL journal with stable entr
 
 - Schema changes are cheap early on, when they are most likely: drop, migrate, re-ingest.
 - A failed or lagging ingest costs retrieval quality, never data.
+- The file is append-only, the Conversation is not: `/tree` and `/branch` move the leaf to another entry and continue from there. The store derives from the active branch (the parent chain from the leaf) and drops the Turns of the branch it left from where the two part.
 - Retrieval scope defaults to the current Conversation. Reaching across Conversations is an explicit query, never an implicit widening.
 - The storage interface stays narrow enough that the test suite needs no server: tests run the store on PGlite in-process. At runtime the store is a Postgres server that `/pi-chart setup` finds or provisions (ADR-0008); the Compose file this project manages is one way to obtain it.

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chmod, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +30,7 @@ import piChart, {
 	type Dependencies,
 } from "../src/extension.ts";
 import { MemoryTurnSource } from "../src/thread-store.ts";
+import { PostgresStore } from "../src/postgres-store.ts";
 import { JudgeFailure, type RelevanceJudge } from "../src/relevance-judge.ts";
 import type {
 	BeforeCompactHandler,
@@ -41,6 +42,7 @@ import type {
 	ExtensionAPI,
 	HandlerContext,
 	LifecycleHandler,
+	SessionTreeHandler,
 	ToolResult,
 } from "../src/harness.ts";
 import type { ContextSnapshot } from "../src/messages.ts";
@@ -48,8 +50,11 @@ import {
 	branchOf,
 	COMPACTION_FIXTURE,
 	JOURNAL_FIXTURE,
+	journalEntry,
+	journalOf,
 	settings,
 } from "./fixtures.ts";
+import { storeLocation } from "./store-support.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
@@ -63,6 +68,7 @@ interface Harness {
 	sessionStart: LifecycleHandler;
 	agentEnd: LifecycleHandler;
 	sessionShutdown: LifecycleHandler;
+	sessionTree: SessionTreeHandler;
 	compactionStart: CompactionStartHandler;
 	compactionEnd: LifecycleHandler;
 	beforeCompact: BeforeCompactHandler;
@@ -86,6 +92,7 @@ function harness(overrides: Overrides = {}): Harness {
 	let sessionStart: LifecycleHandler | undefined;
 	let agentEnd: LifecycleHandler | undefined;
 	let sessionShutdown: LifecycleHandler | undefined;
+	let sessionTree: SessionTreeHandler | undefined;
 	let compactionStart: CompactionStartHandler | undefined;
 	let compactionEnd: LifecycleHandler | undefined;
 	let beforeCompact: BeforeCompactHandler | undefined;
@@ -97,6 +104,7 @@ function harness(overrides: Overrides = {}): Harness {
 		on(event: string, handler: unknown) {
 			if (event === "context") context = handler as ContextHandler;
 			if (event === "session_start") sessionStart = handler as LifecycleHandler;
+			if (event === "session_tree") sessionTree = handler as SessionTreeHandler;
 			if (event === "agent_end") agentEnd = handler as LifecycleHandler;
 			if (event === "session_shutdown") {
 				sessionShutdown = handler as LifecycleHandler;
@@ -178,6 +186,7 @@ function harness(overrides: Overrides = {}): Harness {
 		!sessionStart ||
 		!agentEnd ||
 		!sessionShutdown ||
+		!sessionTree ||
 		!compactionStart ||
 		!compactionEnd ||
 		!beforeCompact
@@ -189,6 +198,7 @@ function harness(overrides: Overrides = {}): Harness {
 		context,
 		sessionStart,
 		sessionShutdown,
+		sessionTree,
 		compactionStart,
 		compactionEnd,
 		beforeCompact,
@@ -3713,5 +3723,148 @@ describe("what a session gives back when it ends", () => {
 
 		expect(closed).toBe(true);
 		expect(cm.reported.join("\n")).toContain("Ingest failed");
+	});
+});
+
+/**
+ * The harness's view of a Journal's tree with its leaf at `leaf`: the path
+ * to any entry, the leaf's by default, as `getBranch` answers.
+ */
+function onTree(entries: ReturnType<typeof journalEntry>[], leaf: string) {
+	const byId = new Map(entries.map((entry) => [entry.id, entry]));
+	const pathTo = (id: string) => {
+		const path: BranchEntry[] = [];
+		for (let at = byId.get(id); at; at = at.parentId ? byId.get(at.parentId) : undefined) {
+			path.unshift(at);
+		}
+		return path;
+	};
+	return {
+		sessionManager: {
+			getSessionId: () => "conv-1",
+			getBranch: (fromId?: string) => pathTo(fromId ?? leaf),
+		},
+	} satisfies HandlerContext;
+}
+
+describe("a rewind with /tree or /branch", () => {
+	const first = journalEntry("u1", null, "user", "first prompt");
+	const answer = journalEntry("a1", "u1", "assistant", "first answer");
+	const abandoned = journalEntry("u2", "a1", "user", "abandoned prompt");
+	const reply = journalEntry("a2", "u2", "assistant", "abandoned answer");
+
+	test("the next pack carries the branch the harness moved to", async () => {
+		const kept = journalEntry("u3", "a1", "user", "kept prompt");
+		let path = await journalOf([first, answer, abandoned, reply]);
+		const store = new MemoryTurnSource();
+		const cm = harness({ ingest: store, turns: store, findJournal: async () => path });
+
+		// The abandoned Turn was stored when it finished.
+		const journal = [first, answer, abandoned, reply];
+		await cm.agentEnd({}, onTree(journal, "a2"));
+
+		// `/tree` moves the leaf back to the first answer; the next prompt
+		// is appended under it.
+		await cm.sessionTree({ oldLeafId: "a2" }, onTree(journal, "a1"));
+		path = await journalOf([...journal, kept]);
+		const result = await cm.context(
+			{ messages: [first.message, answer.message, kept.message] },
+			onTree([...journal, kept], "u3"),
+		);
+
+		const sent = JSON.stringify(result?.messages);
+		expect(sent).toContain("first answer");
+		expect(sent).not.toContain("abandoned");
+	});
+
+	test("a rewind into the middle of a Turn keeps only its kept part", async () => {
+		const journal = [first, answer, abandoned, reply];
+		const path = await journalOf(journal);
+		const store = new MemoryTurnSource();
+		const cm = harness({ ingest: store, turns: store, findJournal: async () => path });
+		await cm.agentEnd({}, onTree(journal, "a2"));
+
+		await cm.sessionTree({ oldLeafId: "a2" }, onTree(journal, "u2"));
+
+		const turns = await store.recentTurns("conv-1", 10);
+		expect(turns.map((turn) => turn.messages.map((message) => message.content))).toEqual([
+			["first prompt", "first answer"],
+			["abandoned prompt"],
+		]);
+	});
+
+	test("a store that cannot rewind is reported and the navigation completes", async () => {
+		const store = new MemoryTurnSource();
+		store.rewind = async () => {
+			throw new Error("connection refused");
+		};
+		const cm = harness({ ingest: store, turns: store, findJournal: async () => undefined });
+
+		await cm.sessionTree({ oldLeafId: "a2" }, onTree([first, answer, abandoned, reply], "a1"));
+
+		expect(cm.reported.join("\n")).toContain("connection refused");
+	});
+});
+
+// Store-backed: the Postgres store resumes from its highest Turn and skips
+// those below it, which a memory store that rewrites every Turn would hide.
+describe("a rewind against a store that resumes from its head", () => {
+	const location = storeLocation();
+	let store: PostgresStore;
+
+	beforeAll(async () => {
+		store = new PostgresStore(location.open());
+		await store.migrate();
+	});
+
+	afterAll(async () => {
+		await store?.close();
+		location.dispose();
+	});
+
+	beforeEach(async () => {
+		await store.truncate();
+	});
+
+	test("returning to a longer branch keeps none of the branch it left", async () => {
+		const shared = [
+			journalEntry("u0", null, "user", "shared prompt"),
+			journalEntry("a0", "u0", "assistant", "shared answer"),
+		];
+		const long = [
+			journalEntry("u1", "a0", "user", "long one"),
+			journalEntry("a1", "u1", "assistant", "long one answered"),
+			journalEntry("u2", "a1", "user", "long two"),
+			journalEntry("a2", "u2", "assistant", "long two answered"),
+			journalEntry("u3", "a2", "user", "long three"),
+			journalEntry("a3", "u3", "assistant", "long three answered"),
+		];
+		const short = [
+			journalEntry("v1", "a0", "user", "short one"),
+			journalEntry("b1", "v1", "assistant", "short one answered"),
+			journalEntry("v2", "b1", "user", "short two"),
+			journalEntry("b2", "v2", "assistant", "short two answered"),
+		];
+		let path = await journalOf([...shared, ...long]);
+		const cm = harness({ ingest: store, turns: store, findJournal: async () => path });
+		await cm.agentEnd({}, onTree([...shared, ...long], "a3"));
+
+		// Back to the shared answer, and on along a shorter branch.
+		const journal = [...shared, ...long, ...short];
+		await cm.sessionTree({ oldLeafId: "a3" }, onTree(journal, "a0"));
+		path = await journalOf(journal);
+		await cm.agentEnd({}, onTree(journal, "b2"));
+
+		// Then back to the end of the longer one.
+		await cm.sessionTree({ oldLeafId: "b2" }, onTree(journal, "a3"));
+
+		const turns = await store.recentTurns("conv-1", 10);
+		expect(turns.map((turn) => turn.prompt)).toEqual([
+			"shared prompt",
+			"long one",
+			"long two",
+			"long three",
+		]);
+		expect(cm.reported.join("\n")).not.toContain("failed");
 	});
 });

@@ -437,8 +437,9 @@ export class PostgresStore implements
 	 * many Turns it wrote.
 	 *
 	 * Resumed rather than replayed: the Store is asked for its highest Turn
-	 * and everything below it is skipped, because a Journal is append-only
-	 * (ADR-0002). Only the highest is reconsidered, since the sweep that
+	 * and everything below it is skipped, because the active branch only
+	 * grows between rewinds and a rewind discards what it left (`rewind`).
+	 * Only the highest is reconsidered, since the sweep that
 	 * stored it may have caught it mid-flush — `readJournal` drops a
 	 * partially written final line — and it is reconsidered against what is
 	 * stored rather than rewritten blindly, so a Conversation that has not
@@ -1458,6 +1459,27 @@ export class PostgresStore implements
 			misses: decode<ConceptMiss[]>(row?.misses, []),
 			unsearched: row?.unsearched ?? 0,
 		};
+	}
+
+	/**
+	 * Discards a Conversation's Turns from `fromTurn` on, with their
+	 * messages and vectors, and returns how many went. One statement, so a
+	 * Turn is never left without its messages or the reverse.
+	 */
+	async rewind(conversationId: string, fromTurn: number): Promise<number> {
+		const discarded = (await this.sql`
+			WITH gone AS (
+				DELETE FROM turns
+				WHERE conversation_id = ${conversationId}
+					AND turn_index >= ${fromTurn}
+				RETURNING turn_index
+			), messages AS (
+				DELETE FROM turn_messages
+				WHERE conversation_id = ${conversationId}
+					AND turn_index >= ${fromTurn}
+			)
+			SELECT count(*)::int AS discarded FROM gone`) as { discarded: number }[];
+		return discarded[0]?.discarded ?? 0;
 	}
 
 	/**

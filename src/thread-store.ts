@@ -20,6 +20,12 @@ export interface TurnSink {
 		turns: JournalTurn[],
 		codebase?: string,
 	): Promise<number>;
+	/**
+	 * Discards the Conversation's Turns from `fromTurn` on, with everything
+	 * stored for them, and returns how many it discarded. Called when the
+	 * harness moves its leaf back: those Turns are no longer on the branch.
+	 */
+	rewind(conversationId: string, fromTurn: number): Promise<number>;
 }
 
 /** A Turn found anywhere in the store, with where it came from. */
@@ -132,6 +138,16 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 		}
 		this.byConversation.set(conversationId, existing);
 		return written;
+	}
+
+	async rewind(conversationId: string, fromTurn: number): Promise<number> {
+		const turns = this.byConversation.get(conversationId);
+		if (!turns) return 0;
+		let discarded = 0;
+		for (const index of [...turns.keys()]) {
+			if (index >= fromTurn && turns.delete(index)) discarded++;
+		}
+		return discarded;
 	}
 
 	async recentTurns(conversationId: string, limit: number): Promise<Turn[]> {

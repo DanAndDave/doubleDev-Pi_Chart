@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { AssemblerConfig } from "../src/assembler.ts";
 import type { BranchEntry } from "../src/harness.ts";
@@ -179,4 +181,26 @@ export function toolResult(
 		toolName,
 		content: [{ type: "text", text }],
 	};
+}
+
+/**
+ * A Journal message entry hung off `parentId` in the harness's tree, which
+ * is also the branch entry the harness reports for it. The root's parent is
+ * `null`, as in a real Journal.
+ */
+export function journalEntry(
+	id: string,
+	parentId: string | null,
+	role: string,
+	text: string,
+) {
+	return { type: "message", id, parentId, message: { role, content: text } };
+}
+
+/** A Journal file holding `entries` after a session header; returns its path. */
+export async function journalOf(entries: object[]): Promise<string> {
+	const path = join(await mkdtemp(join(tmpdir(), "journal-")), "journal.jsonl");
+	const lines = [{ type: "session", id: "s" }, ...entries];
+	await Bun.write(path, lines.map((entry) => JSON.stringify(entry)).join("\n"));
+	return path;
 }

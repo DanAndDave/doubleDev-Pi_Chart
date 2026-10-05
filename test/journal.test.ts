@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readJournal } from "../src/journal.ts";
+import { journalEntry, journalOf } from "./fixtures.ts";
 
 const FIXTURE = new URL(
 	"./fixtures/journal-tool-session.jsonl",
@@ -103,5 +104,66 @@ describe("which call produced a message", () => {
 		expect(turns.every((turn) => turn.calls.every((call) => call === 0))).toBe(
 			true,
 		);
+	});
+});
+
+// One file, two branches: `/tree` moved the leaf back to the first
+// answer, and the Conversation continued from there.
+const REWOUND = [
+	journalEntry("u1", null, "user", "first prompt"),
+	journalEntry("a1", "u1", "assistant", "first answer"),
+	journalEntry("u2", "a1", "user", "abandoned prompt"),
+	journalEntry("a2", "u2", "assistant", "abandoned answer"),
+	journalEntry("u3", "a1", "user", "kept prompt"),
+	journalEntry("a3", "u3", "assistant", "kept answer"),
+];
+
+describe("a Journal the harness rewound", () => {
+	test("holds only the branch the harness is on", async () => {
+		const turns = await readJournal(await journalOf(REWOUND));
+
+		expect(turns.map((turn) => turn.prompt)).toEqual([
+			"first prompt",
+			"kept prompt",
+		]);
+		expect(turns.map((turn) => turn.turnIndex)).toEqual([0, 1]);
+	});
+
+	test("follows a leaf the harness names over the file's last entry", async () => {
+		const turns = await readJournal(await journalOf(REWOUND), "a2");
+
+		expect(turns.map((turn) => turn.prompt)).toEqual([
+			"first prompt",
+			"abandoned prompt",
+		]);
+	});
+
+	test("ends a Turn at a leaf inside it", async () => {
+		const turns = await readJournal(await journalOf(REWOUND), "u2");
+
+		expect(turns.at(-1)?.messages.map((message) => message.content)).toEqual([
+			"abandoned prompt",
+		]);
+	});
+
+	test("a leaf the Journal does not hold falls back to the last entry", async () => {
+		const turns = await readJournal(await journalOf(REWOUND), "gone");
+
+		expect(turns.map((turn) => turn.prompt)).toEqual([
+			"first prompt",
+			"kept prompt",
+		]);
+	});
+
+	test("a Journal without a tree is read in file order", async () => {
+		const untreed = REWOUND.map(({ type, message }) => ({ type, message }));
+
+		const turns = await readJournal(await journalOf(untreed));
+
+		expect(turns.map((turn) => turn.prompt)).toEqual([
+			"first prompt",
+			"abandoned prompt",
+			"kept prompt",
+		]);
 	});
 });

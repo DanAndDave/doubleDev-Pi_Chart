@@ -134,4 +134,20 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 
 		expect(await store.recentTurns("conv-1", 0)).toEqual([]);
 	});
+
+	test(`${name}: a rewound position holds the new branch's Turn`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [
+			journalTurn(0, "first"),
+			journalTurn(1, "abandoned"),
+			journalTurn(2, "abandoned too"),
+		]);
+
+		expect(await store.rewind("conv-1", 1)).toBe(2);
+		await store.ingest("conv-1", [journalTurn(0, "first"), journalTurn(1, "kept")]);
+
+		const turns = await store.recentTurns("conv-1", 10);
+		expect(turns.map((turn) => turn.prompt)).toEqual(["first", "kept"]);
+		expect(JSON.stringify(turns)).not.toContain("abandoned");
+	});
 }

@@ -21,17 +21,23 @@ export interface JournalTurn {
 
 interface JournalEntry {
 	type?: string;
+	id?: string;
+	parentId?: string | null;
 	message?: HarnessMessage;
 }
 
 /**
- * Reads the harness's append-only Journal for one Conversation.
+ * Reads one Conversation's Journal along the branch ending at `leafId`, or
+ * at the last entry written when the harness names no leaf.
  *
  * The Journal is the record and the Thread Store is derived from it (ADR-0002),
  * so ingest reads this rather than the live session: a store rebuilt from disk
  * is then a real operation rather than an aspiration.
  */
-export async function readJournal(path: string): Promise<JournalTurn[]> {
+export async function readJournal(
+	path: string,
+	leafId?: string,
+): Promise<JournalTurn[]> {
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");
@@ -40,17 +46,7 @@ export async function readJournal(path: string): Promise<JournalTurn[]> {
 	}
 
 	const turns: JournalTurn[] = [];
-	for (const line of text.split("\n")) {
-		if (!line.trim()) continue;
-
-		let entry: JournalEntry;
-		try {
-			entry = JSON.parse(line) as JournalEntry;
-		} catch {
-			// A partially flushed final line is not a reason to lose the session.
-			continue;
-		}
-
+	for (const entry of activeBranch(parse(text), leafId)) {
 		const message = entry.type === "message" ? entry.message : undefined;
 		if (!message?.role) continue;
 
@@ -78,6 +74,49 @@ export async function readJournal(path: string): Promise<JournalTurn[]> {
 	}
 
 	return turns;
+}
+
+/** Every entry the Journal holds, in file order. */
+function parse(text: string): JournalEntry[] {
+	const entries: JournalEntry[] = [];
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			entries.push(JSON.parse(line) as JournalEntry);
+		} catch {
+			// A partially flushed final line is not a reason to lose the session.
+		}
+	}
+	return entries;
+}
+
+/**
+ * The entries on the branch the harness is on, root first.
+ *
+ * One file holds every branch: `/tree` and `/branch` move the leaf to an
+ * earlier entry and new entries hang off it, so what was abandoned stays in
+ * the file. The branch is the parent chain from the leaf — `leafId` when the
+ * harness names it, which it must right after a rewind that appended
+ * nothing, else the last entry written, where the harness appends.
+ * A tree entry names its parent, `null` at the root; the session header
+ * carries an id but no parent and is not one. A Journal without tree
+ * entries has no branches to choose between and is read in file order.
+ */
+function activeBranch(entries: JournalEntry[], leafId?: string): JournalEntry[] {
+	const tree = entries.filter((entry) => entry.id && entry.parentId !== undefined);
+	if (tree.length === 0) return entries;
+	const byId = new Map(tree.map((entry) => [entry.id, entry]));
+
+	const leaf = (leafId === undefined ? undefined : byId.get(leafId)) ?? tree.at(-1);
+
+	const branch: JournalEntry[] = [];
+	const seen = new Set<string>();
+	for (let entry = leaf; entry?.id && !seen.has(entry.id); ) {
+		seen.add(entry.id);
+		branch.push(entry);
+		entry = entry.parentId ? byId.get(entry.parentId) : undefined;
+	}
+	return branch.reverse();
 }
 
 /** Where the harness keeps its Journals, unless told otherwise. */
