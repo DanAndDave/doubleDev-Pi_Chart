@@ -288,6 +288,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	const measuredByConversation = new Map<string, number>();
 	/** One ingest-and-embed sweep per Conversation at a time. */
 	const sweeping = new Map<string, Promise<void>>();
+	/** The sweep waiting behind a running one, which later requests join. */
+	const queued = new Map<string, QueuedSweep>();
 	/** The Conversation the command inspects: whichever one is running. */
 	let lastConversation = UNKNOWN_CONVERSATION;
 	/** Said once a session: a model swap is a condition, not a per-Turn event. */
@@ -767,8 +769,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		const leafId = taken.at(-1)?.id;
 		// After a sweep already reading the Journal, so it cannot write the
 		// abandoned Turns after them; and registered as one, so a sweep
-		// starting meanwhile waits for it instead.
+		// starting meanwhile waits for it instead. A sweep queued before the
+		// rewind still runs before it, so later requests queue anew.
 		const running = sweeping.get(conversationId);
+		queued.delete(conversationId);
 		const rewind: Promise<void> = (async () => {
 			await running;
 			try {
@@ -811,17 +815,36 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 *
 	 * One sweep per Conversation at a time: `agent_end` and `session_shutdown`
 	 * overlap on a short run, and two concurrent passes would select the same
-	 * unembedded rows and embed them twice.
+	 * unembedded rows and embed them twice. A request arriving while a sweep
+	 * runs queues one more after it, since the running one may have read the
+	 * Journal before the Turn that asked had been written; requests arriving
+	 * while that one waits join it, at the newest leaf asked for.
 	 */
 	function store(conversationId: string, leafId?: string): Promise<void> {
-		const running = sweeping.get(conversationId);
-		if (running) return running;
+		const waiting = queued.get(conversationId);
+		if (waiting) {
+			waiting.leafId = leafId;
+			return waiting.sweep;
+		}
 
-		const sweep: Promise<void> = runSweep(conversationId, leafId).finally(() =>
-			release(conversationId, sweep),
-		);
-		sweeping.set(conversationId, sweep);
-		return sweep;
+		const running = sweeping.get(conversationId);
+		if (!running) {
+			const sweep: Promise<void> = runSweep(conversationId, leafId).finally(() =>
+				release(conversationId, sweep),
+			);
+			sweeping.set(conversationId, sweep);
+			return sweep;
+		}
+
+		const next: QueuedSweep = { leafId, sweep: Promise.resolve() };
+		next.sweep = (async () => {
+			await running.catch(() => undefined);
+			if (queued.get(conversationId) === next) queued.delete(conversationId);
+			await runSweep(conversationId, next.leafId);
+		})().finally(() => release(conversationId, next.sweep));
+		queued.set(conversationId, next);
+		sweeping.set(conversationId, next.sweep);
+		return next.sweep;
 	}
 
 	/** Ends a Conversation's turn in `sweeping`, unless another took it over. */
@@ -1825,6 +1848,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			deps.accounting.recordMeasurements(conversationId, fresh),
 		);
 	}
+}
+
+/** A sweep waiting its turn, and the leaf the latest request asked it to read. */
+interface QueuedSweep {
+	leafId: string | undefined;
+	sweep: Promise<void>;
 }
 
 /**

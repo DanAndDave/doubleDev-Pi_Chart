@@ -3724,6 +3724,36 @@ describe("what a session gives back when it ends", () => {
 		expect(closed).toBe(true);
 		expect(cm.reported.join("\n")).toContain("Ingest failed");
 	});
+
+	test("a turn that ends during a sweep is stored before exit", async () => {
+		const first = journalEntry("u1", null, "user", "first prompt");
+		const answer = journalEntry("a1", "u1", "assistant", "first answer");
+		const second = journalEntry("u2", "a1", "user", "second prompt");
+		const reply = journalEntry("a2", "u2", "assistant", "second answer");
+		let path = await journalOf([first, answer]);
+		const gate = Promise.withResolvers<void>();
+		let embeds = 0;
+		const store = new MemoryTurnSource();
+		const cm = harness({
+			ingest: store,
+			turns: store,
+			findJournal: async () => path,
+			// The first sweep is still embedding when the next Turn ends.
+			embed: async () => {
+				if (embeds++ === 0) await gate.promise;
+			},
+		});
+
+		void cm.agentEnd({}, onTree([first, answer], "a1"));
+		path = await journalOf([first, answer, second, reply]);
+		void cm.agentEnd({}, onTree([first, answer, second, reply], "a2"));
+		const ending = cm.sessionShutdown({}, onTree([first, answer, second, reply], "a2"));
+		gate.resolve();
+		await ending;
+
+		const stored = await store.recentTurns("conv-1", 10);
+		expect(stored.map((turn) => turn.prompt)).toEqual(["first prompt", "second prompt"]);
+	});
 });
 
 /**
