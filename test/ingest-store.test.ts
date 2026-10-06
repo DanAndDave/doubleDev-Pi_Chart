@@ -146,7 +146,7 @@ describeStore("what a sweep costs", () => {
 		const stored = await store.ingest("conv-1", conversation, HERE);
 
 		// One read to find the head, and nothing else.
-		expect(stored).toBe(0);
+		expect(stored).toEqual([]);
 		expect(counter.since()).toBe(1);
 		const after = await sql`SELECT max(xmin::text::bigint) AS mark FROM turns`;
 		expect(after[0]?.mark).toBe(before[0]?.mark);
@@ -159,7 +159,7 @@ describeStore("what a sweep costs", () => {
 
 		const stored = await store.ingest("conv-1", [...conversation, turn(3)], HERE);
 
-		expect(stored).toBe(1);
+		expect(stored.map((each) => each.turnIndex)).toEqual([3]);
 		// The head read, then one transaction of two statements for the new
 		// Turn — not one per message of the Conversation.
 		expect(counter.since()).toBeLessThanOrEqual(4);
@@ -174,7 +174,7 @@ describeStore("what a sweep costs", () => {
 
 		const stored = await store.ingest("conv-1", [turn(0), turn(1, 4)], HERE);
 
-		expect(stored).toBe(1);
+		expect(stored.map((each) => each.turnIndex)).toEqual([1]);
 		const [, head] = await store.recentTurns("conv-1", 2);
 		expect(head?.messages.map((message) => message.content)).toEqual([
 			"prompt 1",
@@ -197,7 +197,9 @@ describeStore("what a sweep costs", () => {
 		expect((await store.recentTurns("conv-1", 10)).map((each) => each.index)).toEqual([
 			0, 1,
 		]);
-		expect(await store.ingest("conv-1", conversation, HERE)).toBe(1);
+		expect(
+			(await store.ingest("conv-1", conversation, HERE)).map((each) => each.turnIndex),
+		).toEqual([2]);
 		expect((await store.recentTurns("conv-1", 10)).map((each) => each.index)).toEqual([
 			0, 1, 2,
 		]);

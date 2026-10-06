@@ -1698,10 +1698,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			return;
 		}
 		const stored = await sink.ingest(conversationId, recorded, codebase);
-		if (stored > 0) {
-			deps.report(`Ingested ${stored} turn${stored === 1 ? "" : "s"}.`);
+		if (stored.length > 0) {
+			deps.report(`Ingested ${stored.length} turn${stored.length === 1 ? "" : "s"}.`);
 		}
-		return stored > 0 ? recorded : undefined;
+		return stored.length > 0 ? stored : undefined;
 	}
 
 	/**

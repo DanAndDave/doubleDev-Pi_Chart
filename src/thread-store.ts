@@ -13,13 +13,13 @@ export interface TurnSource {
 	recentTurns(conversationId: string, limit: number): Promise<Turn[]>;
 }
 
-/** Ingests a Conversation's recorded Turns, and says how many it stored. */
+/** Ingests a Conversation's recorded Turns, and returns the ones it stored. */
 export interface TurnSink {
 	ingest(
 		conversationId: string,
 		turns: JournalTurn[],
 		codebase?: string,
-	): Promise<number>;
+	): Promise<JournalTurn[]>;
 	/**
 	 * Discards the Conversation's Turns from `fromTurn` on, with everything
 	 * stored for them, and returns how many it discarded. Called when the
@@ -113,13 +113,16 @@ export interface TurnRecall {
 export class MemoryTurnSource implements TurnSource, TurnSink {
 	private readonly byConversation = new Map<string, Map<number, Turn>>();
 
-	async ingest(conversationId: string, turns: JournalTurn[]): Promise<number> {
+	async ingest(
+		conversationId: string,
+		turns: JournalTurn[],
+	): Promise<JournalTurn[]> {
 		const existing =
 			this.byConversation.get(conversationId) ?? new Map<number, Turn>();
-		let written = 0;
+		const written: JournalTurn[] = [];
 		for (const turn of turns) {
 			// Keyed by address, so re-ingesting the same Journal replaces rather
-			// than duplicates. Counted as written only when it is new or when
+			// than duplicates. Returned as written only when it is new or when
 			// it grew, so re-ingesting an unchanged Journal reports nothing
 			// stored, exactly as the durable Store does.
 			const before = existing.get(turn.turnIndex);
@@ -128,7 +131,7 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 				before.prompt !== turn.prompt ||
 				before.messages.length !== turn.messages.length
 			) {
-				written++;
+				written.push(turn);
 			}
 			existing.set(turn.turnIndex, {
 				index: turn.turnIndex,

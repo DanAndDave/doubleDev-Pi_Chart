@@ -135,6 +135,38 @@ describeStore("PostgresStore", () => {
 		expect(turn?.calls[0]?.conceptsUnsearched).toBe(5);
 	});
 
+	test("costs land on the calls a pack was recorded for, and nowhere else", async () => {
+		const pack = assemble(
+			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off");
+		await store.recordMeasurements("conv-1", [
+			{
+				turnIndex: 0,
+				callIndex: 1,
+				snapshot: { promptTokens: 300, nonMessageTokens: 90 },
+				usage: { input: 9, cacheRead: 7 },
+			},
+		]);
+		const snapshot = { promptTokens: 100, nonMessageTokens: 90 };
+
+		await store.recordCosts("conv-1", [
+			{ turnIndex: 0, callIndex: 0, snapshot, usage: { input: 1, cacheRead: 60, cacheWrite: 39 } },
+			// Unpriced fields keep what was recorded before.
+			{ turnIndex: 0, callIndex: 1, snapshot, usage: { cacheWrite: 5 } },
+			// A Call no pack was recorded for gains no row.
+			{ turnIndex: 3, callIndex: 0, snapshot, usage: { input: 2 } },
+		]);
+
+		const turns = await store.readAccounting("conv-1");
+		expect(turns.map((turn) => turn.turnIndex)).toEqual([0]);
+		const [first, second] = turns[0]?.calls ?? [];
+		expect([first?.inputTokens, first?.cacheRead, first?.cacheWrite]).toEqual([1, 60, 39]);
+		expect([second?.inputTokens, second?.cacheRead, second?.cacheWrite]).toEqual([9, 7, 5]);
+	});
+
 	test("what the harness could recognise survives the write", async () => {
 		const supplied = [
 			{ role: "user", content: "earlier" },
@@ -417,6 +449,34 @@ describeServer("sessions sharing one server", () => {
 		} finally {
 			await first.close();
 			await second.close();
+		}
+	});
+
+	test("costs batched into one statement reach the server's rows", async () => {
+		// The driver sends a string bound at a jsonb site as a JSON string;
+		// PGlite does not, so only a real server proves the cast.
+		const store = new PostgresStore(bunSql(fresh));
+		try {
+			await store.migrate();
+			const at = { turnIndex: 0, callIndex: 0 };
+			const pack = assemble(
+				{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
+				budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+			);
+			await store.recordPack("costs", at, pack, "thread-store", "off");
+
+			await store.recordCosts("costs", [
+				{
+					...at,
+					snapshot: { promptTokens: 100, nonMessageTokens: 90 },
+					usage: { input: 1, cacheRead: 60, cacheWrite: 39 },
+				},
+			]);
+
+			const [call] = (await store.readAccounting("costs"))[0]?.calls ?? [];
+			expect([call?.inputTokens, call?.cacheRead, call?.cacheWrite]).toEqual([1, 60, 39]);
+		} finally {
+			await store.close();
 		}
 	});
 });

@@ -3630,6 +3630,48 @@ describe("a journal that cannot be found", () => {
 		expect(again[0]?.calls[0]?.cacheRead).toBe(20488);
 	});
 
+	test("a sweep prices only the turns it just stored", async () => {
+		// Measured on a 529-Turn Conversation: re-pricing every Call the
+		// Journal ever recorded took 27 s a sweep, past the harness's 30 s
+		// `agent_end` limit once the session grew.
+		const priced = (id: string, parentId: string, text: string) => ({
+			...journalEntry(id, parentId, "assistant", text),
+			message: {
+				role: "assistant",
+				content: text,
+				contextSnapshot: { promptTokens: 100, nonMessageTokens: 90 },
+				usage: { input: 1, cacheRead: 60, cacheWrite: 39, totalTokens: 100 },
+			},
+		});
+		const first = journalEntry("u1", null, "user", "first prompt");
+		const answer = priced("a1", "u1", "first answer");
+		const second = journalEntry("u2", "a1", "user", "second prompt");
+		const reply = priced("a2", "u2", "second answer");
+		const pricedTurns: number[][] = [];
+		const accounting = new MemoryAccounting();
+		let path = await journalOf([first, answer]);
+		const cm = harness({
+			accounting: {
+				...accounting,
+				recordPack: (...args) => accounting.recordPack(...args),
+				recordUnassembled: (...args) => accounting.recordUnassembled(...args),
+				recordMeasurements: (...args) => accounting.recordMeasurements(...args),
+				readAccounting: (...args) => accounting.readAccounting(...args),
+				recordCosts: async (_conversationId, measurements) => {
+					pricedTurns.push(measurements.map((each) => each.turnIndex));
+				},
+			},
+			ingest: new MemoryTurnSource(),
+			findJournal: async () => path,
+		});
+
+		await cm.agentEnd({}, onTree([first, answer], "a1"));
+		path = await journalOf([first, answer, second, reply]);
+		await cm.agentEnd({}, onTree([first, answer, second, reply], "a2"));
+
+		expect(pricedTurns).toEqual([[0], [1]]);
+	});
+
 	test("does not fail the turn", async () => {
 		const cm = harness({
 			ingest: new MemoryTurnSource(),

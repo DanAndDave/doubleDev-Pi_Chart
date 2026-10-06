@@ -433,8 +433,8 @@ export class PostgresStore implements
 	}
 
 	/**
-	 * Stores what the Journal holds and is not stored yet, and returns how
-	 * many Turns it wrote.
+	 * Stores what the Journal holds and is not stored yet, and returns the
+	 * Turns it wrote.
 	 *
 	 * Resumed rather than replayed: the Store is asked for its highest Turn
 	 * and everything below it is skipped, because the active branch only
@@ -453,9 +453,9 @@ export class PostgresStore implements
 		conversationId: string,
 		turns: JournalTurn[],
 		codebase?: string,
-	): Promise<number> {
+	): Promise<JournalTurn[]> {
 		const stored = await this.storedHead(conversationId);
-		let written = 0;
+		const written: JournalTurn[] = [];
 
 		for (const turn of turns) {
 			if (stored !== undefined && turn.turnIndex < stored.turnIndex) continue;
@@ -530,7 +530,7 @@ export class PostgresStore implements
 						tool_name = EXCLUDED.tool_name,
 						is_error = EXCLUDED.is_error`;
 			});
-			written++;
+			written.push(turn);
 		}
 
 		return written;
@@ -906,24 +906,41 @@ export class PostgresStore implements
 		conversationId: string,
 		measurements: Measurement[],
 	): Promise<void> {
-		for (const measurement of measurements) {
-			const usage = measurement.usage;
-			if (!usage) continue;
-			// UPDATE, never INSERT: the Journal keeps abandoned branches and
-			// numbers its Calls by walking the file, so an address it names
-			// that Accounting does not hold belongs to a Call this system
-			// never assembled. A row invented for it would carry a cost with
-			// no Pack beside it, which is the one thing the join this feeds
-			// cannot survive.
-			await this.sql`
-				UPDATE call_accounting
-				SET cache_read = coalesce(${usage.cacheRead ?? null}, cache_read),
-					cache_write = coalesce(${usage.cacheWrite ?? null}, cache_write),
-					input_tokens = coalesce(${usage.input ?? null}, input_tokens)
-				WHERE conversation_id = ${conversationId}
-					AND turn_index = ${measurement.turnIndex}
-					AND call_index = ${measurement.callIndex}`;
-		}
+		const costs = measurements.flatMap(({ usage, turnIndex, callIndex }) =>
+			usage
+				? [
+						{
+							turn_index: turnIndex,
+							call_index: callIndex,
+							cache_read: usage.cacheRead ?? null,
+							cache_write: usage.cacheWrite ?? null,
+							input_tokens: usage.input ?? null,
+						},
+					]
+				: [],
+		);
+		if (costs.length === 0) return;
+		// One statement, not one per Call: a first sweep over a long
+		// Conversation prices thousands of Calls, and a round trip each
+		// held `agent_end` past the harness's 30 s limit.
+		//
+		// UPDATE, never INSERT: the Journal keeps abandoned branches and
+		// numbers its Calls by walking the file, so an address it names
+		// that Accounting does not hold belongs to a Call this system
+		// never assembled. A row invented for it would carry a cost with
+		// no Pack beside it, which is the one thing the join this feeds
+		// cannot survive.
+		await this.sql`
+			UPDATE call_accounting AS a
+			SET cache_read = coalesce(c.cache_read, a.cache_read),
+				cache_write = coalesce(c.cache_write, a.cache_write),
+				input_tokens = coalesce(c.input_tokens, a.input_tokens)
+			FROM jsonb_to_recordset(${JSON.stringify(costs)}::text::jsonb) AS c(
+				turn_index int, call_index int,
+				cache_read int, cache_write int, input_tokens int)
+			WHERE a.conversation_id = ${conversationId}
+				AND a.turn_index = c.turn_index
+				AND a.call_index = c.call_index`;
 	}
 
 	async readAccounting(conversationId: string): Promise<TurnAccounting[]> {
