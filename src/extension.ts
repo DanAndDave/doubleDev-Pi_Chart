@@ -917,14 +917,21 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * The verbatim tail, from the store when it can be reached. Falling back to
 	 * the harness's own history is a worse pack, not a broken Turn — and it is
 	 * recorded, so a session spent on fallback is visible afterwards.
+	 *
+	 * The store lags the harness: ingest runs after `agent_end`, which the
+	 * harness does not wait for, so a quick reply opens a Turn before the one
+	 * it answers is stored. Turns the harness sent that are newer than the
+	 * store's newest are taken from the harness, or the question being
+	 * answered is missing from the window.
 	 */
 	async function tailFor(
 		conversationId: string,
 		live: Turn[],
 		tailTurns: number,
 	): Promise<{ tail: Turn[]; tailSource: TailSource }> {
+		const completed = live.slice(0, -1);
 		const fallback = {
-			tail: live.slice(0, -1),
+			tail: completed,
 			tailSource: "harness-fallback" as const,
 		};
 		try {
@@ -938,7 +945,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// is recorded exactly as an unreachable Store's is.
 			if (!stored.answered) return fallback;
 			if (stored.value.length > 0) {
-				return { tail: stored.value, tailSource: "thread-store" };
+				const newest = stored.value.at(-1)?.index;
+				const unstored =
+					newest === undefined
+						? []
+						: completed.filter(
+								(turn) => turn.index !== undefined && turn.index > newest,
+							);
+				return { tail: [...stored.value, ...unstored], tailSource: "thread-store" };
 			}
 		} catch (error) {
 			reportSafely(`Thread Store unreachable, using harness history: ${describe(error)}`);

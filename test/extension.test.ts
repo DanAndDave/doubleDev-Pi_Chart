@@ -824,6 +824,55 @@ describe("the verbatim tail", () => {
 		expect(cm.recorded[0]?.tailSource).toBe("harness-fallback");
 	});
 
+	test("carries the Turn the store has not ingested yet", async () => {
+		// Ingest runs after `agent_end`, which the harness does not wait for,
+		// so a quick reply can open a Turn before the one it answers is
+		// stored. That Turn is the question being answered.
+		const store = new MemoryTurnSource();
+		await store.ingest("conv-1", [
+			{
+				turnIndex: 0,
+				prompt: "earlier",
+				messages: [
+					{ role: "user", content: "earlier" },
+					{ role: "assistant", content: "answered" },
+				],
+				callCount: 1,
+				calls: [0, 0],
+			},
+		]);
+		const cm = harness({ turns: store });
+		const branch: BranchEntry[] = [
+			{ id: "a", message: { role: "user", content: "earlier" } },
+			{ id: "b", message: { role: "assistant", content: "answered" } },
+			{ id: "c", message: { role: "user", content: "next" } },
+			{ id: "d", message: { role: "assistant", content: "which one?" } },
+		];
+
+		const result = await cm.context(
+			{
+				messages: [
+					{ role: "user", content: "earlier" },
+					{ role: "assistant", content: "answered" },
+					{ role: "user", content: "next" },
+					{ role: "assistant", content: "which one?" },
+					{ role: "user", content: "the second" },
+				],
+			},
+			ctx(branch),
+		);
+		await cm.settle();
+
+		expect(result?.messages.map((message) => message.content)).toEqual([
+			"earlier",
+			"answered",
+			"next",
+			"which one?",
+			"the second",
+		]);
+		expect(cm.recorded[0]?.pack?.parts.find((part) => part.source === "verbatim-tail")?.turnIndices).toEqual([0, 1]);
+	});
+
 	test("an empty store is not treated as a failure", async () => {
 		const cm = harness({ turns: new MemoryTurnSource() });
 
