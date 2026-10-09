@@ -1089,3 +1089,86 @@ describe("the pack ceiling", () => {
 		);
 	});
 });
+
+describe("pins in a pack", () => {
+	const pins = [
+		{ id: 1, text: "use tabs" },
+		{ id: 3, text: "never push to main" },
+	];
+
+	test("pins follow the tail and assembled parts, and precede the current turn", () => {
+		const pack = assemble(
+			{
+				turns: [turnOf(1), turnOf(2)],
+				recalled: [{ turnIndex: 8, turn: turnOf(8) }],
+				pins,
+			},
+			budgets({ tailTurns: 1, recallTurns: 1 }),
+		);
+
+		expect(pack.messages.map((message) => message.content)).toEqual([
+			expect.stringContaining("prompt 8"),
+			"prompt 1",
+			"[pinned by the user: #1, 1 of 2]\nuse tabs",
+			"[pinned by the user: #3, 2 of 2]\nnever push to main",
+			"prompt 2",
+		]);
+		const pinned = pack.parts.find((part) => part.source === "pinned");
+		expect(pinned?.pinIds).toEqual([1, 3]);
+		expect(pinned?.carried).toBe(2);
+	});
+
+	test("the ceiling reduces every other part and elides the current turn around the pins", () => {
+		const heavy = [
+			{ id: 1, text: "p".repeat(800) },
+			{ id: 2, text: "q".repeat(800) },
+		];
+		const pack = assemble(
+			{
+				turns: [turnOf(1, bulky(300, "t")), turnOf(2, bulky(5000, "c"))],
+				recalled: [{ turnIndex: 8, turn: turnOf(8, bulky(300, "r")) }],
+				pins: heavy,
+			},
+			budgets({ tailTurns: 1, recallTurns: 1, packTokens: 1000 }),
+		);
+		const part = (source: PackSource) =>
+			pack.parts.find((each) => each.source === source);
+		const pinned = part("pinned");
+		const current = part("current-turn");
+
+		expect(part("verbatim-tail")?.carried).toBe(0);
+		expect(part("recalled")?.carried).toBe(0);
+		expect(pinned?.messages.map((message) => message.content)).toEqual([
+			`[pinned by the user: #1, 1 of 2]\n${"p".repeat(800)}`,
+			`[pinned by the user: #2, 2 of 2]\n${"q".repeat(800)}`,
+		]);
+		expect(pinned?.withoutCeiling).toBeUndefined();
+		expect(current?.shortened).toBe(true);
+		expect(pack.approximateTokens).toBeLessThanOrEqual(1000);
+	});
+
+	test("pins over a lowered budget are all carried and the budget reported", () => {
+		const pack = assemble(
+			{ turns: [turnOf(1)], pins },
+			budgets({ pinCount: 1, pinTokens: 10 }),
+		);
+		const pinned = pack.parts.find((part) => part.source === "pinned");
+
+		expect(pinned?.pinIds).toEqual([1, 3]);
+		expect(pinned?.budget).toEqual({ count: 1, tokens: 10 });
+		expect(pinned?.approximateTokens).toBeGreaterThan(10);
+		expect(pack.budgets.pins).toBe(1);
+	});
+
+	test("no pins adds no message and reports the part absent", () => {
+		const pack = assemble({ turns: [turnOf(1), turnOf(2)] }, budgets({ tailTurns: 1 }));
+		const pinned = pack.parts.find((part) => part.source === "pinned");
+
+		expect(pack.messages.map((message) => message.content)).toEqual([
+			"prompt 1",
+			"prompt 2",
+		]);
+		expect(pinned?.absent).toBe("none");
+		expect(pinned?.carried).toBe(0);
+	});
+});

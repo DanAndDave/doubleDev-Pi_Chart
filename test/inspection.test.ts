@@ -21,7 +21,7 @@ import {
 } from "../src/inspection.ts";
 import type { Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
-import { renderCall } from "../src/report.ts";
+import { renderCall, renderDiff } from "../src/report.ts";
 import type { RecalledTurn } from "../src/thread-store.ts";
 import { budgets, settings, UNBOUNDED } from "./fixtures.ts";
 
@@ -398,6 +398,19 @@ describe("changing a budget", () => {
 		expect(current.tailTurns).toBe(DEFAULT_TAIL_TURNS);
 	});
 
+	test("the pin budget is settable by name, in count and in tokens", () => {
+		const current = config();
+
+		expect(setBudget(current, "pins", "3")).toEqual({ ok: true, budget: 3 });
+		expect(setBudget(current, "pins-tokens", "500")).toEqual({
+			ok: true,
+			budget: 500,
+		});
+
+		expect(current.pinCount).toBe(3);
+		expect(current.pinTokens).toBe(500);
+	});
+
 	test("an unusable token budget is refused with a reason and changes nothing", () => {
 		const current = config();
 		const before = current.packTokens;
@@ -457,7 +470,7 @@ describe("parts whose turns have no recorded position", () => {
 		expect(
 			view.parts.find((part) => part.source === "recalled")?.carried,
 		).toBe(0);
-		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0, graph: 0 });
+		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0, graph: 0, pins: 8 });
 	});
 });
 
@@ -491,7 +504,7 @@ describe("relevance against budget", () => {
 		// near enough, which is not an empty Conversation.
 		expect(recalled?.absent).toBe("irrelevant");
 		expect(recalled?.irrelevant).toBe(6);
-		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0, graph: 0 });
+		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0, graph: 0, pins: 8 });
 	});
 
 	test("trimming still outranks irrelevance when both happened", async () => {
@@ -763,5 +776,110 @@ describe("degradation in the inspector", () => {
 		});
 
 		expect(renderCall(view)).not.toContain("not the store");
+	});
+});
+
+describe("pins in the record", () => {
+	/** One assembled Call carrying `pins`, read back as an inspector reads it. */
+	async function callWith(
+		pins: { id: number; text: string }[],
+		callIndex = 0,
+		pinBudget = { pinCount: 8, pinTokens: 2_000 },
+	) {
+		const store = new MemoryAccounting();
+		const pack = assemble(
+			{ turns: CONVERSATION, pins },
+			budgets({ tailTurns: 2, ...pinBudget }),
+		);
+		await store.recordPack(
+			"conv-1",
+			{ turnIndex: 0, callIndex },
+			pack,
+			"thread-store",
+			"off",
+		);
+		const [recorded] = (await store.readAccounting("conv-1"))[0]?.calls ?? [];
+		return { recorded: recorded ?? missing(), view: inspectCall(recorded ?? missing()) };
+	}
+
+	test("a call's pins are itemised by id against their budget, without their text", async () => {
+		const { recorded, view } = await callWith([
+			{ id: 1, text: "use tabs" },
+			{ id: 3, text: "never push to main" },
+		]);
+		const pinned = view.parts.find((part) => part.source === "pinned");
+
+		expect(pinned?.pinIds).toEqual([1, 3]);
+		expect(renderCall(view)).toMatch(/pinned +~\d+ tokens \(2 of 8\) pins #1, #3/);
+		expect(JSON.stringify(recorded)).not.toContain("never push to main");
+	});
+
+	test("pins over a lowered budget are reported as exceeding it", async () => {
+		const { view } = await callWith(
+			[{ id: 1, text: "use tabs" }],
+			0,
+			{ pinCount: 8, pinTokens: 5 },
+		);
+
+		expect(renderCall(view)).toContain("over its 5-token budget, irreducible");
+	});
+
+	test("a pin added between calls enters, and one removed leaves, by id", async () => {
+		const before = (await callWith([{ id: 1, text: "a" }, { id: 2, text: "b" }])).view;
+		const after = (await callWith([{ id: 2, text: "b" }, { id: 3, text: "c" }], 1)).view;
+
+		const diff = comparePacks(before, after);
+
+		expect(diff.entered.filter((item) => item.source === "pinned")).toEqual([
+			{ source: "pinned", pinId: 3 },
+		]);
+		expect(diff.left.filter((item) => item.source === "pinned")).toEqual([
+			{ source: "pinned", pinId: 1 },
+		]);
+		expect(renderDiff(diff)).toContain("+ pinned #3");
+		expect(renderDiff(diff)).toContain("- pinned #1");
+	});
+
+	test("a call recorded before pins existed reads with none, and later pins enter", async () => {
+		const old = inspectCall({
+			turnIndex: 0,
+			callIndex: 0,
+			parts: [
+				{
+					source: "verbatim-tail",
+					approximateTokens: 40,
+					approximate: true,
+					carried: 1,
+					turnIndices: [1],
+				},
+			],
+		});
+		const later = (await callWith([{ id: 1, text: "a" }], 1)).view;
+
+		expect(old.parts.some((part) => part.source === "pinned")).toBe(false);
+		expect(renderCall(old)).not.toContain("pinned");
+		expect(comparePacks(old, later).entered).toContainEqual({
+			source: "pinned",
+			pinId: 1,
+		});
+	});
+
+	test("a conversation holding no pins says nothing about them", async () => {
+		const { view } = await callWith([]);
+
+		expect(renderCall(view)).not.toContain("pinned");
+	});
+
+	test("a conversation summary reports the pins' typical spend against their budget", async () => {
+		const first = (await callWith([{ id: 1, text: "a" }])).recorded;
+		const second = (await callWith([{ id: 1, text: "a" }, { id: 2, text: "b" }], 1)).recorded;
+
+		const summary = summarise("conv-1", [
+			{ conversationId: "conv-1", turnIndex: 0, calls: [first, second] },
+		]);
+		const pinned = summary.budgetUse.find((each) => each.source === "pinned");
+
+		expect(pinned?.averageCarried).toBe(1.5);
+		expect(pinned?.budget).toBe(8);
 	});
 });

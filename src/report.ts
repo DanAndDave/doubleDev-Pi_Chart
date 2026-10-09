@@ -119,7 +119,7 @@ function wrap(inside: string[]): string {
 	return inside.length > 0 ? ` (${inside.join(", ")})` : "";
 }
 
-/** Which Turns, Concepts, or symbols the part carried, where it names any. */
+/** Which Turns, Concepts, symbols or Pins the part carried, where it names any. */
 function identities(part: PartView): string {
 	const turns =
 		part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
@@ -127,7 +127,11 @@ function identities(part: PartView): string {
 		part.conceptIds.length > 0 ? ` concepts ${part.conceptIds.join(", ")}` : "";
 	const symbols =
 		part.symbols.length > 0 ? ` symbols ${part.symbols.join(", ")}` : "";
-	return `${turns}${concepts}${symbols}`;
+	const pins =
+		part.pinIds.length > 0
+			? ` pins ${part.pinIds.map((id) => `#${id}`).join(", ")}`
+			: "";
+	return `${turns}${concepts}${symbols}${pins}`;
 }
 
 /** Renders an inspection as text, which is the shape a pack actually has. */
@@ -137,6 +141,9 @@ export function renderCall(view: CallView): string {
 	];
 
 	for (const part of view.parts) {
+		// A Conversation holding no Pins is the usual case, and a line on
+		// every Call saying so would bury the parts that did something.
+		if (part.source === "pinned" && part.carried === 0) continue;
 		// An absent part still gets a line, with the cause where the record
 		// holds one: "curated carried nothing" and "no doc store is
 		// configured" are different problems with different remedies, and
@@ -299,7 +306,9 @@ function nameOf(identity: {
 	turnIndex?: number;
 	conceptId?: string;
 	symbol?: string;
+	pinId?: number;
 }): string {
+	if (identity.pinId !== undefined) return `#${identity.pinId}`;
 	return (
 		identity.conceptId ??
 		identity.symbol ??

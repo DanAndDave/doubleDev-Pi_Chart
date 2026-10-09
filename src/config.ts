@@ -1,4 +1,4 @@
-import type { AssemblerConfig } from "./assembler.ts";
+import type { AssemblerConfig, Budget } from "./assembler.ts";
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -81,6 +81,12 @@ export interface Config {
 	graphTokens: number;
 	packTokens: number;
 	/**
+	 * The Pin Budget: how many Pins a Conversation may hold, and how large
+	 * together. Enforced when a Pin is written, never at assembly.
+	 */
+	pinCount: number;
+	pinTokens: number;
+	/**
 	 * How many excluded candidates each part of a Call records by identity,
 	 * so an absence can be explained rather than counted. Measured: over
 	 * 403 real Turns the Turn a user would ask about sat as deep as rank 12
@@ -136,10 +142,20 @@ export function assemblerConfig(config: Config): AssemblerConfig {
 		docs: { count: config.docConcepts, tokens: config.docTokens },
 		graph: { count: config.graphSymbols, tokens: config.graphTokens },
 		packTokens: config.packTokens,
+		pins: pinBudget(config),
 		recallMaxDistance: config.recallMaxDistance,
 		docMaxDistance: config.docMaxDistance,
 		explainCandidates: config.explainCandidates,
 	};
+}
+
+/**
+ * The Pin Budget, read where a Pin is admitted, where the Pins are listed
+ * against it, and where the Pack records it: one reading, so the three
+ * never disagree on what the Conversation may hold.
+ */
+export function pinBudget(config: Config): Budget {
+	return { count: config.pinCount, tokens: config.pinTokens };
 }
 
 export const DEFAULT_TAIL_TURNS = 8;
@@ -201,6 +217,13 @@ export const DEFAULT_GRAPH_TOKENS = 3_000;
  */
 export const DEFAULT_PACK_TOKENS = 300_000;
 /**
+ * The Pin Budget. 2,000 tokens of standing instruction is noise under the
+ * 300,000 ceiling; text beyond that is a document, and belongs in the Doc
+ * Store.
+ */
+export const DEFAULT_PIN_COUNT = 8;
+export const DEFAULT_PIN_TOKENS = 2_000;
+/**
  * The retained head of each part's excluded candidates. Twelve is recall's
  * own over-fetch — `recallTurns + tailTurns` — and so the widest candidate
  * set any part produces under the defaults.
@@ -249,6 +272,8 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_PACK_TOKENS",
 	"PICHART_PACK_WARN_SHARE",
 	"PICHART_PG_PORT",
+	"PICHART_PINS",
+	"PICHART_PINS_TOKENS",
 	"PICHART_RECALL_DEADLINE_MS",
 	"PICHART_RECALL_MAX_DISTANCE",
 	"PICHART_RECALL_TOKENS",
@@ -335,6 +360,8 @@ export function loadConfig(
 		docTokens: count(env.PICHART_DOC_TOKENS, DEFAULT_DOC_TOKENS),
 		graphTokens: count(env.PICHART_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
 		packTokens: count(env.PICHART_PACK_TOKENS, DEFAULT_PACK_TOKENS),
+		pinCount: count(env.PICHART_PINS, DEFAULT_PIN_COUNT),
+		pinTokens: count(env.PICHART_PINS_TOKENS, DEFAULT_PIN_TOKENS),
 		explainCandidates: count(
 			env.PICHART_EXPLAIN_CANDIDATES,
 			DEFAULT_EXPLAIN_CANDIDATES,
@@ -378,6 +405,8 @@ const BUDGET_FIELDS: Record<string, NumericSetting> = {
 	"docs-tokens": "docTokens",
 	"graph-tokens": "graphTokens",
 	pack: "packTokens",
+	pins: "pinCount",
+	"pins-tokens": "pinTokens",
 };
 
 /**
@@ -398,7 +427,8 @@ export function setBudget(
 			ok: false,
 			reason:
 				`unknown budget "${name}"; expected tail, recall, docs, graph, ` +
-				`tail-tokens, recall-tokens, docs-tokens, graph-tokens or pack`,
+				`tail-tokens, recall-tokens, docs-tokens, graph-tokens, pack, ` +
+				`pins or pins-tokens`,
 		};
 	}
 

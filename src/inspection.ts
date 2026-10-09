@@ -26,6 +26,8 @@ export interface PartView {
 	conceptIds: string[];
 	/** Which symbols it carried, by name, where it carried any. */
 	symbols: string[];
+	/** Which Pins it carried, by id, where it carried any. */
+	pinIds: number[];
 	/**
 	 * The Budget in force, whose size half a part's irreducible content may
 	 * exceed. The size is absent on a Call recorded before one was kept, so
@@ -84,7 +86,13 @@ export interface CallView {
 	/** Where the verbatim tail came from. Absent on records that predate it. */
 	tailSource?: TailSource;
 	/** The Budgets in force, recorded even where a part carried nothing. */
-	budgets?: { tail: number; recall: number; docs: number; graph?: number };
+	budgets?: {
+		tail: number;
+		recall: number;
+		docs: number;
+		graph?: number;
+		pins?: number;
+	};
 	/**
 	 * Candidates refused as not relevant enough. Reported on the Call, so it
 	 * survives the case where nothing was relevant and there is no recalled
@@ -168,12 +176,13 @@ export interface PackDiff {
 	unchanged: PackItem[];
 }
 
-/** One thing a pack carried: a Turn by position, or a Concept by id. */
+/** One thing a pack carried: a Turn by position, a Concept by id, a Pin by id. */
 export interface PackItem {
 	source: PackSource;
 	turnIndex?: number;
 	conceptId?: string;
 	symbol?: string;
+	pinId?: number;
 }
 
 /** What a whole Conversation's windows cost. */
@@ -290,6 +299,9 @@ function viewPart(part: RecordedPart): PartView {
 	const turnIndices = part.turnIndices ?? [];
 	const conceptIds = part.conceptIds ?? [];
 	const symbols = part.symbols ?? [];
+	// Absent on every Call recorded before Pins existed: those read as
+	// carrying none, and nothing migrates them (ADR-0002).
+	const pinIds = part.pinIds ?? [];
 	// Count first, positions second: a part whose Turns have no position yet
 	// still carried them, and reporting nothing would understate the pack.
 	const carried = part.carried ?? turnIndices.length;
@@ -301,6 +313,7 @@ function viewPart(part: RecordedPart): PartView {
 	return {
 		source: part.source,
 		symbols,
+		pinIds,
 		approximateTokens: part.approximateTokens,
 		carried,
 		turnIndices,
@@ -380,6 +393,9 @@ function itemsOf(view: CallView): Map<string, PackItem> {
 		}
 		for (const symbol of part.symbols) {
 			items.set(`${part.source}:${symbol}`, { source: part.source, symbol });
+		}
+		for (const pinId of part.pinIds) {
+			items.set(`${part.source}:#${pinId}`, { source: part.source, pinId });
 		}
 	}
 	return items;

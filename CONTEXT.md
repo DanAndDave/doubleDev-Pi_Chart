@@ -11,7 +11,7 @@ The messages sent to the model for a single turn. It is rebuilt each turn rather
 _Avoid_: context, context memory, memory
 
 **Context Pack**:
-The bundle the assembler produces for one turn: the prompt plus everything retrieved from the stores to support it. The unit that fills a Context Window.
+The bundle the assembler produces for one turn: the prompt, every Pin, and everything retrieved from the stores to support it. The unit that fills a Context Window.
 _Avoid_: payload, bundle, prompt context
 
 **Assembler**:
@@ -19,11 +19,11 @@ The component that selects what enters a Context Pack, under a fixed budget per 
 _Avoid_: retriever, orchestrator, router
 
 **Budget**:
-The share of a Context Pack a single store may occupy. Set per store, independently, in two denominations at once — a count of items and a size in estimated tokens — and a store is held to whichever binds first. A Budget a store's irreducible content cannot fit is reported as exceeded rather than quietly broken.
+The share of a Context Pack a single store, or the Conversation's Pins together, may occupy. Set per store, independently, in two denominations at once — a count of items and a size in estimated tokens — and a store is held to whichever binds first. A Budget a store's irreducible content cannot fit is reported as exceeded rather than quietly broken.
 _Avoid_: limit, quota, cap
 
 **Ceiling**:
-The whole Context Pack's size limit, independent of any one store's Budget. When the selected parts exceed it they are reduced in a fixed order — structure, curated knowledge, weakest recollections, oldest tail Turns — so an oversized Pack is still a deterministic Pack. The current Turn is never dropped for it.
+The whole Context Pack's size limit, independent of any one store's Budget. When the selected parts exceed it they are reduced in a fixed order — structure, curated knowledge, weakest recollections, oldest tail Turns — so an oversized Pack is still a deterministic Pack. Neither the current Turn nor a Pin is ever dropped or shortened for it.
 _Avoid_: max tokens, window size, hard limit
 
 **Elision**:
@@ -33,6 +33,10 @@ _Avoid_: truncation, summary, compaction
 **Floor**:
 The part of a Context Window the Assembler cannot reach: system prompt, tool schemas, skills, and rules. Measured, budgeted around, and deliberately left intact.
 _Avoid_: overhead, preamble, base context
+
+**Pin**:
+Text the user writes into a Conversation that every Context Pack carries, whole and unreduced, until the user removes it. Recorded in the Journal and inherited by Conversations forked or branched from it; never retrieved, ranked, or shortened.
+_Avoid_: sticky, note, memory, pinned context
 
 **Journal**:
 The harness's append-only on-disk record of a Conversation. The source of record the Thread Store derives from, and untouched by anything the Assembler does.

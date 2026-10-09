@@ -9,6 +9,8 @@ import type { HarnessMessage, Turn } from "../src/messages.ts";
 import {
 	DEFAULT_DOC_MAX_DISTANCE,
 	DEFAULT_EXPLAIN_CANDIDATES,
+	DEFAULT_PIN_COUNT,
+	DEFAULT_PIN_TOKENS,
 	DEFAULT_RECALL_MAX_DISTANCE,
 	loadConfig,
 	type Config,
@@ -43,6 +45,10 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 		docTokens: UNBOUNDED,
 		graphTokens: UNBOUNDED,
 		packTokens: UNBOUNDED,
+		// The real defaults: the Assembler records the Pin Budget and never
+		// applies it, so no value of it can bind a test by accident.
+		pinCount: DEFAULT_PIN_COUNT,
+		pinTokens: DEFAULT_PIN_TOKENS,
 		// The real defaults: a test about Budgets should not have to state
 		// the thresholds a part records itself as having selected against.
 		recallMaxDistance: DEFAULT_RECALL_MAX_DISTANCE,
@@ -56,6 +62,7 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 		docs: { count: flat.docConcepts, tokens: flat.docTokens },
 		graph: { count: flat.graphSymbols, tokens: flat.graphTokens },
 		packTokens: flat.packTokens,
+		pins: { count: flat.pinCount, tokens: flat.pinTokens },
 		recallMaxDistance: flat.recallMaxDistance,
 		docMaxDistance: flat.docMaxDistance,
 		explainCandidates: flat.explainCandidates,
@@ -77,6 +84,8 @@ interface FlatBudgets {
 	docTokens: number;
 	graphTokens: number;
 	packTokens: number;
+	pinCount: number;
+	pinTokens: number;
 	recallMaxDistance: number;
 	docMaxDistance: number;
 	explainCandidates: number;

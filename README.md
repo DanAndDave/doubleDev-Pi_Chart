@@ -151,6 +151,8 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `PICHART_RECALL_TOKENS` | `8000` | Size Budget for recalled Turns. A Budget too small to hold one readable recollection carries none. |
 | `PICHART_DOC_TOKENS` | `5000` | Size Budget for curated knowledge. A Concept too large for it is dropped rather than shortened — the bundle holds others, and `walk_documentation` reaches the rest at no Budget. |
 | `PICHART_GRAPH_TOKENS` | `3000` | Size Budget for structure. |
+| `PICHART_PINS` | `8` | How many Pins a Conversation may hold. Bound when a Pin is written, never at assembly: lowering it below what is held refuses the next `/pins add` and carries every Pin already held. |
+| `PICHART_PINS_TOKENS` | `2000` | How large the Pins may be together, in estimated tokens, measured as the pack carries them. Bound like `PICHART_PINS`. Text larger than this is a document and belongs in the Doc Store. |
 | `PICHART_PACK_WARN_SHARE` | `0.75` | The share of the ceiling at which the extension says a Conversation's packs are creeping up. Reported once per Conversation; a pack that cannot be brought under the ceiling at all is reported every time. |
 | `PICHART_TAIL_DEADLINE_MS` | `1500` | How long a Call waits for the verbatim tail before assembling without it. The tail is one indexed read — 47.9 ms at worst against this machine's 388-Turn store — so anything slower is a Store in trouble. |
 | `PICHART_RECALL_DEADLINE_MS` | `5000` | How long a Call waits for recall. Its worst measured read is 81.4 ms, most of it embedding the query, and a fresh embedder adds 350 ms loading the model. |
@@ -313,11 +315,25 @@ Distance alone is weak here. The recall threshold was measured against off-topic
 
 ## The order of a pack
 
-A Pack begins with the longest run of messages the harness itself supplied for that Call, carried unaltered and in its positions; then recalled Turns, curated knowledge and structure; then the rest of the verbatim tail; then the Turn in progress. Background still sits between the Turns already answered and the prompt it is background for — what passes it now are the completed Turns the harness already had. The run ends at a Turn boundary, so nothing assembled is ever carried between a tool call and its result.
+A Pack begins with the longest run of messages the harness itself supplied for that Call, carried unaltered and in its positions; then recalled Turns, curated knowledge and structure; then the rest of the verbatim tail; then the Conversation's [Pins](#pins); then the Turn in progress. Background still sits between the Turns already answered and the prompt it is background for — what passes it now are the completed Turns the harness already had. The run ends at a Turn boundary, so nothing assembled is ever carried between a tool call and its result.
 
 The reason is measured. The harness marks a returned array for caching only as far as the first message that is not its own at that index, so a Pack opening with an assembled part is cached not at all: **0.0%** of the Pack across 545 governed Calls, against **97.2%** ungoverned (ADR-0005). Leading with the run takes a governed Call carrying curated knowledge from **13,934** to **6,298** tokens charged at the provider's multipliers — about what an ungoverned Call costs, for a Pack a third the size (ADR-0006).
 
 Nothing is altered to lengthen the run. A message elision shortened, a Turn the Thread Store holds differently, a tail that starts later than the harness's array: each ends the run and is carried after it. A first Call has no completed Turn to lead with and caches nothing, which is the Call that fills the cache rather than reads it.
+
+## Pins
+
+A Pin is text you place in a Conversation so that every Context Pack carries it, whole, until you remove it: a standing instruction, a constraint, the shape of what you are building. The agent cannot pin or unpin anything.
+
+- `/pins add <text>` — pin the text. `/pins add` alone opens the editor for multi-line text; cancelling or submitting nothing pins nothing. A Pin that would take the Conversation past its Pin Budget (`PICHART_PINS`, `PICHART_PINS_TOKENS`) is refused, naming the Budget, what is spent, and the excess
+- `/pins rm <id>` or `/pins rm all` — remove Pins. An id is never given out again in the same Conversation
+- `/pins` — every Pin in full, with its id and size, and the total against the Budget
+
+One command with verbs, like `/pack`: omp's own `/pin` pins a session in its resume list, and is left to do that.
+
+Each Pin reaches the model as `[pinned by the user: #<id>, <i> of <n>]` followed by its text, immediately before the Turn in progress. The pack ceiling reduces every other part, then elides the current Turn, before it would touch a Pin; no Pin is ever shortened or dropped. The footer shows `pinned: <n> (~<tokens> tok)` while a Conversation holds any, with ` — not sent` while assembly is failing and the harness's own history is going out instead.
+
+Pins live in the Conversation's Journal as `pi-chart.pin` entries (ADR-0009), so they survive a restart and follow the Conversation: a `/tree` move keeps them, a `/fork` or `/branch` starts with the parent's Pins and holds its own from then on, and `/new` starts with none.
 
 ## Inspect a pack
 
@@ -340,8 +356,8 @@ Turn 6, call 0
 - `/pack diff` — what entered and left since the Call before it; `/pack diff <a> <b>` compares two named Calls
 - `/pack` also says what each Call cost: `cache  33281 read, 108 written (92% of the pack read from cache)`. The share is of the Pack rather than of the window, because the Floor is most of a window and caches whatever the Pack does — a rate over the window reads about 70% on a Call where none of the Pack was cached at all (ADR-0005) — and the `prefix` line beside it says how much of the Pack the harness sent itself, which is what a cache reading is explained by (ADR-0006)
 - `/pack summary` — the whole Conversation, with average Budget spend, how the estimate compared with the reported window sizes, where the harness compacted, and which Calls ran with the harness's memory backend not off
-- `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, `recall`, `docs`, `graph`. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens`, `docs-tokens`, `graph-tokens`, and `pack` for the whole pack's ceiling
+- `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, `recall`, `docs`, `graph`, and `pins` for the Pin Budget. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens`, `docs-tokens`, `graph-tokens`, `pins-tokens`, and `pack` for the whole pack's ceiling
 
 Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides, and the `estimate` line puts our figure beside the harness's so the bias the Budgets are applied to is visible.
 
-What a Call excluded is kept by identity, never by content: a Turn by its position, a Concept by its id, a symbol by its name, with the distance or size that decided. The Journal and the bundle stay the record of what was actually said.
+What a Call excluded is kept by identity, never by content: a Turn by its position, a Concept by its id, a symbol by its name, with the distance or size that decided. The Pins a Call carried are recorded the same way, by id. The Journal and the bundle stay the record of what was actually said.

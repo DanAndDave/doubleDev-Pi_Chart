@@ -45,7 +45,13 @@ export interface CallAccounting extends CallAddress {
 	/** Whether the tail came from the store or from the harness's own history. */
 	tailSource?: TailSource;
 	/** The Budgets in force for this Call, recorded even when unused. */
-	budgets?: { tail: number; recall: number; docs: number; graph?: number };
+	budgets?: {
+		tail: number;
+		recall: number;
+		docs: number;
+		graph?: number;
+		pins?: number;
+	};
 	/** Candidates refused as not relevant enough, even when none survived. */
 	rejected?: number;
 	/**
@@ -109,6 +115,8 @@ export interface RecordedPart {
 	conceptIds?: string[];
 	/** Symbols this part carried, by name — identity, not count. */
 	symbols?: string[];
+	/** Pins this part carried, by id — never their text, which the Journal holds. */
+	pinIds?: number[];
 	/**
 	 * The Budget that bounded it, where one did. Rows written before a
 	 * Budget was one value carry the pair `budget`/`tokenBudget` instead,
@@ -222,6 +230,7 @@ export function recordPart(part: {
 	turnIndices?: number[];
 	conceptIds?: string[];
 	symbols?: string[];
+	pinIds?: number[];
 	budget?: Budget;
 	candidates?: number;
 	irrelevant?: number;
@@ -241,6 +250,7 @@ export function recordPart(part: {
 		turnIndices: part.turnIndices,
 		conceptIds: part.conceptIds,
 		symbols: part.symbols,
+		pinIds: part.pinIds,
 		budget: part.budget,
 		candidates: part.candidates,
 		irrelevant: part.irrelevant,

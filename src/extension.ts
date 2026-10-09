@@ -20,6 +20,7 @@ import {
 import {
 	assemblerConfig,
 	loadConfig,
+	pinBudget,
 	readSavedUrl,
 	setBudget,
 	type Config,
@@ -82,6 +83,9 @@ import type {
 	HandlerContext,
 	MemoryStatus,
 	SchemaBuilder,
+	CommandContext,
+	HarnessUI,
+	SessionView,
 	SchemaField,
 	ToolResult,
 } from "./harness.ts";
@@ -107,6 +111,17 @@ import {
 } from "./relevance-judge.ts";
 import { EMBED_CHARACTERS, embedText } from "./embed-text.ts";
 import { reconstructTurns } from "./turns.ts";
+import {
+	admit,
+	PIN_ENTRY,
+	pinTokens,
+	renderPin,
+	replayPins,
+	sameState,
+	type PinEvent,
+	type PinState,
+} from "./pins.ts";
+import { approximateTokens } from "./tokens.ts";
 
 export interface Dependencies {
 	config: Config;
@@ -177,6 +192,11 @@ export interface Dependencies {
 }
 
 const UNKNOWN_CONVERSATION = "unknown-conversation";
+/** The footer status that says a Conversation holds Pins. */
+const PIN_STATUS = "pi-chart.pins";
+/** Said by every Pin command a harness without a Journal surface cannot serve. */
+const PINS_UNAVAILABLE =
+	"Pins are off: this harness does not let pi-chart read and write its journal.";
 
 /** How many hits a cross-Conversation search returns when unasked. */
 const DEFAULT_SEARCH_RESULTS = 5;
@@ -345,6 +365,54 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let judgeRejected = false;
 	/** Said once a session, just before Turn text first leaves the machine. */
 	let judgeDisclosed = false;
+	/**
+	 * The Pins the Conversation's Journal held when last replayed. The
+	 * Journal is the truth and is replayed before every use; this is what a
+	 * branch is compared against, because by then the Journal it came from
+	 * is gone.
+	 */
+	let held = replayPins([]);
+	/** Said once a session: a harness without the Journal surface stays without it. */
+	let pinsUnavailableReported = false;
+
+	/**
+	 * The Conversation's Journal as the Pins need it: read whole, written
+	 * at the leaf. Absent where the harness offers either half without the
+	 * other, so nothing is written that could not be read back.
+	 */
+	function pinJournal(
+		session: SessionView | undefined,
+	): { read: () => PinState; write: (event: PinEvent) => void } | undefined {
+		// Called as methods: the harness's session manager and API are class
+		// instances, so a detached method would lose `this`.
+		if (!pi.appendEntry || !session?.getEntries) return undefined;
+		return {
+			read: () => replayPins(session.getEntries?.() ?? []),
+			write: (event) => pi.appendEntry?.(PIN_ENTRY, event),
+		};
+	}
+
+	/** The Pins the Conversation's Journal holds; none where it cannot be listed. */
+	function pinsOf(session: SessionView | undefined): PinState {
+		return pinJournal(session)?.read() ?? replayPins([]);
+	}
+
+	/**
+	 * Says on the footer that Pins are held, and whether the last Call
+	 * carried them. Cleared when there are none, so a Conversation without
+	 * Pins shows nothing.
+	 */
+	function showPins(target: HarnessUI | undefined): void {
+		if (held.pins.length === 0) {
+			target?.setStatus?.(PIN_STATUS, undefined);
+			return;
+		}
+		const unsent = governing ? "" : " — not sent";
+		target?.setStatus?.(
+			PIN_STATUS,
+			`pinned: ${held.pins.length} (~${pinTokens(held.pins)} tok)${unsent}`,
+		);
+	}
 
 	/**
 	 * Neither accounting nor ingest may delay the model request, so their
@@ -428,6 +496,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.ui;
 		governing = true;
+		held = pinsOf(ctx.sessionManager);
+		showPins(ui);
+		// Said once: without the Journal surface every Pack goes out with no
+		// Pins, which must not look like a Conversation that holds none.
+		if (!pinJournal(ctx.sessionManager) && !pinsUnavailableReported) {
+			pinsUnavailableReported = true;
+			deps.report(PINS_UNAVAILABLE);
+		}
 		compactionDeclineReported = false;
 		// A setting silently ignored is a setting someone believes is in
 		// force; retention in particular would be believed to be bounding a
@@ -562,6 +638,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		reconcile(conversationId, branch);
 
 		try {
+			// Inside the fail-open path: a Journal that cannot be listed costs
+			// this Call its Pack, never the Call.
+			held = pinsOf(ctx.sessionManager);
 			const live = positioned(reconstructTurns(messages), address.turnIndex);
 			const current = live[live.length - 1];
 
@@ -594,6 +673,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					conceptMisses: concepts.value.misses,
 					conceptsUnsearched: concepts.value.unsearched,
 					structure: structure.value,
+					pins: held.pins,
 					unavailable: {
 						recalled: recalled.unavailable,
 						curated: concepts.unavailable,
@@ -619,6 +699,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 
 			governing = true;
+			showPins(ui);
 			return { messages: pack.messages };
 		} catch (error) {
 			// Fails open, toward the accumulating window this exists to prevent,
@@ -626,6 +707,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// rather than vanishing from the accounting. The harness's history
 			// is what goes out now, so its own compaction is left to it.
 			governing = false;
+			showPins(ui);
 			reportSafely(`Assembly failed, turn left unassembled: ${describe(error)}`);
 			inBackground(
 				"Unassembled turn",
@@ -637,6 +719,32 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			);
 			return undefined;
 		}
+	});
+
+	// `/new` and resume open another Conversation, which holds only what its
+	// own Journal says. A whole-session fork copied every entry, so it
+	// replays equal and nothing needs writing either.
+	pi.on("session_switch", async (_event, ctx) => {
+		ui = ctx.ui;
+		held = pinsOf(ctx.sessionManager);
+		showPins(ui);
+	});
+
+	// A branch, a fork at an entry and `/btw` promotion copy only the path
+	// to the leaf, which misses a Pin added after the leaf moved and keeps
+	// one removed off it. Where the copy disagrees with what the parent
+	// held, the parent's state is written into the new Journal, once; from
+	// then on the two hold their Pins independently.
+	pi.on("session_branch", async (_event, ctx) => {
+		ui = ctx.ui;
+		const journal = pinJournal(ctx.sessionManager);
+		const copied = journal?.read() ?? replayPins([]);
+		if (journal && !sameState(copied, held)) {
+			journal.write({ op: "snapshot", pins: held.pins, nextId: held.nextId });
+		} else {
+			held = copied;
+		}
+		showPins(ui);
 	});
 
 	pi.on("auto_compaction_start", async (event, ctx) => {
@@ -760,6 +868,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	// reads its tail.
 	pi.on("session_tree", async (event, ctx) => {
 		ui = ctx.ui;
+		// The whole file holds the Pins, not the branch, so a move inside
+		// it changes none; the status is refreshed all the same.
+		held = pinsOf(ctx.sessionManager);
+		showPins(ui);
 		const sink = deps.ingest;
 		if (!sink) return;
 		const conversationId = conversationOf(ctx);
@@ -1328,8 +1440,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"relevance judging for this session",
 			handler: async (args, commandCtx) => {
 				const output = await manageInstall(args.trim());
-				if (commandCtx.ui?.notify) commandCtx.ui.notify(output, "info");
-				else deps.show?.(output);
+				tell(commandCtx, output);
 			},
 		});
 
@@ -1339,8 +1450,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"`specs init` to create what is missing",
 			handler: async (args, commandCtx) => {
 				const text = await checkSpecs(args.trim());
-				if (commandCtx.ui?.notify) commandCtx.ui.notify(text, "info");
-				else deps.show?.(text);
+				tell(commandCtx, text);
 			},
 		});
 
@@ -1351,13 +1461,22 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"`pack why [<address>] <subject>` for why something was not " +
 				"carried, `pack diff [<a> <b>]`, `pack summary`, " +
 				"`pack budget <tail|recall|docs|graph|" +
-				"tail-tokens|recall-tokens|docs-tokens|graph-tokens|pack> <n>`",
+				"tail-tokens|recall-tokens|docs-tokens|graph-tokens|pack|" +
+				"pins|pins-tokens> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
-				// One channel: the harness owns the screen when it offers one.
-				if (commandCtx.ui?.notify) commandCtx.ui.notify(text, "info");
-				else deps.show?.(text);
+				tell(commandCtx, text);
 			},
+		});
+
+		// One command with verbs, like `pack`: the harness owns `/pin`, which
+		// pins a session in its resume list.
+		pi.registerCommand("pins", {
+			description:
+				"Text carried whole by every context pack of this conversation: " +
+				"`pins` to read them, `pins add <text>` to pin text (`pins add` " +
+				"alone opens the editor), `pins rm <id|all>` to remove",
+			handler: async (args, commandCtx) => tell(commandCtx, await pins(args, commandCtx)),
 		});
 	}
 
@@ -1603,6 +1722,106 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		return renderCall(latest);
+	}
+
+	/** One channel: the harness owns the screen when it offers one. */
+	function tell(commandCtx: CommandContext, text: string): void {
+		if (commandCtx.ui?.notify) commandCtx.ui.notify(text, "info");
+		else deps.show?.(text);
+	}
+
+	/**
+	 * The Pin surface: read, add, remove. The verb is the first word; what
+	 * follows `add` is taken verbatim, line breaks included.
+	 */
+	async function pins(args: string, commandCtx: CommandContext): Promise<string> {
+		const [, verb = "", rest = ""] = /^\s*(\S*)\s*([\s\S]*)$/.exec(args) ?? [];
+		if (verb === "") return listPins(commandCtx);
+		if (verb === "add") return pin(rest, commandCtx);
+		if (verb === "rm") return unpin(rest, commandCtx);
+		return `Unknown: pins ${verb}. Use \`/pins\`, \`/pins add [text]\` or \`/pins rm <id|all>\`.`;
+	}
+
+	/**
+	 * Adds a Pin: the text given, or what the editor submits. Refused over
+	 * the Budget before anything is written, so a refused Pin leaves no
+	 * trace in the Journal.
+	 */
+	async function pin(args: string, commandCtx: CommandContext): Promise<string> {
+		const journal = pinJournal(commandCtx.sessionManager);
+		if (!journal) return PINS_UNAVAILABLE;
+		// Verbatim: the user's text as written. Only the space after the verb
+		// is not part of it, and the dispatcher has already taken that.
+		const text =
+			args.trim() !== ""
+				? args
+				: commandCtx.hasUI === false
+					? undefined
+					: await commandCtx.ui?.editor?.("Pin text");
+		if (text === undefined || text.trim() === "") {
+			return "Nothing pinned. Use `/pins add <text>` to pin text inline.";
+		}
+		const budget = pinBudget(deps.config);
+		const outcome = admit(journal.read(), text, budget);
+		if (!outcome.ok) return `Not pinned: ${outcome.reason}.`;
+		journal.write({ op: "add", id: outcome.pin.id, text: outcome.pin.text });
+		held = journal.read();
+		showPins(commandCtx.ui);
+		return (
+			`Pinned #${outcome.pin.id} (~${outcome.tokens} tokens). Pins hold ` +
+			`~${outcome.total} of ${budget.tokens} tokens, ${held.pins.length} of ${budget.count}.`
+		);
+	}
+
+	/** Removes one Pin by id, or all of them. An id not held removes nothing. */
+	function unpin(args: string, commandCtx: CommandContext): string {
+		const journal = pinJournal(commandCtx.sessionManager);
+		if (!journal) return PINS_UNAVAILABLE;
+		const wanted = args.trim();
+		if (wanted === "") return "Say which pin: `/pins rm <id>` or `/pins rm all`.";
+		const ids = journal.read().pins.map((each) => each.id);
+		if (ids.length === 0) return "No pins in this conversation to remove.";
+		// `#3` and `3` name the same Pin; anything else names none.
+		const named = /^#?(\d+)$/.exec(wanted)?.[1];
+		const chosen =
+			wanted === "all"
+				? ids
+				: ids.filter((id) => named !== undefined && id === Number(named));
+		if (chosen.length === 0) {
+			return (
+				`No pin ${wanted} in this conversation; it holds ` +
+				`${ids.map((id) => `#${id}`).join(", ")}.`
+			);
+		}
+		journal.write({ op: "remove", ids: chosen });
+		held = journal.read();
+		showPins(commandCtx.ui);
+		return (
+			`Unpinned ${chosen.map((id) => `#${id}`).join(", ")}; ` +
+			`${held.pins.length} remain${held.pins.length === 1 ? "s" : ""}.`
+		);
+	}
+
+	/**
+	 * Every Pin in full, sized as the Pack sizes it, then the total against
+	 * the Budget: the reader of last resort where there is no status line.
+	 */
+	function listPins(commandCtx: CommandContext): string {
+		const journal = pinJournal(commandCtx.sessionManager);
+		if (!journal) return PINS_UNAVAILABLE;
+		held = journal.read();
+		const { pins } = held;
+		if (pins.length === 0) return "no pins in this conversation";
+		const budget = pinBudget(deps.config);
+		const each = pins.map(
+			(one, index) =>
+				`#${one.id}  ~${approximateTokens([renderPin(one, index + 1, pins.length)])} ` +
+				`tokens\n${one.text}`,
+		);
+		return (
+			`${each.join("\n\n")}\n\n~${pinTokens(pins)} of ${budget.tokens} tokens, ` +
+			`${pins.length} of ${budget.count} pins`
+		);
 	}
 
 	/**

@@ -35,6 +35,7 @@ import { JudgeFailure, type RelevanceJudge } from "../src/relevance-judge.ts";
 import type {
 	BeforeCompactHandler,
 	BranchEntry,
+	CommandContext,
 	CommandDefinition,
 	CompactionStartHandler,
 	ToolDefinition,
@@ -42,6 +43,8 @@ import type {
 	ExtensionAPI,
 	HandlerContext,
 	LifecycleHandler,
+	SessionBranchHandler,
+	SessionSwitchHandler,
 	SessionTreeHandler,
 	ToolResult,
 } from "../src/harness.ts";
@@ -55,6 +58,7 @@ import {
 	settings,
 } from "./fixtures.ts";
 import { storeLocation } from "./store-support.ts";
+import { PIN_ENTRY } from "../src/pins.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
@@ -69,6 +73,8 @@ interface Harness {
 	agentEnd: LifecycleHandler;
 	sessionShutdown: LifecycleHandler;
 	sessionTree: SessionTreeHandler;
+	sessionSwitch: SessionSwitchHandler;
+	sessionBranch: SessionBranchHandler;
 	compactionStart: CompactionStartHandler;
 	compactionEnd: LifecycleHandler;
 	beforeCompact: BeforeCompactHandler;
@@ -78,6 +84,16 @@ interface Harness {
 	commands: Record<string, CommandDefinition>;
 	tools: Record<string, ToolDefinition>;
 	shown: string[];
+	/** The session file's entries: `appendEntry` writes here, `getEntries` reads. */
+	journal: BranchEntry[];
+	/** Every footer status set, in order. */
+	statuses: { key: string; text: string | undefined }[];
+	/** What the editor answers next, first to last; `undefined` cancels. */
+	editorAnswers: (string | undefined)[];
+	/** What the commands told the user through the UI. */
+	notified: string[];
+	/** A context over this harness's journal and UI, as handlers and commands get. */
+	session: (branch?: BranchEntry[]) => HandlerContext & CommandContext;
 	/** Awaits the background accounting writes this extension started. */
 	settle: () => Promise<void>;
 }
@@ -93,6 +109,8 @@ function harness(overrides: Overrides = {}): Harness {
 	let agentEnd: LifecycleHandler | undefined;
 	let sessionShutdown: LifecycleHandler | undefined;
 	let sessionTree: SessionTreeHandler | undefined;
+	let sessionSwitch: SessionSwitchHandler | undefined;
+	let sessionBranch: SessionBranchHandler | undefined;
 	let compactionStart: CompactionStartHandler | undefined;
 	let compactionEnd: LifecycleHandler | undefined;
 	let beforeCompact: BeforeCompactHandler | undefined;
@@ -100,11 +118,14 @@ function harness(overrides: Overrides = {}): Harness {
 	const commands: Record<string, CommandDefinition> = {};
 	const tools: Record<string, ToolDefinition> = {};
 	const shown: string[] = [];
+	const journal: BranchEntry[] = [];
 	const pi: ExtensionAPI = {
 		on(event: string, handler: unknown) {
 			if (event === "context") context = handler as ContextHandler;
 			if (event === "session_start") sessionStart = handler as LifecycleHandler;
 			if (event === "session_tree") sessionTree = handler as SessionTreeHandler;
+			if (event === "session_switch") sessionSwitch = handler as SessionSwitchHandler;
+			if (event === "session_branch") sessionBranch = handler as SessionBranchHandler;
 			if (event === "agent_end") agentEnd = handler as LifecycleHandler;
 			if (event === "session_shutdown") {
 				sessionShutdown = handler as LifecycleHandler;
@@ -124,6 +145,9 @@ function harness(overrides: Overrides = {}): Harness {
 		},
 		registerTool(tool: ToolDefinition) {
 			tools[tool.name] = tool;
+		},
+		appendEntry(customType: string, data: unknown) {
+			journal.push({ id: `entry-${journal.length}`, type: "custom", customType, data });
 		},
 	} as ExtensionAPI;
 
@@ -187,6 +211,8 @@ function harness(overrides: Overrides = {}): Harness {
 		!agentEnd ||
 		!sessionShutdown ||
 		!sessionTree ||
+		!sessionSwitch ||
+		!sessionBranch ||
 		!compactionStart ||
 		!compactionEnd ||
 		!beforeCompact
@@ -194,11 +220,22 @@ function harness(overrides: Overrides = {}): Harness {
 		throw new Error("extension did not register its handlers");
 	}
 
+	const statuses: Harness["statuses"] = [];
+	const editorAnswers: Harness["editorAnswers"] = [];
+	const notified: string[] = [];
+	const ui = {
+		notify: (message: string) => notified.push(message),
+		setStatus: (key: string, text: string | undefined) => statuses.push({ key, text }),
+		editor: async () => editorAnswers.shift(),
+	};
+
 	return {
 		context,
 		sessionStart,
 		sessionShutdown,
 		sessionTree,
+		sessionSwitch,
+		sessionBranch,
 		compactionStart,
 		compactionEnd,
 		beforeCompact,
@@ -209,6 +246,19 @@ function harness(overrides: Overrides = {}): Harness {
 		commands,
 		tools,
 		shown,
+		journal,
+		statuses,
+		editorAnswers,
+		notified,
+		session: (branch = []) => ({
+			sessionManager: {
+				getSessionId: () => "conv-1",
+				getBranch: () => branch,
+				getEntries: () => journal,
+			},
+			ui,
+			hasUI: true,
+		}),
 		settle: async () => {
 			// Drains the writes the extension started, plus the reporting
 			// microtask chained onto each, without waiting on the clock.
@@ -234,7 +284,12 @@ function answered(promptTokens: number, prompt = "earlier"): BranchEntry[] {
 
 function ctx(branch: BranchEntry[] = [], extra: Partial<HandlerContext> = {}) {
 	return {
-		sessionManager: { getSessionId: () => "conv-1", getBranch: () => branch },
+		// A linear session: the branch is the whole file.
+		sessionManager: {
+			getSessionId: () => "conv-1",
+			getBranch: () => branch,
+			getEntries: () => branch,
+		},
 		...extra,
 	} satisfies HandlerContext;
 }
@@ -3987,5 +4042,228 @@ describe("a rewind against a store that resumes from its head", () => {
 			"long three",
 		]);
 		expect(cm.reported.join("\n")).not.toContain("failed");
+	});
+});
+
+describe("pins", () => {
+	const prompt = { messages: [{ role: "user", content: "hello" }] };
+	/** What a Call's Pack sent, as text. */
+	const sent = (result: { messages: { content?: unknown }[] } | undefined) =>
+		result?.messages.map((message) => message.content);
+	const lastStatus = (cm: Harness) =>
+		cm.statuses.filter((each) => each.key === "pi-chart.pins").at(-1)?.text;
+
+	test("a pinned text reaches the next call's pack, before the prompt", async () => {
+		const cm = harness();
+		const session = cm.session();
+
+		await cm.commands.pins?.handler("add use tabs", session);
+		const result = await cm.context(prompt, session);
+
+		expect(sent(result)).toEqual([
+			"[pinned by the user: #1, 1 of 1]\nuse tabs",
+			"hello",
+		]);
+		expect(cm.notified.at(-1)).toContain("#1");
+		expect(lastStatus(cm)).toMatch(/^pinned: 1 \(~\d+ tok\)$/);
+	});
+
+	test("with no text the editor opens, and what it submits is pinned", async () => {
+		const cm = harness();
+		cm.editorAnswers.push("from the editor\nsecond line");
+
+		await cm.commands.pins?.handler("add", cm.session());
+
+		expect(cm.journal.map((entry) => entry.data)).toEqual([
+			{ op: "add", id: 1, text: "from the editor\nsecond line" },
+		]);
+	});
+
+	test("a cancelled or blank editor pins nothing and says how to pin inline", async () => {
+		const cm = harness();
+		cm.editorAnswers.push(undefined, "   \n");
+
+		await cm.commands.pins?.handler("add", cm.session());
+		await cm.commands.pins?.handler("add", cm.session());
+
+		expect(cm.journal).toEqual([]);
+		expect(cm.notified).toHaveLength(2);
+		for (const said of cm.notified) expect(said).toContain("/pins add <text>");
+	});
+
+	test("text given inline is kept as written, line breaks and spacing included", async () => {
+		const cm = harness();
+
+		await cm.commands.pins?.handler("add first line\n  indented second\n", cm.session());
+
+		expect(cm.journal.map((entry) => entry.data)).toEqual([
+			{ op: "add", id: 1, text: "first line\n  indented second\n" },
+		]);
+	});
+
+	test("an unknown verb changes nothing and names the ones there are", async () => {
+		const cm = harness();
+
+		await cm.commands.pins?.handler("drop 1", cm.session());
+
+		expect(cm.journal).toEqual([]);
+		expect(cm.notified.at(-1)).toContain("/pins rm <id|all>");
+	});
+
+	test("a pin over its budget is refused and nothing is recorded", async () => {
+		const cm = harness({ config: { pinCount: 1 } });
+		const session = cm.session();
+
+		await cm.commands.pins?.handler("add first", session);
+		await cm.commands.pins?.handler("add second", session);
+
+		expect(cm.journal).toHaveLength(1);
+		expect(cm.notified.at(-1)).toContain("1 over");
+	});
+
+	test("an unpinned text is not carried, and its id is not given out again", async () => {
+		const cm = harness();
+		const session = cm.session();
+
+		await cm.commands.pins?.handler("add first", session);
+		await cm.commands.pins?.handler("add second", session);
+		await cm.commands.pins?.handler("rm #2", session);
+		await cm.commands.pins?.handler("add third", session);
+		const result = await cm.context(prompt, session);
+
+		expect(sent(result)).toEqual([
+			"[pinned by the user: #1, 1 of 2]\nfirst",
+			"[pinned by the user: #3, 2 of 2]\nthird",
+			"hello",
+		]);
+	});
+
+	test("an unknown id is refused naming the ids held", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add first", session);
+		await cm.commands.pins?.handler("add second", session);
+
+		await cm.commands.pins?.handler("rm 9", session);
+
+		expect(cm.journal).toHaveLength(2);
+		expect(cm.notified.at(-1)).toContain("#1, #2");
+	});
+
+	test("unpinning all leaves none and clears the status", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add first", session);
+		await cm.commands.pins?.handler("add second", session);
+
+		await cm.commands.pins?.handler("rm all", session);
+		const result = await cm.context(prompt, session);
+
+		expect(sent(result)).toEqual(["hello"]);
+		expect(lastStatus(cm)).toBeUndefined();
+	});
+
+	test("the pins are read back whole, with ids, sizes and the total against the budget", async () => {
+		const cm = harness({ config: { pinCount: 5, pinTokens: 900 } });
+		const session = cm.session();
+		await cm.commands.pins?.handler("", session);
+		await cm.commands.pins?.handler("add use tabs\nalways", session);
+		await cm.commands.pins?.handler("", session);
+		const listed = cm.notified.at(-1) ?? "";
+
+		expect(cm.notified[0]).toBe("no pins in this conversation");
+		expect(listed).toContain("#1");
+		expect(listed).toContain("use tabs\nalways");
+		expect(listed).toMatch(/~\d+ of 900 tokens, 1 of 5 pins/);
+	});
+
+	test("a move within the tree keeps a pin added after the leaf it returns to", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add later", session);
+
+		await cm.sessionTree({ oldLeafId: "entry-0" }, session);
+		const result = await cm.context(prompt, session);
+
+		expect(sent(result)).toEqual(["[pinned by the user: #1, 1 of 1]\nlater", "hello"]);
+		expect(lastStatus(cm)).toMatch(/^pinned: 1 /);
+	});
+
+	test("a branch onto a path-only copy keeps the parent's pins and ids", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add on the path", session);
+		await cm.commands.pins?.handler("add after the leaf moved", session);
+		// The new file holds only the root-to-leaf path, which the second
+		// pin was never on.
+		cm.journal.splice(1);
+
+		await cm.sessionBranch({ reason: "branch" }, session);
+		const result = await cm.context(prompt, session);
+
+		expect(cm.journal.at(-1)?.customType).toBe(PIN_ENTRY);
+		expect(cm.journal.at(-1)?.data).toMatchObject({ op: "snapshot", nextId: 3 });
+		expect(sent(result)).toEqual([
+			"[pinned by the user: #1, 1 of 2]\non the path",
+			"[pinned by the user: #2, 2 of 2]\nafter the leaf moved",
+			"hello",
+		]);
+	});
+
+	test("a fork that copied every entry writes nothing", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add kept", session);
+
+		await cm.sessionSwitch({ reason: "fork" }, session);
+		await cm.sessionBranch({ reason: "fork" }, session);
+
+		expect(cm.journal).toHaveLength(1);
+	});
+
+	test("a new conversation starts without pins and clears the status", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add parent's", session);
+		cm.journal.splice(0);
+
+		await cm.sessionSwitch({ reason: "new" }, session);
+		const result = await cm.context(prompt, session);
+
+		expect(cm.journal).toEqual([]);
+		expect(sent(result)).toEqual(["hello"]);
+		expect(lastStatus(cm)).toBeUndefined();
+	});
+
+	test("pins a failed assembly did not send are shown as not sent, until one does", async () => {
+		let failing = true;
+		const cm = harness({
+			assemble: (input, config) => {
+				if (failing) throw new Error("boom");
+				return assemble(input, config);
+			},
+		});
+		const session = cm.session();
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		await cm.context(prompt, session);
+		const unsent = lastStatus(cm);
+		failing = false;
+		await cm.context(prompt, session);
+
+		expect(unsent).toMatch(/^pinned: 1 \(~\d+ tok\) — not sent$/);
+		expect(lastStatus(cm)).toMatch(/^pinned: 1 \(~\d+ tok\)$/);
+	});
+
+	test("a harness that cannot list its journal assembles without pins and says so once", async () => {
+		const cm = harness();
+		const blind = { sessionManager: { getSessionId: () => "conv-1" } };
+
+		await cm.sessionStart({}, blind);
+		await cm.sessionStart({}, blind);
+		const result = await cm.context(prompt, blind);
+
+		expect(sent(result)).toEqual(["hello"]);
+		expect(cm.reported.filter((said) => said.includes("Pins are off"))).toHaveLength(1);
 	});
 });

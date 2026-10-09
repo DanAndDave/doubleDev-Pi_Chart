@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readJournal } from "../src/journal.ts";
-import { journalEntry, journalOf } from "./fixtures.ts";
+import { PIN_ENTRY } from "../src/pins.ts";
+import { journalEntry, journalOf, toolCall, toolResult } from "./fixtures.ts";
 
 const FIXTURE = new URL(
 	"./fixtures/journal-tool-session.jsonl",
@@ -164,6 +165,34 @@ describe("a Journal the harness rewound", () => {
 			"first prompt",
 			"abandoned prompt",
 			"kept prompt",
+		]);
+	});
+});
+
+describe("a pin written while a turn streams", () => {
+	test("sits between a call and its result without splitting the turn", async () => {
+		const entries = [
+			journalEntry("u1", null, "user", "read it"),
+			{ type: "message", id: "a1", parentId: "u1", message: toolCall("read", { path: "a" }, "c1") },
+			{
+				type: "custom",
+				id: "p1",
+				parentId: "a1",
+				customType: PIN_ENTRY,
+				data: { op: "add", id: 1, text: "use tabs" },
+			},
+			{ type: "message", id: "r1", parentId: "p1", message: toolResult("contents", "c1") },
+			journalEntry("a2", "r1", "assistant", "done"),
+		];
+
+		const turns = await readJournal(await journalOf(entries));
+
+		expect(turns).toHaveLength(1);
+		expect(turns[0]?.messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+			"assistant",
 		]);
 	});
 });

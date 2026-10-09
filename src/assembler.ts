@@ -11,6 +11,7 @@ import { shares } from "./shares.ts";
 import type { ConceptHit, ConceptMiss } from "./doc-index.ts";
 import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
 import type { RecalledTurn, TurnMiss } from "./thread-store.ts";
+import { renderPins, type Pin } from "./pins.ts";
 
 /**
  * What a part may carry, in both denominations at once.
@@ -46,6 +47,12 @@ export interface AssemblerConfig {
 	 */
 	packTokens: number;
 	/**
+	 * The Pin Budget in force. Recorded beside the Pins, never applied to
+	 * them: it binds when a Pin is written, and a Pin already held is
+	 * carried whatever the Budget has since become.
+	 */
+	pins: Budget;
+	/**
 	 * The relevance thresholds the retrieving parts selected against, as
 	 * cosine distance. Recorded beside what each part carried: a part that
 	 * carried little against a threshold set too tight is a different fact
@@ -70,7 +77,8 @@ export type PackSource =
 	| "current-turn"
 	| "recalled"
 	| "curated"
-	| "structure";
+	| "structure"
+	| "pinned";
 
 export interface PackPart {
 	source: PackSource;
@@ -93,6 +101,8 @@ export interface PackPart {
 	conceptIds?: string[];
 	/** Which symbols this part carried, by name. Identity, not count. */
 	symbols?: string[];
+	/** Which Pins this part carried, by id. Identity, never text. */
+	pinIds?: number[];
 	/**
 	 * The Budget that bounded this part, where one did. Recorded beside
 	 * what the part spent, because a part carrying irreducible content can
@@ -159,7 +169,13 @@ export interface Pack {
 	 */
 	leadingTokens: number;
 	/** The Budgets in force for this Call, whether or not a part used them. */
-	budgets: { tail: number; recall: number; docs: number; graph: number };
+	budgets: {
+		tail: number;
+		recall: number;
+		docs: number;
+		graph: number;
+		pins: number;
+	};
 	/**
 	 * Candidates retrieval refused as not relevant enough. A Call-level fact,
 	 * not a part's: when everything is refused there is no recalled part to
@@ -293,6 +309,11 @@ export interface AssembleInput {
 	 * nothing relevant was found, and only the caller knows which.
 	 */
 	unavailable?: Partial<Record<PackSource, "unconfigured" | "failed">>;
+	/**
+	 * The Pins the Conversation holds, in the order added. Carried whole,
+	 * every one, whatever their Budget or the ceiling.
+	 */
+	pins?: Pin[];
 }
 
 /**
@@ -316,6 +337,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		conceptsUnsearched = 0,
 		structure = [],
 		unavailable = {},
+		pins = [],
 	} = input;
 	const bound = config.explainCandidates;
 
@@ -480,6 +502,26 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		shortened: tail.shortened || undefined,
 	});
 
+	// The user's own standing instructions, last before the prompt they
+	// govern, so nothing assembled sits between them and it. Never reduced
+	// and never trimmed to their Budget: the Budget binds at `/pins add`, and
+	// the ceiling elides the current Turn around them rather than touch
+	// one. Left out of `REDUCTION_ORDER` for that reason.
+	const pinned = renderPins(pins);
+	parts.push({
+		source: "pinned",
+		messages: pinned,
+		approximateTokens: approximateTokens(pinned),
+		carried: pins.length,
+		pinIds: pins.map((pin) => pin.id),
+		budget: config.pins,
+		candidates: pins.length,
+		// The user chose them; nothing ranks them.
+		unranked: true,
+		excludedCandidates: [],
+		absent: pins.length === 0 ? "none" : undefined,
+	});
+
 	// The current Turn is never dropped and never trimmed to a Budget: it is
 	// the prompt being answered. Only the ceiling may shorten it.
 	parts.push({
@@ -522,6 +564,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			recall: config.recall.count,
 			docs: config.docs.count,
 			graph: config.graph.count,
+			pins: config.pins.count,
 		},
 		rejected,
 		unsearched,
