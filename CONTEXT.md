@@ -11,7 +11,7 @@ The messages sent to the model for a single turn. It is rebuilt each turn rather
 _Avoid_: context, context memory, memory
 
 **Context Pack**:
-The bundle the assembler produces for one turn: the prompt, every Pin, and everything retrieved from the stores to support it. The unit that fills a Context Window.
+The bundle the assembler produces for one turn: the prompt, every Pin, and everything retrieved from the stores to support it. The unit that fills a Context Window. What the harness sent comes first, then the parts the assembler adds.
 _Avoid_: payload, bundle, prompt context
 
 **Assembler**:

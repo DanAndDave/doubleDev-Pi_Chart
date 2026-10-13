@@ -1,5 +1,7 @@
 # A Context Pack leads with what the harness already sent
 
+Superseded by ADR-0010: the harness caches through its last untagged message, the Turn in progress, so assembled parts now follow it and the leading run is gone.
+
 ADR-0005 measured a governed Call paying full price for its whole Pack — 0.0% of it read from cache against 97.2% ungoverned — and named the mechanism: the harness marks a returned message array for caching only as far as the first message that is not its own at that index, and the Assembler put an assembled message at index 0 on every Call. It left the remedy to a change that owed a quality argument as well as a cost one.
 
 **A Pack now begins with the longest run of messages the harness itself sent, carried unaltered and in its positions.** The assembled parts follow it, then the rest of the tail, then the Turn in progress.
