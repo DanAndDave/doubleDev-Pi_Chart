@@ -1,7 +1,7 @@
 # Proposal: The newest Turn survives the Pack ceiling
 
 Triage: needs-triage
-Blocked by: pack-parts-follow-the-turn
+Blocked by: None
 
 ## Why
 

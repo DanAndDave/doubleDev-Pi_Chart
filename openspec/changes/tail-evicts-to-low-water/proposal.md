@@ -1,7 +1,7 @@
 # Proposal: The verbatim tail evicts to a low-water mark
 
 Triage: needs-triage
-Blocked by: pack-parts-follow-the-turn
+Blocked by: None
 
 ## Why
 

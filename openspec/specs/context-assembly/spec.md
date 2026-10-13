@@ -24,13 +24,11 @@ The system SHALL supply the model's message input for every Turn by constructing
 - **WHEN** a Conversation runs for many Turns
 - **THEN** each Turn's input SHALL be a newly constructed Context Pack, and the input size SHALL NOT grow as a function of the number of Turns elapsed
 
-### Requirement: Packs carry the prompt and a verbatim tail
+### Requirement: Packs carry the prompt and an unsplit verbatim tail
 
 A Context Pack SHALL contain the Turn's prompt and the most recent N Turns reproduced verbatim, where N is configurable. Turns in the verbatim tail SHALL retain their original content, including tool calls and their results. The tail SHALL be drawn from the Thread Store, so it does not depend on the harness still carrying that history.
 
-The tail decides what a Pack carries; where a message the harness supplied says the same thing, the Pack MAY send the harness's own message in its place, because only the harness's own copy is one it recognises. It SHALL NOT send a message that says anything else.
-
-The tail MAY be split, with its oldest messages leading the Pack and the rest following the assembled parts, and SHALL keep its Turns in order either way. It SHALL NOT be split within a Turn: assembled content between a call and its result is a Context Window the model's provider refuses, which is the same rule an unanswered call already obeys.
+A Turn the tail carries without shortening SHALL reach the model exactly as it did while it was the Turn in progress, so the Call that first carries it in the tail reads it back from cache instead of writing it again. The tail SHALL keep its Turns in order and SHALL NOT be split.
 
 A tool call whose result is absent SHALL NOT be reproduced in the verbatim tail: the tail SHALL carry a call together with its result or carry neither, so that a Pack is never a Context Window the model's provider refuses. Withholding an unanswered call SHALL NOT remove any other content of the Turn it belongs to, and SHALL leave a Turn whose calls are all answered exactly as it would otherwise have been.
 
@@ -49,10 +47,10 @@ A tool call whose result is absent SHALL NOT be reproduced in the verbatim tail:
 - **WHEN** a Turn in the verbatim tail contains a tool call and its result
 - **THEN** both SHALL appear in the pack in a form the model can act on
 
-#### Scenario: A split tail keeps each call with its result
+#### Scenario: A finished turn reads back as it was sent
 
-- **WHEN** only part of the tail agrees with what the harness supplied, and the disagreement falls inside a Turn
-- **THEN** the Pack SHALL lead with whole Turns only, so that nothing assembled is carried between a call and its result
+- **WHEN** a Turn completes and the next Turn's first Call carries it, unshortened, in the verbatim tail read from the Thread Store
+- **THEN** that Turn's messages SHALL serialise to the model identically to how they did as the Turn in progress, including the key order of every tool call's arguments
 
 #### Scenario: The tail outlives the conversation being cleared
 
@@ -74,40 +72,52 @@ A tool call whose result is absent SHALL NOT be reproduced in the verbatim tail:
 - **WHEN** every tool call in the verbatim tail has its result
 - **THEN** the tail SHALL be exactly what it would have been without this rule
 
-### Requirement: A pack leads with what the harness already sent
+### Requirement: Assembled parts follow the Turn in progress
 
-A Context Pack SHALL begin with the longest run of messages the harness supplied for that Call, carried unaltered and in the order it supplied them, before any assembled part. What the Assembler adds — recalled Turns, Concepts, structure — SHALL follow that run.
+A Context Pack SHALL carry what the harness sent first, the verbatim tail and then the Turn in progress, and every part the Assembler adds after it, as one closing block. The block SHALL carry recalled Turns, then curated knowledge, then structure, then Pins, so the last thing in a Pack that holds Pins is the last Pin.
 
-The reason is measured rather than aesthetic: the harness marks a supplied array for caching only up to the first message it did not itself send, so a Pack that opens with an assembled part is cached not at all. A Pack that opens with the harness's own messages is cached to the point where it stops agreeing with them.
+The reason is measured rather than aesthetic. The harness caches a Pack through the end of the Turn in progress, so an assembled part ahead of that point which changes between Calls makes the next Call write everything after it again. Behind it, a part that changes costs only its own size.
 
-Where a part sits is not what the ceiling reads: the order a Pack is composed in and the order its parts are reduced in are independent, and reducing a Pack SHALL NOT change which messages may lead it beyond the messages its parts still carry.
+The block SHALL open with one fixed line, identical on every Call, stating that what follows is background for the request above it and not a new request. A Pack that carries no assembled content SHALL carry no such line, and SHALL be exactly the verbatim tail followed by the Turn in progress.
 
-A Pack SHALL NOT alter a message in order to lead with it: where the Assembler would carry a Turn shortened, drawn from the Thread Store, or otherwise different from what the harness sent, that message SHALL follow the run rather than break it. Correct content outranks a cacheable prefix.
+Nothing assembled SHALL sit between two messages of the verbatim tail, between the tail and the Turn in progress, or within the Turn in progress.
 
-#### Scenario: The harness's own messages come first
+Where a part sits is not what the ceiling reads: the order a Pack is composed in and the order its parts are reduced in are independent. The opening line SHALL count toward the Pack's size, and a Pack that carries it SHALL still fit its ceiling.
 
-- **WHEN** a Context Pack carries both messages the harness supplied and parts the Assembler added
-- **THEN** the supplied messages SHALL come first, unaltered, in the order they arrived
+#### Scenario: The harness's turns come first
 
-#### Scenario: A shortened message does not lead
+- **WHEN** a Context Pack carries a verbatim tail, a Turn in progress, and assembled parts
+- **THEN** the tail SHALL come first, the Turn in progress SHALL follow it, and every assembled part SHALL follow the Turn in progress
 
-- **WHEN** a message the Assembler would carry differs from what the harness supplied for that position
-- **THEN** it SHALL be carried after the unaltered run rather than in place of it
+#### Scenario: The block keeps a fixed order
 
-#### Scenario: A pack with nothing supplied is still assembled
+- **WHEN** a Context Pack carries recalled Turns, curated knowledge, structure and Pins
+- **THEN** they SHALL follow the Turn in progress in that order, with the Pins last
 
-- **WHEN** the harness supplies no messages the Assembler keeps unaltered
-- **THEN** the Pack SHALL still carry every part it would otherwise have carried
+#### Scenario: The block says what it is
 
-#### Scenario: The current turn still ends the pack
+- **WHEN** a Context Pack carries any assembled part
+- **THEN** the first message after the Turn in progress SHALL be the fixed opening line, identical across Calls and Conversations
 
-- **WHEN** a Context Pack is assembled
-- **THEN** the Turn in progress SHALL be the last thing in it, as it is today
+#### Scenario: Nothing assembled, nothing added
+
+- **WHEN** no assembled part carries anything for a Call
+- **THEN** the Pack SHALL be the verbatim tail followed by the Turn in progress, with no opening line
+
+#### Scenario: A part that changes between calls leaves the turns alone
+
+- **WHEN** two consecutive Calls of one Turn carry different structure and the same tail and Turn in progress up to the second Call's new messages
+- **THEN** every message before the assembled block in the first Call's Pack SHALL appear unchanged, in the same positions, at the head of the second Call's Pack
+
+#### Scenario: The ceiling accounts for the opening line
+
+- **WHEN** a Pack carrying assembled parts is reduced to fit its ceiling
+- **THEN** the Pack's size, opening line included, SHALL NOT exceed the ceiling
 
 #### Scenario: What a pack carries is unchanged by where it sits
 
 - **WHEN** the same inputs are assembled before and after this change
-- **THEN** the Pack SHALL carry the same parts, with the same Budgets and the same accounting, in a different order
+- **THEN** every part SHALL carry the same content, with the same Budgets and the same accounting, in a different order
 
 ### Requirement: Assembly is deterministic
 
@@ -557,9 +567,9 @@ Declining SHALL be disclosed once per Conversation. The disclosure SHALL name th
 - **WHEN** the last Call could not be assembled and the harness starts a size-triggered compaction
 - **THEN** the compaction SHALL proceed
 
-### Requirement: Packs carry every pin
+### Requirement: Every pin closes the pack
 
-Every Context Pack the Assembler supplies SHALL carry every Pin the Conversation holds at that Call, whole and unaltered, as its own part. The Pins SHALL be placed immediately before the Turn in progress, after the assembled parts and the rest of the verbatim tail, in the order they were added. Each SHALL be attributed as text the user pinned and identified by its id, so the model can tell a standing instruction from the user apart from retrieved background and from the prompt being answered.
+Every Context Pack the Assembler supplies SHALL carry every Pin the Conversation holds at that Call, whole and unaltered, as its own part. The Pins SHALL be the last messages of the Pack, after the Turn in progress and every other assembled part, in the order they were added, so nothing stands between them and the model's reply. Each SHALL be attributed as text the user pinned and identified by its id, so the model can tell a standing instruction from the user apart from retrieved background and from the prompt being answered.
 
 A Pin SHALL NEVER be shortened, elided, dropped by its Budget, or reduced for the Ceiling. Where the Pins held exceed their Budget — the Budget was lowered after they were added — the Pack SHALL still carry them all, and the part SHALL report the Budget it exceeded. A Conversation holding no Pins SHALL send exactly the messages it would have sent without this requirement.
 
@@ -568,10 +578,15 @@ A Pin SHALL NEVER be shortened, elided, dropped by its Budget, or reduced for th
 - **WHEN** a Conversation holds a Pin and a Call is assembled
 - **THEN** the Context Pack SHALL carry that Pin's text unaltered
 
-#### Scenario: Pins sit just before the current turn
+#### Scenario: Pins close the pack
 
-- **WHEN** a Context Pack carries Pins, assembled parts and a verbatim tail
-- **THEN** the Pins SHALL follow everything else and the Turn in progress SHALL follow the Pins
+- **WHEN** a Context Pack carries Pins, other assembled parts, a verbatim tail and a Turn in progress
+- **THEN** the Pins SHALL follow everything else, in the order they were added
+
+#### Scenario: A pin alone still opens the block
+
+- **WHEN** a Context Pack carries Pins and no other assembled part
+- **THEN** the opening line SHALL follow the Turn in progress and the Pins SHALL follow the opening line
 
 #### Scenario: A pin is attributed
 

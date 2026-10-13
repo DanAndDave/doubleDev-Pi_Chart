@@ -1,7 +1,7 @@
 # Proposal: Structure is matched precisely enough to stay put
 
 Triage: needs-triage
-Blocked by: pack-parts-follow-the-turn
+Blocked by: None
 
 ## Why
 

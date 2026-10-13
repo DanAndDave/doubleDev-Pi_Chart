@@ -1,7 +1,7 @@
 # Proposal: A Pack keeps the model's thinking valid
 
 Triage: needs-triage
-Blocked by: pack-parts-follow-the-turn
+Blocked by: None
 
 ## Why
 
