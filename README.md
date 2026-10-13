@@ -301,6 +301,14 @@ Five suites are gated, each because a fake would prove the wrong thing. The stor
 PICHART_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
 ```
 
+`scripts/bench-tokens.ts` runs the same multi-turn workload against plain omp (`--no-extensions`) and against omp with only this extension (`--no-extensions -e src/extension.ts`), each in a fresh copy of this Codebase at `HEAD`, and compares what the provider charged per Conversation: prompt tokens, cache read and write, output, effective input at the 0.1 / 1.25 cache multipliers, cost, and window size per turn. The workload's last prompt asks for a codeword given in the first, past the default tail, so an arm that got cheaper by forgetting shows it. It spends real tokens:
+
+```sh
+bun scripts/bench-tokens.ts                                   # 12 turns, 3 runs per arm
+bun scripts/bench-tokens.ts --runs 5 --parallel 4 --model sonnet --workload prompts.json
+bun scripts/bench-tokens.ts --report /tmp/pichart-bench-….json  # re-print a saved run
+```
+
 ## Reaching other conversations
 
 Recall into a Context Pack never leaves the current Conversation — that scoping has held since the first slice and still does. When the answer is somewhere else, the agent calls `recall_across_conversations`, which searches every ingested Conversation under the same relevance threshold and returns hits with the Conversation and Codebase they came from.
