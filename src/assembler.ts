@@ -161,11 +161,11 @@ export interface Pack {
 	messages: HarnessMessage[];
 	parts: PackPart[];
 	/**
-	 * How much of the Pack the harness supplied itself, and so can mark for
-	 * caching: the approximate size of the run this Pack leads with. Zero
-	 * when nothing the Assembler carried agreed with the harness's array at
-	 * its own index, which is what a Call with nothing cached looks like
-	 * from this side.
+	 * The approximate size of everything ahead of the assembled block: the
+	 * verbatim tail and the Turn in progress. The harness caches through the
+	 * Turn in progress (ADR-0010), so this is what a Call can read back from
+	 * the cache when the tail did not slide. The whole Pack when nothing was
+	 * assembled.
 	 */
 	leadingTokens: number;
 	/** The Budgets in force for this Call, whether or not a part used them. */
@@ -205,7 +205,10 @@ export interface Pack {
 	 * reader tells a pack that fitted from one that was made to fit.
 	 */
 	beforeCeiling: number;
-	/** Sum of the parts' approximations. Approximate, for attribution only. */
+	/**
+	 * The parts' approximations plus the opening line, where the block
+	 * carries one. Approximate, for attribution only.
+	 */
 	approximateTokens: number;
 }
 
@@ -276,15 +279,6 @@ export type AbsenceCause =
 export interface AssembleInput {
 	/** Turns to carry verbatim: the recent ones, current Turn last. */
 	turns: Turn[];
-	/**
-	 * The messages the harness supplied for this Call, in its own order.
-	 * Read only to decide how much of the tail can lead the Pack unaltered:
-	 * the harness caches a returned array as far as the first message that
-	 * differs from its own at that index, so a Pack that opens with an
-	 * assembled part is cached not at all (ADR-0005). Nothing is carried
-	 * from here that the Turns do not already hold.
-	 */
-	supplied?: HarnessMessage[];
 	/** Turns found by meaning, most relevant first. */
 	recalled?: RecalledTurn[];
 	/** How many candidates retrieval refused as not relevant enough. */
@@ -317,16 +311,14 @@ export interface AssembleInput {
 }
 
 /**
- * Builds the Context Pack for one Call: the run of messages the harness
- * already sent, the parts this Assembler composed, the rest of the verbatim
- * tail, then the Turn in progress — see `compose` for why it opens that
- * way. Pure — no I/O, no clock, no randomness — so the same inputs always
- * produce the same pack.
+ * Builds the Context Pack for one Call: the verbatim tail, the Turn in
+ * progress, then the parts this Assembler composed — see `compose` for why
+ * it closes that way. Pure — no I/O, no clock, no randomness — so the same
+ * inputs always produce the same pack.
  */
 export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	const {
 		turns,
-		supplied = [],
 		recalled = [],
 		rejected = 0,
 		recallMisses = [],
@@ -357,9 +349,9 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 
 	const parts: PackPart[] = [];
 
-	// Recall comes first among the parts this Assembler composes, all of
-	// which are background for the Turns that follow them, and it is
-	// trimmed to its own Budget so it can never crowd out the tail.
+	// Recall is the first part of the closing block, background for the
+	// Turns ahead of it, and it is trimmed to its own Budget so it can never
+	// crowd out the tail.
 	const carried = inTail.concat(current ? [current] : []);
 	const eligible = eligibleRecollections(recalled, carried);
 	const selectRecall = selecting(
@@ -400,8 +392,8 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		shortened: recollections.shortened || undefined,
 	});
 
-	// Curated knowledge sits with recall, ahead of the newest Turns: it is
-	// background the agent is being given, not something it just said.
+	// Curated knowledge follows recall in the block: background the agent is
+	// being given, not something it just said.
 	const selectCurated = selecting(
 		concepts,
 		(hit) => [asCuratedKnowledge(hit)],
@@ -439,8 +431,9 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		shortened: curated.shortened || undefined,
 	});
 
-	// Structure is what the Codebase is, so it comes before what was said
-	// about it — and ahead of the tail for the same reason recall is.
+	// Structure is what the Codebase is, so it follows what was said about
+	// it in the block, and changes with every symbol a prompt names — which
+	// is why the block sits behind the Turns rather than ahead of them.
 	const selectStructure = selecting(
 		structure,
 		(each) => [asStructure(each)],
@@ -502,11 +495,11 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		shortened: tail.shortened || undefined,
 	});
 
-	// The user's own standing instructions, last before the prompt they
-	// govern, so nothing assembled sits between them and it. Never reduced
-	// and never trimmed to their Budget: the Budget binds at `/pins add`, and
-	// the ceiling elides the current Turn around them rather than touch
-	// one. Left out of `REDUCTION_ORDER` for that reason.
+	// The user's own standing instructions close the Pack, so nothing stands
+	// between them and the reply. Never reduced and never trimmed to their
+	// Budget: the Budget binds at `/pins add`, and the ceiling elides the
+	// current Turn around them rather than touch one. Left out of
+	// `REDUCTION_ORDER` for that reason.
 	const pinned = renderPins(pins);
 	parts.push({
 		source: "pinned",
@@ -537,26 +530,29 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		absent: current === undefined ? "none" : undefined,
 	});
 
-	const beforeCeiling = totalOf(parts);
+	// The opening line is reserved before reduction, so a Pack that carries
+	// it still fits its ceiling; a Pack with nothing assembled reserves
+	// nothing and keeps the arithmetic it always had.
+	const reserved = carriesBlock(parts) ? OPENING_TOKENS : 0;
+	const beforeCeiling = totalOf(parts) + reserved;
 	// Reduction re-runs selection under a smaller Budget rather than editing
 	// the messages a part already chose, so one rule decides what a part
 	// carries whether the part's own Budget or the pack's ceiling is what
 	// binds. The order is reconstructibility: structure is one grep away, a
 	// Concept is retrievable next Call, a recollection is re-retrievable
 	// within the Conversation, and the tail is irreplaceable working state.
-	reduceToCeiling(parts, config.packTokens, bound, {
+	reduceToCeiling(parts, config.packTokens - reserved, bound, {
 		structure: { select: selectStructure, budget: config.graph },
 		curated: { select: selectCurated, budget: config.docs },
 		recalled: { select: selectRecall, budget: config.recall },
 		"verbatim-tail": { select: selectTail, budget: config.tail },
 	});
 
-	const composed = compose(parts, supplied);
+	const composed = compose(parts);
 	return {
 		messages: composed.messages,
-		// What the harness can recognise, in tokens rather than messages:
-		// what a cache reads back is measured in tokens, and a run of six
-		// short messages and a run of six long ones are not the same offer.
+		// In tokens rather than messages: what a cache reads back is
+		// measured in tokens.
 		leadingTokens: approximateTokens(composed.leading),
 		parts,
 		budgets: {
@@ -571,108 +567,57 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		conceptsUnsearched,
 		ceiling: config.packTokens,
 		beforeCeiling,
-		approximateTokens: totalOf(parts),
+		approximateTokens: totalOf(parts) + (carriesBlock(parts) ? OPENING_TOKENS : 0),
 	};
 }
 
 /**
- * The Pack's messages: the run of tail messages the harness itself sent,
- * then the assembled parts, then whatever of the tail it did not send, then
- * the Turn in progress.
- *
- * The harness caches a returned array only as far as the first message that
- * is not its own at that index, so a Pack that opens with an assembled part
- * offers no prefix to cache at all — measured at 0.0% of the Pack against
- * 97.2% ungoverned (ADR-0005). Leading with the run is what gives it one.
- *
- * The run comes out of the tail because no other part can: recalled Turns,
- * Concepts and structure are prose this Assembler wrote, and the Turn in
- * progress is the prompt being answered and ends the Pack. Splitting the
- * tail keeps it in order — the run is its oldest messages — so the
- * assembled parts still sit between the Turns already answered and the
- * prompt they are background for.
+ * The first message of the closing block, identical on every Call, so the
+ * model reads what follows the request as background for it rather than a
+ * new request. Its own message, belonging to no part, so no part's
+ * recorded size depends on which part happens to come first.
  */
-function compose(
-	parts: PackPart[],
-	supplied: HarnessMessage[],
-): { messages: HarnessMessage[]; leading: HarnessMessage[] } {
-	const tail = parts.find((part) => part.source === "verbatim-tail");
-	const lead = tail ? leadingRun(tail.messages, supplied) : 0;
-	if (!tail || lead === 0) {
-		return { messages: parts.flatMap((part) => part.messages), leading: [] };
-	}
+const OPENING: HarnessMessage = {
+	role: "user",
+	content:
+		"[background for the request above, assembled by pi-chart from this " +
+		"Conversation's memory and the Codebase; not a new request]",
+};
+const OPENING_TOKENS = approximateTokens([OPENING]);
 
-	// The harness's own objects, not the equal-by-value copies the tail
-	// carries: the harness marks its messages with a property nothing
-	// outside it can reproduce, and a Pack that hands back a faithful copy
-	// is a Pack it does not recognise. Same content either way — that is
-	// what the comparison below established — so this costs nothing and is
-	// the difference between a cached prefix and none.
-	const leading = supplied.slice(0, lead);
-	const messages = [...leading];
-	for (const part of parts) {
-		if (part === tail) messages.push(...part.messages.slice(lead));
-		else messages.push(...part.messages);
-	}
-	return { messages, leading };
+/** The parts the closing block carries, in the order it carries them. */
+const BLOCK: PackSource[] = ["recalled", "curated", "structure", "pinned"];
+
+function carriesBlock(parts: PackPart[]): boolean {
+	return parts.some(
+		(part) => BLOCK.includes(part.source) && part.messages.length > 0,
+	);
 }
 
 /**
- * How many of the tail's first messages are the harness's own, in its own
- * positions.
+ * The Pack's messages: the verbatim tail, the Turn in progress, then the
+ * closing block — the opening line, recall, curated knowledge, structure,
+ * and the Pins last.
  *
- * By value rather than by identity: rebuilding a message costs nothing at
- * the harness's comparison, while moving one costs everything. The run ends
- * at the first disagreement and is never repaired by substituting a
- * different message — where the tail carries something the harness did not
- * send, shortened or read back from the Thread Store with an edit behind
- * it, that message follows the run.
+ * The harness caches a Pack through its last message it recognises as its
+ * own, the Turn in progress (ADR-0010). An assembled part ahead of that
+ * point which changes between Calls makes the next Call write everything
+ * after it again; behind it, a changed part costs only its own size. So
+ * nothing assembled sits within or ahead of the Turns, and the order is a
+ * fixed function of the parts.
  */
-function leadingRun(
-	carried: HarnessMessage[],
-	supplied: HarnessMessage[],
-): number {
-	const bound = Math.min(carried.length, supplied.length);
-	let run = 0;
-	while (run < bound) {
-		if (!sameMessage(carried[run], supplied[run])) break;
-		run++;
-	}
-	// Back to a Turn boundary, because assembled prose goes in the gap the
-	// run leaves: a tool call separated from its result is a window a
-	// provider refuses outright, which is what the tail is measured in
-	// Turns to prevent. A Turn starts at its prompt, so the run may end
-	// only where the next message carried is one.
-	while (run > 0 && run < carried.length && carried[run]?.role !== "user") {
-		run--;
-	}
-	return run;
-}
-
-/**
- * Whether two messages say the same thing.
- *
- * Structural rather than `Bun.deepEquals`, which compares symbol
- * properties: the harness hangs one on every message it owns, and a marker
- * this side cannot see — or reproduce — is not a difference in what the
- * message says. Missing and undefined are the same for the same reason: a
- * field dropped by the Thread Store's JSON round trip carried nothing.
- */
-function sameMessage(left: unknown, right: unknown): boolean {
-	if (left === right) return true;
-	if (typeof left !== "object" || typeof right !== "object") return false;
-	if (left === null || right === null) return false;
-	if (Array.isArray(left) || Array.isArray(right)) {
-		if (!Array.isArray(left) || !Array.isArray(right)) return false;
-		if (left.length !== right.length) return false;
-		return left.every((each, index) => sameMessage(each, right[index]));
-	}
-	const mine = left as Record<string, unknown>;
-	const theirs = right as Record<string, unknown>;
-	for (const key of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
-		if (!sameMessage(mine[key], theirs[key])) return false;
-	}
-	return true;
+function compose(parts: PackPart[]): {
+	messages: HarnessMessage[];
+	leading: HarnessMessage[];
+} {
+	const of = (source: PackSource) =>
+		parts.find((part) => part.source === source)?.messages ?? [];
+	const leading = [...of("verbatim-tail"), ...of("current-turn")];
+	if (!carriesBlock(parts)) return { messages: leading, leading };
+	return {
+		messages: [...leading, OPENING, ...BLOCK.flatMap(of)],
+		leading,
+	};
 }
 
 function totalOf(parts: PackPart[]): number {

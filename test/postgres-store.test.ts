@@ -69,6 +69,43 @@ describeStore("PostgresStore", () => {
 		]);
 	});
 
+	test("a finished turn reads back as the harness sent it, key order included", async () => {
+		// A Turn is sent as the harness's own messages while in progress and
+		// as this copy once it is in the tail; the two must serialise alike,
+		// or every Turn boundary writes the previous Turn to the cache again.
+		const messages = [
+			{ role: "user", content: [{ type: "text", text: "read it" }] },
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "call-1",
+						name: "read",
+						arguments: { path: "leaf.txt", i: "Reading leaf", offset: 3 },
+					},
+				],
+				stopReason: "toolUse",
+			},
+			{
+				role: "toolResult",
+				toolCallId: "call-1",
+				toolName: "read",
+				content: [{ type: "text", text: "maple" }],
+				isError: false,
+			},
+		] as never[];
+		await store.ingest("bytes", [
+			{ turnIndex: 0, prompt: "read it", messages, callCount: 2, calls: [0, 0, 1] },
+		]);
+
+		const [turn] = await store.recentTurns("bytes", 1);
+
+		expect(turn?.messages.map((message) => JSON.stringify(message))).toEqual(
+			messages.map((message) => JSON.stringify(message)),
+		);
+	});
+
 	test("what one process ingested, a later process reads", async () => {
 		// PGlite persists to its data directory: a fresh handle
 		// after close stands in for a later process. On a server it is simply
@@ -167,14 +204,14 @@ describeStore("PostgresStore", () => {
 		expect([second?.inputTokens, second?.cacheRead, second?.cacheWrite]).toEqual([9, 7, 5]);
 	});
 
-	test("what the harness could recognise survives the write", async () => {
-		const supplied = [
+	test("what precedes the assembled block survives the write", async () => {
+		const messages = [
 			{ role: "user", content: "earlier" },
 			{ role: "assistant", content: "answered" },
 			{ role: "user", content: "hi" },
 		];
 		const pack = assemble(
-			{ turns: reconstructTurns(supplied), supplied },
+			{ turns: reconstructTurns(messages) },
 			budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");

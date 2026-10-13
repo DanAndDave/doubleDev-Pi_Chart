@@ -272,14 +272,14 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
-	// What the cache figure above can be explained by: the harness marks a
-	// returned array only as far as the messages it sent itself, so a Pack
-	// that leads with little of its own is one no provider was offered much
-	// to cache.
+	// What the cache figure above can be explained by: the harness caches
+	// through the Turn in progress (ADR-0010), so what precedes the
+	// assembled block is what a Call could read back when the tail did not
+	// slide.
 	if (view.leadingTokens !== undefined) {
 		lines.push(
-			`  prefix        ~${view.leadingTokens} tokens the harness sent itself, ` +
-				`carried unaltered at the head of the pack`,
+			`  prefix        ~${view.leadingTokens} tokens the harness sent, ` +
+				`ahead of the assembled parts`,
 		);
 	}
 	return lines.join("\n");

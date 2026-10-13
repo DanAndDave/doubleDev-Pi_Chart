@@ -314,6 +314,35 @@ interface Totals {
 	cost: number;
 	peak: number;
 	floor: number;
+	prefixHeld: number;
+	earlyWrite: number;
+}
+
+/**
+ * Turns before the verbatim tail starts sliding (the default tail is eight
+ * Turns, so turn 9 is the first whose tail drops one). The cache figures
+ * that judge Pack order are read over these, where nothing but order and
+ * assembled-part churn moves the cached prefix.
+ */
+const EARLY_TURNS = 7;
+
+/**
+ * The share of consecutive main-agent Call pairs on the early turns, in-Turn
+ * and across a Turn boundary alike, where the next Call read back at least
+ * everything the previous one read or wrote: its whole prompt stayed a
+ * cached prefix. NaN when there is no pair.
+ */
+function prefixHeld(run: Run): number {
+	const early = run.calls.filter((c) => !c.subagent && c.turn < EARLY_TURNS);
+	let pairs = 0;
+	let held = 0;
+	for (let index = 1; index < early.length; index++) {
+		const before = early[index - 1] as Call;
+		const after = early[index] as Call;
+		pairs++;
+		if (after.cacheRead >= before.cacheRead + before.cacheWrite) held++;
+	}
+	return pairs === 0 ? Number.NaN : held / pairs;
 }
 
 function totals(run: Run): Totals {
@@ -333,10 +362,15 @@ function totals(run: Run): Totals {
 		cost: sum((c) => c.cost),
 		peak: Math.max(0, ...run.calls.filter((c) => !c.subagent).map((c) => c.promptTokens)),
 		floor: median(run.calls.filter((c) => !c.subagent).map((c) => c.floor)),
+		prefixHeld: prefixHeld(run),
+		earlyWrite: run.calls
+			.filter((c) => !c.subagent && c.turn < EARLY_TURNS)
+			.reduce((acc, c) => acc + c.cacheWrite, 0),
 	};
 }
 
 const int = (x: number) => (Number.isFinite(x) ? Math.round(x).toLocaleString("en-US") : "—");
+const percent = (x: number) => (Number.isFinite(x) ? `${(100 * x).toFixed(0)}%` : "—");
 
 function report(saved: Saved): void {
 	const complete = saved.runs.filter((run) => run.failedTurn === undefined);
@@ -351,6 +385,8 @@ function report(saved: Saved): void {
 		["Cost, USD (harness pricing)", (t) => t.cost, (x) => (Number.isFinite(x) ? `$${x.toFixed(4)}` : "—")],
 		["Peak window, tokens", (t) => t.peak, int],
 		["Floor, tokens", (t) => t.floor, int],
+		[`Cache write, turns 1–${EARLY_TURNS}`, (t) => t.earlyWrite, int],
+		[`Prefix held, turns 1–${EARLY_TURNS} (next Call read all the last read or wrote)`, (t) => t.prefixHeld, percent],
 	];
 	const byArm = Object.fromEntries(
 		ARMS.map((arm) => [arm, complete.filter((run) => run.arm === arm).map(totals)]),

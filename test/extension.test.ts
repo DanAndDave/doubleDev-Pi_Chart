@@ -783,7 +783,7 @@ describe("the verbatim tail", () => {
 		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
 	});
 
-	test("a pack leads with the messages the harness sent, then the retrieval", async () => {
+	test("a pack carries the tail, then the turn in progress, then the retrieval", async () => {
 		const store = new MemoryTurnSource();
 		await store.ingest("conv-1", [
 			{
@@ -830,13 +830,20 @@ describe("the verbatim tail", () => {
 		const result = await cm.context({ messages }, ctx());
 		await cm.settle();
 
-		// The harness caches a returned array as far as the first message it
-		// did not itself send, so its own two come back where it put them —
-		// even though this tail was read from the store, not from the array.
-		expect(result?.messages.slice(0, 2)).toEqual(messages.slice(0, 2));
+		// The tail first, read from the store rather than the array, then
+		// the Turn in progress, then the assembled block behind it.
+		expect(result?.messages.slice(0, 3).map((message) => message.content)).toEqual([
+			"earlier",
+			"answered",
+			"current",
+		]);
 		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
-		expect(JSON.stringify(result?.messages[2])).toContain("curated knowledge");
-		expect(result?.messages[3]?.content).toBe("current");
+		expect(String(result?.messages[3]?.content)).toStartWith("[background for the request above");
+		expect(JSON.stringify(result?.messages[4])).toContain("curated knowledge");
+		// The harness places its cache breakpoint on the last message it
+		// recognises as its own, so the Turn in progress has to go back as
+		// the very objects it sent, not copies.
+		expect(result?.messages[2]).toBe(messages[2]);
 	});
 
 	test("falls back to the harness's own history when the store rejects", async () => {
@@ -4050,10 +4057,12 @@ describe("pins", () => {
 	/** What a Call's Pack sent, as text. */
 	const sent = (result: { messages: { content?: unknown }[] } | undefined) =>
 		result?.messages.map((message) => message.content);
+	/** The line that opens the assembled block whenever a Pin is carried. */
+	const opening = expect.stringMatching(/^\[background for the request above/);
 	const lastStatus = (cm: Harness) =>
 		cm.statuses.filter((each) => each.key === "pi-chart.pins").at(-1)?.text;
 
-	test("a pinned text reaches the next call's pack, before the prompt", async () => {
+	test("a pinned text reaches the next call's pack, after the prompt", async () => {
 		const cm = harness();
 		const session = cm.session();
 
@@ -4061,8 +4070,9 @@ describe("pins", () => {
 		const result = await cm.context(prompt, session);
 
 		expect(sent(result)).toEqual([
-			"[pinned by the user: #1, 1 of 1]\nuse tabs",
 			"hello",
+			opening,
+			"[pinned by the user: #1, 1 of 1]\nuse tabs",
 		]);
 		expect(cm.notified.at(-1)).toContain("#1");
 		expect(lastStatus(cm)).toMatch(/^pinned: 1 \(~\d+ tok\)$/);
@@ -4132,9 +4142,10 @@ describe("pins", () => {
 		const result = await cm.context(prompt, session);
 
 		expect(sent(result)).toEqual([
+			"hello",
+			opening,
 			"[pinned by the user: #1, 1 of 2]\nfirst",
 			"[pinned by the user: #3, 2 of 2]\nthird",
-			"hello",
 		]);
 	});
 
@@ -4185,7 +4196,7 @@ describe("pins", () => {
 		await cm.sessionTree({ oldLeafId: "entry-0" }, session);
 		const result = await cm.context(prompt, session);
 
-		expect(sent(result)).toEqual(["[pinned by the user: #1, 1 of 1]\nlater", "hello"]);
+		expect(sent(result)).toEqual(["hello", opening, "[pinned by the user: #1, 1 of 1]\nlater"]);
 		expect(lastStatus(cm)).toMatch(/^pinned: 1 /);
 	});
 
@@ -4204,9 +4215,10 @@ describe("pins", () => {
 		expect(cm.journal.at(-1)?.customType).toBe(PIN_ENTRY);
 		expect(cm.journal.at(-1)?.data).toMatchObject({ op: "snapshot", nextId: 3 });
 		expect(sent(result)).toEqual([
+			"hello",
+			opening,
 			"[pinned by the user: #1, 1 of 2]\non the path",
 			"[pinned by the user: #2, 2 of 2]\nafter the leaf moved",
-			"hello",
 		]);
 	});
 

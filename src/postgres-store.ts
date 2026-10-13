@@ -508,8 +508,6 @@ export class PostgresStore implements
 							THEN NULL ELSE turns.embedding_model END`;
 
 				const rows = turn.messages.map((message, ordinal) => ({
-					conversation_id: conversationId,
-					turn_index: turn.turnIndex,
 					ordinal,
 					// A message whose Call was never recorded belongs to the
 					// Turn's first: one Call is what such a Turn actually was.
@@ -520,8 +518,21 @@ export class PostgresStore implements
 					is_error: message.isError === true,
 				}));
 				if (rows.length === 0) return;
+				// The message is kept as a JSON string holding the text the
+				// harness sent, never as a JSON object: jsonb sorts object
+				// keys, and a finished Turn read back into the tail must
+				// serialise exactly as it did in progress, or every Turn
+				// boundary writes it to the cache again (ADR-0010). Said in
+				// SQL rather than left to how a driver binds a string.
 				await tx`
-					INSERT INTO turn_messages ${tx(rows)}
+					INSERT INTO turn_messages (
+						conversation_id, turn_index, ordinal, call_index,
+						role, message, tool_name, is_error)
+					SELECT ${conversationId}, ${turn.turnIndex}, r.ordinal, r.call_index,
+						r.role, to_jsonb(r.message), r.tool_name, r.is_error
+					FROM jsonb_to_recordset(${JSON.stringify(rows)}::text::jsonb) AS r(
+						ordinal int, call_index int, role text,
+						message text, tool_name text, is_error boolean)
 					ON CONFLICT (conversation_id, turn_index, ordinal)
 					DO UPDATE SET
 						call_index = EXCLUDED.call_index,

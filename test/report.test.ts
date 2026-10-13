@@ -436,15 +436,13 @@ describe("rendering a call that recalled nothing", () => {
 		expect(text).not.toContain("awaiting embedding");
 	});
 
-	test("the prefix the harness can recognise is reported beside the cache", () => {
+	test("what precedes the assembled parts is reported beside the cache", () => {
 		const led = renderCall(view({ leadingTokens: 3412 }));
-		const none = renderCall(view({ leadingTokens: 0 }));
 
 		// A cache figure with no prefix figure beside it cannot be acted on:
-		// the remedy for 0% cached is more of the harness's own messages at
-		// the head, and this is the number that says how many there were.
-		expect(led).toContain("~3412 tokens the harness sent itself");
-		expect(none).toContain("~0 tokens the harness sent itself");
+		// this is what the Call could have read back, and a cache read far
+		// below it says the tail slid or the provider dropped the entry.
+		expect(led).toContain("prefix        ~3412 tokens the harness sent, ahead of the assembled parts");
 	});
 
 	test("a curated part mid-repair is named apart from a thin recall", () => {

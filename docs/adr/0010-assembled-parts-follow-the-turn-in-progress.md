@@ -26,6 +26,21 @@ What has to hold instead is byte stability. A Turn is sent as the harness's own 
 
 `leading_tokens` (migration 21) stays and now records the tokens ahead of the assembled block. `/pack` reports them under that meaning.
 
+## What it measures
+
+`docs/benchmarks/2026-10-13-token-usage-parts-follow-turn.md`, same 12-turn workload, 3 runs per arm:
+
+| Figure | ADR-0006 order | This order | Plain omp |
+| --- | ---: | ---: | ---: |
+| Prefix held, turns 1–7 | 18% | 65% | 100% |
+| Cache write, turns 1–7 (median) | 46,588 | 34,854 | 31,932 |
+| Cost per Conversation | $1.86 | $1.62 | $0.85 |
+| Peak window, tokens | 37,857 | 35,502 | 57,478 |
+
+Quality held: judged blind across 8 Turns, the two orders tied on every one, including a tool result right before the block and a Pin-governed prompt (`openspec/changes/archive/2026-10-13-pack-parts-follow-the-turn/evidence/quality.md`).
+
+Prefix held stops at 65% for a reason this ADR's account of caching missed. On Claude Opus 5.5 a thinking block stays valid only while everything sent before it is unchanged. The closing block sits before the thinking the model produces on each Call, and the next Call replaces that block, so the API drops the thinking and restarts the cache there (`…/evidence/thinking-binding.md`: every thinking block in a pi-chart Conversation dropped, none in plain omp). Any per-Call content does this, wherever it is placed. Making the block something the next Call can leave in place is `keep-thinking-blocks-valid`.
+
 ## Considered options
 
 - **Freeze assembled parts for a Turn, keep ADR-0006's order.** Stops structure following each tool result, but recall still changes at every Turn boundary and the tail behind it is written again on every Turn's first Call.

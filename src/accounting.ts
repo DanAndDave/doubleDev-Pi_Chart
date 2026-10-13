@@ -65,8 +65,10 @@ export interface CallAccounting extends CallAddress {
 	 */
 	conceptsUnsearched?: number;
 	/**
-	 * How much of this Pack the harness supplied itself, and so could mark
-	 * for caching. Absent on records written before it was recorded.
+	 * The size of what preceded the assembled block — the tail and the Turn
+	 * in progress — which the harness caches through (ADR-0010). Before
+	 * ADR-0010, how much of the Pack led with the harness's own messages.
+	 * Absent on records written before it was recorded.
 	 */
 	leadingTokens?: number;
 	/** The Pack ceiling in force for this Call. Absent on older records. */

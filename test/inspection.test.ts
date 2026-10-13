@@ -22,6 +22,7 @@ import {
 import type { Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import { renderCall, renderDiff } from "../src/report.ts";
+import { approximateTokens } from "../src/tokens.ts";
 import type { RecalledTurn } from "../src/thread-store.ts";
 import { budgets, settings, UNBOUNDED } from "./fixtures.ts";
 
@@ -573,13 +574,16 @@ describe("the curated part in accounting", () => {
 		const tail = view.parts.find((part) => part.source === "verbatim-tail");
 		expect(curated?.carried).toBe(1);
 		expect(curated?.conceptIds).toEqual(["decisions/caching"]);
-		// Separately: each part is charged its own tokens, and together they
-		// account for the pack.
+		// Separately: each part is charged its own tokens, and together with
+		// the line that opens the assembled block they account for the pack.
 		const total = view.parts.reduce(
 			(sum, part) => sum + part.approximateTokens,
 			0,
 		);
-		expect(total).toBe(pack.approximateTokens);
+		const opening = pack.messages.find((message) =>
+			String(message.content).startsWith("[background for the request above"),
+		);
+		expect(total + approximateTokens(opening ? [opening] : [])).toBe(pack.approximateTokens);
 		expect(tail?.approximateTokens).toBeGreaterThan(0);
 	});
 

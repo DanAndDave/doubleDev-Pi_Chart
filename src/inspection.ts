@@ -112,8 +112,9 @@ export interface CallView {
 	 */
 	conceptsUnsearched: number;
 	/**
-	 * How much of this Pack the harness supplied itself, and so could mark
-	 * for caching. Absent on records that predate it.
+	 * The size of what preceded the assembled block — the tail and the Turn
+	 * in progress — which the harness caches through (ADR-0010). Absent on
+	 * records that predate it.
 	 */
 	leadingTokens?: number;
 	/** The Pack ceiling in force. Absent on records that predate it. */
