@@ -121,12 +121,16 @@ xychart-beta
 
 ## Findings
 
+Corrected 2026-10-14 from the run's Thread Store accounting ([`audit.sql`](../../openspec/changes/archive/2026-10-14-benchmark-doc-corrections/audit.sql)): the two cache findings now name the mechanism the accounting shows, the turn 1–6 ratio is read from the table above, and the memory-check miss is explained. The earlier wording is in git history.
+
 - **The window win starts at turn 8.** That is where the tail reaches `PICHART_TAIL_TURNS=8` and stops growing. Through turn 7 the two windows are within ~3% of each other.
-- **From turn 8 the cache stops paying.** pi-chart writes 38k and 47k tokens on turns 8 and 11 against vanilla's 5k. Its turn-12 cache read is exactly 12,567 in all three runs, which is only the system prompt and tools: everything after that was sent and written fresh. Dropping the oldest Turn from the tail changes the head of the assembled messages, and prompt caching reuses only an unchanged prefix (see ADR-0005, ADR-0006).
-- **pi-chart already writes 1.6–3× more on turns 1–6,** before anything leaves the tail. `[INFERENCE]` per-Call recall and retrieval content changing between Calls; not verified.
+- **From turn 8 the cache stops paying.** pi-chart writes 38k and 47k tokens on turns 8 and 11 against vanilla's 5k. Its turn-12 cache read is exactly 12,567 in all three runs, which is only the system prompt and tools: everything after that was sent and written fresh. The accounting shows why: the run of messages the harness sends ahead of the assembled parts holds 2.8k–20.5k tokens on turns 2–7 and 0 on every Call of turns 8–12 in all three runs. Once the tail slides, nothing past the Floor is an unchanged prefix.
+- **pi-chart already writes 2.5× more over turns 1–6** (1.4× to 7.7× per turn), before anything leaves the tail. The structure part changes between Calls of the same Turn: in 21 of 26 consecutive Call pairs on turns 1–6 (9 of 38 on turns 7–12), while recalled Turns, curated knowledge and Pins never change. It sits after the leading run and before the cache breakpoint on the Turn's last message, so each change rewrites everything from there on.
 - **Cost diverges more than effective input** (2.32× vs 1.76×): the harness prices the 1-hour cache writes the usage reports above the 1.25× multiplier used for effective input.
-- **Memory check: one pi-chart run answered `UNKNOWN`** at turn 12. The codeword was outside the tail by then, so only recall could have supplied it.
+- **Memory check: one pi-chart run answered `UNKNOWN`** at turn 12. The codeword was outside the tail by then, so only recall could have supplied it. In that run recall excluded turn 1 as irrelevant, at distance 0.545 against the 0.52 threshold; the other two runs carried it.
 - **The store was healthy:** omp logs show 17 `[pi-chart] Ingested 1 turn.` lines during the runs and no Thread Store unavailable warnings.
+
+These findings were acted on in [parts follow the Turn](2026-10-13-token-usage-parts-follow-turn.md), [the tail evicts](2026-10-13-token-usage-tail-evicts.md) and [Briefings kept](2026-10-13-token-usage-briefings-kept.md).
 
 ## Limits
 

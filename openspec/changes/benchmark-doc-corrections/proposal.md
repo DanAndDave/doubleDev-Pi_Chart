@@ -1,21 +1,27 @@
 # Proposal: Correct the 2026-10-13 token benchmark's findings
 
-Triage: needs-triage
+Triage: ready-for-agent
 Blocked by: None
 
 ## Why
 
-`docs/benchmarks/2026-10-13-token-usage.md` leaves one finding as an `[INFERENCE]` and attributes another to the wrong mechanism, and both are now settled by the harness source (omp 18.10.3) and the run's own accounting:
+`docs/benchmarks/2026-10-13-token-usage.md` leaves one finding as an `[INFERENCE]`, attributes another to a less direct mechanism, and leaves the memory-check miss unexplained. The run's own accounting in the Thread Store (`call_accounting`, keyed by the three pi-chart runs' Codebases in `2026-10-13-token-usage.json`) settles all three:
 
-- Turns 1–6 write 1.6–3× more: not "recall and retrieval changing", but the structure part changing between Calls of a Turn (30 of 64 pairs; recall, Concepts and Pins on none) while sitting between the leading run and the breakpoint on the Turn's last message.
-- Turns 8+: the finding cites "prompt caching reuses only an unchanged prefix"; the recorded `leading_tokens` is 0 on every turn 8–12 Call in all three runs, which is the more direct statement — the tail slid and the run emptied.
-- The memory check: the run that answered `UNKNOWN` had turn 1 refused by recall at distance 0.545 against the 0.52 threshold; the other two carried it.
+- **Turns 1–6 write more** not because "recall and retrieval change between Calls", but because the structure part changes between Calls of the same Turn: 21 of 26 consecutive Call pairs on turns 1–6 (30 of 64 over all twelve turns), against 0 for recalled Turns, curated knowledge and Pins. The leading run was non-empty on turns 2–7 (2.8k–20.5k tokens), so the changing structure part sat after it and before the breakpoint on the Turn's last message, rewriting everything from there on. The stated ratio, "1.6–3×", is also wrong against the document's own cache-write table: 2.5× over turns 1–6, 1.4× to 7.7× per turn.
+- **From turn 8**, the recorded `leading_tokens` is 0 on every Call in all three runs: the tail slid, the run the harness sent ahead of the assembled parts emptied, and nothing but the Floor was read from cache. That states the finding directly instead of citing the general prefix rule.
+- **The memory check:** the run that answered `UNKNOWN` (`/tmp/pichart-bench-41BItz`) had turn 1 excluded by recall at distance 0.545 against the 0.52 threshold; the other two runs carried it.
+
+ADR-0010 and `README.md` already state the corrected turn 1–6 mechanism and cite this document for its figures, but quote the same wrong "1.6–3×" ratio. The document itself is the last place giving the old explanation.
 
 ## What Changes
 
-- Rewrite the Findings section with these mechanisms and figures, keep the tables, and drop the `[INFERENCE]`.
-- `README.md` and `docs/benchmarks/` and `scripts/bench-tokens.ts` are uncommitted work; commit them with the corrected document.
-- Open for grilling: whether corrections edit the dated document in place or append a dated note, given the document describes a run on a day.
+- Rewrite the Findings section of `docs/benchmarks/2026-10-13-token-usage.md` in place with the three corrected findings and drop the `[INFERENCE]`. A dated line at the head of Findings says it was corrected on 2026-10-14, what changed and why; the original wording stays in git history. Tables, charts and run data are unchanged.
+- Add one line under Findings pointing to the benchmarks that followed (`-parts-follow-turn`, `-tail-evicts`, `-briefings-kept`), without restating their results.
+- Correct the turn 1–6 ratio to 2.5× in the document, `README.md` and ADR-0010's context paragraph. ADR-0010 changes only the figure it quotes; its decision is unchanged.
+- Add `audit.sql` to this change folder that reproduces the three figures from `call_accounting`, and cite it from the document.
+- Delete the stray `docs/benchmarks/Untitled`, and rewrite `HANDOFF.md` to the post-archive state.
+
+Not changing: `scripts/bench-tokens.ts`. The figures are a one-off reading of the Thread Store, and making every bench run depend on the database is not worth it.
 
 ## Capabilities
 
@@ -29,4 +35,7 @@ None — documentation only; `skip_specs` is set.
 
 ## Impact
 
-- `docs/benchmarks/2026-10-13-token-usage.md`, possibly `scripts/bench-tokens.ts` if the report should print the per-part churn and the recall refusal.
+- `docs/benchmarks/2026-10-13-token-usage.md` (Findings section only).
+- `README.md` and `docs/adr/0010-assembled-parts-follow-the-turn-in-progress.md` (the quoted turn 1–6 ratio only).
+- `openspec/changes/benchmark-doc-corrections/audit.sql` (new; archived with the change).
+- `docs/benchmarks/Untitled` (deleted), `HANDOFF.md` (rewritten); both untracked.

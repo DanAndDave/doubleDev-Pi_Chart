@@ -2,7 +2,7 @@
 
 Supersedes ADR-0006's order. Partly superseded by ADR-0011: the assembled parts are now one message, the Briefing, which opens with a fixed framing, carries the Pins next, then a marker, then recalled Turns, curated knowledge and structure; it is no longer replaced by the next Call, and every Briefing stays where it was sent. Below, "closing block", "opening line" and "Pins last" describe the order this ADR decided, not the current one.
 
-ADR-0006 led every Pack with the longest run of messages the harness itself sent, so the harness could mark that run for caching, and put the assembled parts between the run and the rest of the tail. The 2026-10-13 token benchmark (`docs/benchmarks/2026-10-13-token-usage.md`) measured what that costs: pi-chart wrote 1.6–3× as much cache as plain omp on turns 1–6, and cost 2.3× as much over twelve turns while sending 26% fewer prompt tokens.
+ADR-0006 led every Pack with the longest run of messages the harness itself sent, so the harness could mark that run for caching, and put the assembled parts between the run and the rest of the tail. The 2026-10-13 token benchmark (`docs/benchmarks/2026-10-13-token-usage.md`) measured what that costs: pi-chart wrote 2.5× as much cache as plain omp over turns 1–6, and cost 2.3× as much over twelve turns while sending 26% fewer prompt tokens.
 
 **A Pack now carries everything the harness sent first — the verbatim tail, then the Turn in progress — and every assembled part after it, as a closing block.** The block opens with one fixed line saying it is background for the request above it and not a new request, then carries recalled Turns, curated knowledge, structure, and Pins last.
 
