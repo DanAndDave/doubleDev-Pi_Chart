@@ -398,7 +398,7 @@ This rule SHALL NOT apply to the current Turn.
 
 The verbatim tail SHALL give up its oldest Turns only by Eviction. Between Evictions its start SHALL NOT move, and each newly completed Turn SHALL be added behind it. A newly completed Turn may carry the tail past its token Budget or past its count Budget. When it does, the tail SHALL drop its oldest Turns in one step until it is at or under the low-water mark of both Budgets. The mark is the configured share of the token Budget, and the same share of the count Budget, rounded down and never below one Turn. The Turn just completed SHALL NEVER be evicted. Where it alone exceeds the mark, it SHALL be the whole tail.
 
-The low-water mark SHALL be configurable as a share greater than 0 and at most 1, defaulting to 0.6. A share of 1 SHALL make the tail drop only what it must to fit its Budgets.
+The low-water mark SHALL be configurable as a share greater than 0 and at most 1, defaulting to 0.2. A share of 1 SHALL make the tail drop only what it must to fit its Budgets.
 
 The tail's start SHALL be a function of the Conversation's completed Turns and the configuration alone. It SHALL be derived on every Call by applying the rule above to each completed Turn in order, from the first Turn the Conversation holds to the newest. It SHALL NOT be stored. Each Turn's size for this purpose SHALL be measured on the Turn as the tail would carry it. It SHALL be the same on every Call for a Turn whose content has not changed.
 
@@ -411,13 +411,18 @@ A Turn the tail has evicted SHALL be searchable with `recall_earlier_turns`, as 
 
 #### Scenario: Eviction drops to the mark in one step
 
-- **WHEN** under a 25,000-token tail Budget and the default mark, a Turn completes that carries the tail past 25,000 tokens
+- **WHEN** under a 25,000-token tail Budget and a mark of 0.6, a Turn completes that carries the tail past 25,000 tokens
 - **THEN** the tail SHALL drop its oldest Turns until it is at or under 15,000 tokens, and SHALL drop no Turn it did not need to reach that
 
 #### Scenario: The count budget evicts to its mark
 
-- **WHEN** under a count Budget of 8 and the default mark, a ninth Turn completes within the token Budget
+- **WHEN** under a count Budget of 8 and a mark of 0.6, a ninth Turn completes within the token Budget
 - **THEN** the tail SHALL carry the newest 4 Turns
+
+#### Scenario: The default mark
+
+- **WHEN** no mark is configured, and under a 25,000-token tail Budget a Turn completes that carries the tail past 25,000 tokens
+- **THEN** the tail SHALL drop its oldest Turns until it is at or under 5,000 tokens
 
 #### Scenario: A newest turn larger than the mark is kept alone
 
