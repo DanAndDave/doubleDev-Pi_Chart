@@ -46,6 +46,8 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 		docTokens: UNBOUNDED,
 		graphTokens: UNBOUNDED,
 		packTokens: UNBOUNDED,
+		// Off unless a test is about the Opening, like every optional part.
+		openingTokens: 0,
 		// The real defaults: the Assembler records the Pin Budget and never
 		// applies it, so no value of it can bind a test by accident.
 		pinCount: DEFAULT_PIN_COUNT,
@@ -63,6 +65,7 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 		tail: { count: flat.tailTurns, tokens: flat.tailTokens },
 		tailLowWater: flat.tailLowWater,
 		recall: { count: flat.recallTurns, tokens: flat.recallTokens },
+		opening: { count: flat.openingTokens > 0 ? 1 : 0, tokens: flat.openingTokens },
 		docs: { count: flat.docConcepts, tokens: flat.docTokens },
 		graph: { count: flat.graphSymbols, tokens: flat.graphTokens },
 		packTokens: flat.packTokens,
@@ -85,6 +88,7 @@ interface FlatBudgets {
 	graphSymbols: number;
 	tailTokens: number;
 	recallTokens: number;
+	openingTokens: number;
 	docTokens: number;
 	graphTokens: number;
 	packTokens: number;

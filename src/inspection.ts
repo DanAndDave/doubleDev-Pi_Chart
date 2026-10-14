@@ -93,6 +93,8 @@ export interface CallView {
 	budgets?: {
 		tail: number;
 		recall: number;
+		/** Absent from Calls recorded before the Opening existed. */
+		opening?: number;
 		docs: number;
 		graph?: number;
 		pins?: number;

@@ -32,6 +32,7 @@ import { embedFingerprint, embedText } from "./embed-text.ts";
 import type {
 	CorpusSearch,
 	FoundTurn,
+	OpeningSource,
 	Recollections,
 	RecalledTurn,
 	TurnMiss,
@@ -403,6 +404,7 @@ function decode<T>(value: JsonColumn, fallback: T): T {
 export class PostgresStore implements
 		TurnSource,
 		TurnSink,
+		OpeningSource,
 		TurnRecall,
 		CorpusSearch,
 		ConceptSearch,
@@ -870,6 +872,13 @@ export class PostgresStore implements
 			sizes.push({ index: row.turn_index, tokens });
 		}
 		return sizes;
+	}
+
+	async openingPrompt(conversationId: string): Promise<string | undefined> {
+		const [row] = (await this.sql`
+			SELECT prompt FROM turns
+			WHERE conversation_id = ${conversationId} AND turn_index = 0`) as { prompt: string }[];
+		return row?.prompt;
 	}
 
 	async recordPack(

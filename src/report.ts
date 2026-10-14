@@ -19,6 +19,9 @@ const ABSENCE: Record<AbsenceCause, string> = {
 	none: "absent: no candidates",
 	irrelevant: "absent: nothing met the threshold",
 	size: "absent: nothing fitted the budget",
+	carried: "absent: the turns carry it",
+	empty: "absent: Turn 0's prompt is empty",
+	missing: "absent: the first turn is no longer stored",
 };
 
 /**

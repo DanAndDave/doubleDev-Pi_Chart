@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { assemble, tailTokens } from "../src/assembler.ts";
 import { readJournal, type JournalTurn } from "../src/journal.ts";
-import type { TurnSink, TurnSource } from "../src/thread-store.ts";
+import type { OpeningSource, TurnSink, TurnSource } from "../src/thread-store.ts";
 import { budgets, JOURNAL_FIXTURE } from "./fixtures.ts";
 
 export { JOURNAL_FIXTURE } from "./fixtures.ts";
@@ -21,7 +21,7 @@ export function journalTurn(index: number, prompt: string): JournalTurn {
 }
 
 /** Yields an empty store under test. Called once per case. */
-export type ContractSubject = () => Promise<TurnSource & TurnSink>;
+export type ContractSubject = () => Promise<TurnSource & TurnSink & OpeningSource>;
 
 /**
  * The behaviour every Turn source owes the Assembler, run against each
@@ -190,5 +190,46 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 		await store.rewind("conv-1", 1);
 
 		expect((await store.turnSizes("conv-1")).map((size) => size.index)).toEqual([0]);
+	});
+
+	test(`${name}: answers the prompt of a conversation's Turn 0`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [journalTurn(0, "the opening"), journalTurn(1, "later")]);
+
+		expect(await store.openingPrompt("conv-1")).toBe("the opening");
+	});
+
+	test(`${name}: an empty Turn 0 prompt is answered as empty`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [journalTurn(0, ""), journalTurn(1, "later")]);
+
+		expect(await store.openingPrompt("conv-1")).toBe("");
+	});
+
+	test(`${name}: a removed first turn answers none, never a later prompt`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [journalTurn(0, "the opening"), journalTurn(1, "later")]);
+
+		await store.rewind("conv-1", 0);
+		await store.ingest("conv-1", [journalTurn(1, "later")]);
+
+		expect(await store.openingPrompt("conv-1")).toBeUndefined();
+	});
+
+	test(`${name}: Turn 0's prompt is scoped to its conversation`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [journalTurn(0, "mine")]);
+
+		expect(await store.openingPrompt("conv-2")).toBeUndefined();
+	});
+
+	test(`${name}: a re-ingested first turn answers its new prompt`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [journalTurn(0, "abandoned"), journalTurn(1, "later")]);
+
+		await store.rewind("conv-1", 0);
+		await store.ingest("conv-1", [journalTurn(0, "the new opening")]);
+
+		expect(await store.openingPrompt("conv-1")).toBe("the new opening");
 	});
 }

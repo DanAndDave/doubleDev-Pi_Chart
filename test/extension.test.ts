@@ -20,7 +20,13 @@ import {
 	type MemoryBackendState,
 	type TailSource,
 } from "../src/accounting.ts";
-import { assemble, BRIEFING_FRAMING, BRIEFING_MARKER, type Pack } from "../src/assembler.ts";
+import {
+	assemble,
+	BRIEFING_FRAMING,
+	BRIEFING_MARKER,
+	OPENING_HEADER,
+	type Pack,
+} from "../src/assembler.ts";
 import {
 	DEFAULT_RETRIEVAL_DEADLINE_MS,
 	DEFAULT_TAIL_TURNS,
@@ -3650,6 +3656,115 @@ describe("a store that misses its deadline", () => {
 		expect(result?.messages?.length).toBeGreaterThan(0);
 		// Nothing waited longer than the largest deadline configured.
 		expect(Math.max(...clock.waited)).toBe(5_000);
+	});
+});
+
+describe("the opening beside the tail", () => {
+	const turn0Prompt = "the codeword is maple";
+	/** Four completed Turns then the prompt in progress, Turn 0 being `turn0Prompt`. */
+	const history: HarnessMessage[] = [
+		{ role: "user", content: turn0Prompt },
+		{ role: "assistant", content: "noted" },
+		...[1, 2, 3].flatMap((index): HarnessMessage[] => [
+			{ role: "user", content: `step ${index}` },
+			{ role: "assistant", content: `done ${index}` },
+		]),
+		{ role: "user", content: "what was the codeword?" },
+	];
+	/** The branch the harness holds, so the prompt in progress is Turn 4. */
+	const branch: BranchEntry[] = history.map((message, at) => ({ id: `m${at}`, message }));
+	const opening = (cm: Harness) =>
+		cm.recorded[0]?.pack?.parts.find((part) => part.source === "opening");
+	/** A tail of one, so Turn 0 has left it, and the default Opening Budget. */
+	const config = { tailTurns: 1 };
+	const stalled = { after: async () => {} };
+
+	test("a stored Opening reaches the pack once the tail has evicted Turn 0", async () => {
+		const cm = harness({ config, opening: { openingPrompt: async () => turn0Prompt } });
+
+		const result = await cm.context({ messages: history }, ctx(branch));
+		await cm.settle();
+
+		expect(JSON.stringify(result?.messages)).toContain(OPENING_HEADER);
+		expect(opening(cm)?.carried).toBe(1);
+	});
+
+	test("an opening that misses the tail's deadline costs only the opening", async () => {
+		const turns = new MemoryTurnSource();
+		await turns.ingest(
+			"conv-1",
+			[1, 2, 3].map((index) => ({
+				turnIndex: index,
+				prompt: `step ${index}`,
+				messages: [
+					{ role: "user" as const, content: `step ${index}` },
+					{ role: "assistant" as const, content: `done ${index}` },
+				],
+				callCount: 1,
+				calls: [0],
+			})),
+		);
+		const cm = harness({
+			...stalled,
+			turns,
+			config: { ...config, tailDeadlineMs: 1_500 },
+			opening: { openingPrompt: () => new Promise(() => {}) },
+		});
+
+		const result = await cm.context({ messages: history }, ctx(branch));
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).toContain("did not answer within 1500ms");
+		expect(opening(cm)?.absent).toBe("failed");
+		// The tail's own query answered within the same deadline.
+		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
+		expect(JSON.stringify(result?.messages)).toContain("done 3");
+	});
+
+	test("an opening query that fails is reported and recorded as failed", async () => {
+		const cm = harness({
+			config,
+			opening: {
+				openingPrompt: async () => {
+					throw new Error("ECONNREFUSED");
+				},
+			},
+		});
+
+		await cm.context({ messages: history }, ctx(branch));
+		await cm.settle();
+
+		expect(cm.reported.join("\n")).toContain("Opening unavailable");
+		expect(opening(cm)?.absent).toBe("failed");
+	});
+
+	test("with no store the opening is unconfigured, never rebuilt from the harness", async () => {
+		const cm = harness({ config });
+
+		const result = await cm.context({ messages: history }, ctx(branch));
+		await cm.settle();
+
+		expect(opening(cm)?.absent).toBe("unconfigured");
+		expect(JSON.stringify(result?.messages)).not.toContain(OPENING_HEADER);
+	});
+
+	test("a budget of nothing asks the store nothing", async () => {
+		let asked = 0;
+		const cm = harness({
+			config: { ...config, openingTokens: 0 },
+			opening: {
+				openingPrompt: async () => {
+					asked++;
+					return turn0Prompt;
+				},
+			},
+		});
+
+		await cm.context({ messages: history }, ctx(branch));
+		await cm.settle();
+
+		expect(asked).toBe(0);
+		expect(opening(cm)?.absent).toBe("disabled");
 	});
 });
 

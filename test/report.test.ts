@@ -117,6 +117,45 @@ describe("rendering a call", () => {
 	});
 });
 
+describe("rendering the opening", () => {
+	const opening = (fields: Partial<CallView["parts"][number]>): CallView["parts"][number] => ({
+		source: "opening",
+		approximateTokens: 0,
+		carried: 0,
+		turnIndices: [],
+		conceptIds: [],
+		symbols: [],
+		pinIds: [],
+		budget: { count: 1, tokens: 1_000 },
+		trimmed: false,
+		dropped: 0,
+		irrelevant: 0,
+		excludedCandidates: [],
+		explained: false,
+		unranked: true,
+		...fields,
+	});
+	const lineOf = (text: string) => text.split("\n").find((line) => line.trimStart().startsWith("opening"));
+
+	test("a carried opening names Turn 0 and refuses nothing", () => {
+		const text = renderCall(
+			view({ parts: [opening({ approximateTokens: 31, carried: 1, turnIndices: [0], candidates: 1 })] }),
+		);
+
+		expect(lineOf(text)).toContain("~31 tokens");
+		expect(lineOf(text)).toContain("turns 0");
+		expect(lineOf(text)).not.toContain("refused");
+		expect(lineOf(text)).not.toContain("dropped");
+	});
+
+	test("each reason it is absent reads differently", () => {
+		const causes = ["carried", "empty", "missing", "unconfigured", "failed", "disabled", "size"] as const;
+		const lines = causes.map((absent) => lineOf(renderCall(view({ parts: [opening({ absent })] }))));
+
+		expect(new Set(lines).size).toBe(causes.length);
+	});
+});
+
 describe("rendering a diff", () => {
 	test("shows what entered and left", () => {
 		const diff: PackDiff = {

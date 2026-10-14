@@ -6,6 +6,7 @@ import {
 	type TurnAccounting,
 } from "../src/accounting.ts";
 import {
+	assemblerConfig,
 	DEFAULT_RECALL_MAX_DISTANCE,
 	DEFAULT_TAIL_TURNS,
 	loadConfig,
@@ -412,6 +413,16 @@ describe("changing a budget", () => {
 		expect(current.pinTokens).toBe(500);
 	});
 
+	test("the opening budget is settable by name, and zero turns it off", () => {
+		const current = config();
+
+		expect(setBudget(current, "opening-tokens", "400")).toEqual({ ok: true, budget: 400 });
+		expect(current.openingTokens).toBe(400);
+
+		expect(setBudget(current, "opening-tokens", "0")).toEqual({ ok: true, budget: 0 });
+		expect(assemblerConfig(current).opening).toEqual({ count: 0, tokens: 0 });
+	});
+
 	test("an unusable token budget is refused with a reason and changes nothing", () => {
 		const current = config();
 		const before = current.packTokens;
@@ -471,7 +482,7 @@ describe("parts whose turns have no recorded position", () => {
 		expect(
 			view.parts.find((part) => part.source === "recalled")?.carried,
 		).toBe(0);
-		expect(view.budgets).toEqual({ tail: 5, recall: 3, docs: 0, graph: 0, pins: 8 });
+		expect(view.budgets).toEqual({ tail: 5, recall: 3, opening: 0, docs: 0, graph: 0, pins: 8 });
 	});
 });
 
@@ -505,7 +516,7 @@ describe("relevance against budget", () => {
 		// near enough, which is not an empty Conversation.
 		expect(recalled?.absent).toBe("irrelevant");
 		expect(recalled?.irrelevant).toBe(6);
-		expect(view.budgets).toEqual({ tail: 2, recall: 3, docs: 0, graph: 0, pins: 8 });
+		expect(view.budgets).toEqual({ tail: 2, recall: 3, opening: 0, docs: 0, graph: 0, pins: 8 });
 	});
 
 	test("trimming still outranks irrelevance when both happened", async () => {
@@ -645,6 +656,31 @@ describe("comparing packs that carried concepts", () => {
 		expect(diff.unchanged.map((item) => item.conceptId)).toEqual([
 			"decisions/caching",
 		]);
+	});
+});
+
+describe("comparing packs as the opening enters", () => {
+	test("the opening entering between two calls is named as Turn 0 from the opening", () => {
+		const callWith = (opened: boolean) =>
+			inspectCall({
+				turnIndex: 6,
+				callIndex: 0,
+				parts: [
+					recordPart({
+						source: "opening",
+						approximateTokens: opened ? 30 : 0,
+						carried: opened ? 1 : 0,
+						turnIndices: opened ? [0] : [],
+						budget: { count: 1, tokens: 1_000 },
+						absent: opened ? undefined : "carried",
+					}),
+				],
+			});
+
+		const diff = comparePacks(callWith(false), callWith(true));
+
+		expect(diff.entered).toEqual([{ source: "opening", turnIndex: 0 }]);
+		expect(diff.left).toEqual([]);
 	});
 });
 

@@ -97,6 +97,7 @@ import {
 	type CorpusSearch,
 	type FoundTurn,
 	MemoryTurnSource,
+	type OpeningSource,
 	type Recollections,
 	type TurnRecall,
 	type TurnSink,
@@ -141,6 +142,11 @@ export interface Dependencies {
 	turns: TurnSource;
 	ingest?: TurnSink;
 	recall?: TurnRecall;
+	/**
+	 * Turn 0's stored prompt. Absent without a Thread Store: the harness's
+	 * history never stands in for it (ADR-0014).
+	 */
+	opening?: OpeningSource;
 	/** Embeds newly ingested Turns. Runs after a Turn, never before one. */
 	embed?: (conversationId: string) => Promise<unknown>;
 	/**
@@ -757,11 +763,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 			// The current Turn always comes from the event: the Journal has not
 			// been flushed for it yet, and reading our own write would race.
-			const { tail, tailSizes, tailSource } = await tailFor(
-				conversationId,
-				live,
-				deps.config.tailTurns,
-			);
+			// The Opening is fetched at once, under the tail's deadline: it is
+			// the Turn the tail query stops returning, and its miss must not
+			// cost the tail.
+			const [{ tail, tailSizes, tailSource }, opening] = await Promise.all([
+				tailFor(conversationId, live, deps.config.tailTurns),
+				openingFor(conversationId),
+			]);
 
 			// All three retrievals at once: none depends on another, and a
 			// Call should not pay for them in series.
@@ -774,6 +782,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const pack = deps.assemble(
 				{
 					turns: current ? [...tail, current] : tail,
+					opening: opening.value,
 					recalled: recalled.value.turns,
 					rejected: recalled.value.rejected,
 					recallMisses: recalled.value.misses,
@@ -786,6 +795,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					pins: held.pins,
 					tailSizes,
 					unavailable: {
+						opening: opening.unavailable,
 						recalled: recalled.unavailable,
 						curated: concepts.unavailable,
 						structure: structure.unavailable,
@@ -1605,7 +1615,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"`pack why [<address>] <subject>` for why something was not " +
 				"carried, `pack diff [<a> <b>]`, `pack summary`, " +
 				"`pack budget <tail|recall|docs|graph|" +
-				"tail-tokens|recall-tokens|docs-tokens|graph-tokens|pack|" +
+				"tail-tokens|recall-tokens|opening-tokens|docs-tokens|graph-tokens|pack|" +
 				"pins|pins-tokens> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
@@ -1980,6 +1990,31 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		value: T;
 		unavailable?: "unconfigured" | "failed";
 	};
+
+	/**
+	 * Turn 0's stored prompt, for the Opening. Its own query rather than a
+	 * column on the tail's, because the tail stops returning exactly that
+	 * Turn; bounded by the tail's deadline, and never answered from the
+	 * harness's history.
+	 */
+	async function openingFor(conversationId: string): Promise<Supplied<string | undefined>> {
+		if (!deps.opening) return { value: undefined, unavailable: "unconfigured" };
+		// Off: no query. The Assembler records the zero Budget.
+		if (deps.config.openingTokens <= 0) return { value: undefined };
+		try {
+			const found = await inTime(
+				"Thread Store (opening)",
+				deps.config.tailDeadlineMs,
+				deps.opening.openingPrompt(conversationId),
+			);
+			return found.answered
+				? { value: found.value }
+				: { value: undefined, unavailable: "failed" };
+		} catch (error) {
+			reportSafely(`Opening unavailable, pack assembled without it: ${describe(error)}`);
+			return { value: undefined, unavailable: "failed" };
+		}
+	}
 
 	/**
 	 * Turns recalled by meaning. A retrieval failure costs the recollections,
@@ -2472,6 +2507,7 @@ export default function piChart(pi: ExtensionAPI): void {
 		turns: store,
 		ingest: store,
 		recall: store,
+		opening: store,
 		search: store,
 		judgeWith: (key) => new JevJudge(key),
 		docs: store,

@@ -82,6 +82,11 @@ export interface Config {
 	 */
 	tailTokens: number;
 	recallTokens: number;
+	/**
+	 * The Opening's size Budget: Turn 0's prompt, carried once the tail no
+	 * longer carries it (ADR-0014). Zero turns the Opening off.
+	 */
+	openingTokens: number;
 	docTokens: number;
 	graphTokens: number;
 	packTokens: number;
@@ -145,6 +150,7 @@ export function assemblerConfig(config: Config): AssemblerConfig {
 		tail: { count: config.tailTurns, tokens: config.tailTokens },
 		tailLowWater: config.tailLowWater,
 		recall: { count: config.recallTurns, tokens: config.recallTokens },
+		opening: { count: config.openingTokens > 0 ? 1 : 0, tokens: config.openingTokens },
 		docs: { count: config.docConcepts, tokens: config.docTokens },
 		graph: { count: config.graphSymbols, tokens: config.graphTokens },
 		packTokens: config.packTokens,
@@ -216,6 +222,7 @@ export function readSavedUrl(path: string = SAVED_URL_PATH): string | undefined 
 }
 export const DEFAULT_TAIL_TOKENS = 25_000;
 export const DEFAULT_RECALL_TOKENS = 8_000;
+export const DEFAULT_OPENING_TOKENS = 1_000;
 export const DEFAULT_DOC_TOKENS = 5_000;
 export const DEFAULT_GRAPH_TOKENS = 3_000;
 /**
@@ -281,6 +288,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_JUDGE",
 	"PICHART_LIVE",
 	"PICHART_OPENSPEC",
+	"PICHART_OPENING_TOKENS",
 	"PICHART_PACK_TOKENS",
 	"PICHART_PACK_WARN_SHARE",
 	"PICHART_PG_PORT",
@@ -371,6 +379,7 @@ export function loadConfig(
 			env.PICHART_DOC_BUNDLE ?? join(homedir(), ".pi-chart", "bundle"),
 		tailTokens: count(env.PICHART_TAIL_TOKENS, DEFAULT_TAIL_TOKENS),
 		recallTokens: count(env.PICHART_RECALL_TOKENS, DEFAULT_RECALL_TOKENS),
+		openingTokens: count(env.PICHART_OPENING_TOKENS, DEFAULT_OPENING_TOKENS),
 		docTokens: count(env.PICHART_DOC_TOKENS, DEFAULT_DOC_TOKENS),
 		graphTokens: count(env.PICHART_GRAPH_TOKENS, DEFAULT_GRAPH_TOKENS),
 		packTokens: count(env.PICHART_PACK_TOKENS, DEFAULT_PACK_TOKENS),
@@ -416,6 +425,7 @@ const BUDGET_FIELDS: Record<string, NumericSetting> = {
 	graph: "graphSymbols",
 	"tail-tokens": "tailTokens",
 	"recall-tokens": "recallTokens",
+	"opening-tokens": "openingTokens",
 	"docs-tokens": "docTokens",
 	"graph-tokens": "graphTokens",
 	pack: "packTokens",
@@ -441,8 +451,8 @@ export function setBudget(
 			ok: false,
 			reason:
 				`unknown budget "${name}"; expected tail, recall, docs, graph, ` +
-				`tail-tokens, recall-tokens, docs-tokens, graph-tokens, pack, ` +
-				`pins or pins-tokens`,
+				`tail-tokens, recall-tokens, opening-tokens, docs-tokens, graph-tokens, ` +
+				`pack, pins or pins-tokens`,
 		};
 	}
 

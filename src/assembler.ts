@@ -5,7 +5,7 @@ import {
 	type HarnessMessage,
 	type Turn,
 } from "./messages.ts";
-import { elideLine, elideTurn, shrinkTurn, SHORTEST_TOKENS } from "./elision.ts";
+import { elide, elideLine, elideTurn, shrinkTurn, SHORTEST_TOKENS } from "./elision.ts";
 import { approximateTokens } from "./tokens.ts";
 import { shares } from "./shares.ts";
 import type { ConceptHit, ConceptMiss } from "./doc-index.ts";
@@ -41,6 +41,11 @@ export interface AssemblerConfig {
 	tailLowWater: number;
 	/** Turns a pack may carry that were recalled by meaning. */
 	recall: Budget;
+	/**
+	 * The Opening: Turn 0's prompt, carried once the Turns no longer carry
+	 * it. A count of zero turns it off.
+	 */
+	opening: Budget;
 	/** Concepts a pack may carry. A count of zero disables curated knowledge. */
 	docs: Budget;
 	/** Symbols' neighbourhoods a pack may carry. A count of zero disables them. */
@@ -80,6 +85,7 @@ export interface AssemblerConfig {
 export type PackSource =
 	| "verbatim-tail"
 	| "current-turn"
+	| "opening"
 	| "recalled"
 	| "curated"
 	| "structure"
@@ -186,6 +192,7 @@ export interface Pack {
 	budgets: {
 		tail: number;
 		recall: number;
+		opening: number;
 		docs: number;
 		graph: number;
 		pins: number;
@@ -291,11 +298,22 @@ export type AbsenceCause =
 	/** There were candidates and none met the relevance threshold. */
 	| "irrelevant"
 	/** There were candidates and none fitted the size Budget. */
-	| "size";
+	| "size"
+	/** The Opening only: the Turns sent already carry Turn 0. */
+	| "carried"
+	/** The Opening only: Turn 0's prompt is empty or whitespace. */
+	| "empty"
+	/** The Opening only: no Turn 0 is stored, and no other Turn stands in. */
+	| "missing";
 
 export interface AssembleInput {
 	/** Turns to carry verbatim: the recent ones, current Turn last. */
 	turns: Turn[];
+	/**
+	 * Turn 0's prompt as the Store holds it, `""` included; undefined when
+	 * no Turn 0 is stored. Never rebuilt from the harness's history.
+	 */
+	opening?: string;
 	/** Turns found by meaning, most relevant first. */
 	recalled?: RecalledTurn[];
 	/** How many candidates retrieval refused as not relevant enough. */
@@ -342,6 +360,7 @@ export interface AssembleInput {
 export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	const {
 		turns,
+		opening,
 		recalled = [],
 		rejected = 0,
 		recallMisses = [],
@@ -375,11 +394,28 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			: []
 	).map(paired);
 
+	// The tail fills from its most recent Turn backwards, and the most recent
+	// Turn is kept even when it alone exceeds the Budget — shrunk by its
+	// oldest actions, not dropped. Measured on real Journals, the newest
+	// completed Turn of a working session can be three times the whole tail
+	// Budget, and a drop-only rule would empty the tail exactly when working
+	// state matters most. A configured token Budget of nothing is the one
+	// thing that disables it, decided here so that a ceiling leaving no room
+	// still gets that Turn's smallest form. Selected ahead of the parts that
+	// follow it in the Pack, because the Opening is absent exactly when the
+	// Turns sent carry Turn 0.
+	const selectTail = tailSelector(
+		completed,
+		tailFromPosition,
+		config.tail.tokens > 0,
+	);
+	const tail = selectTail(config.tail);
+
 	const parts: PackPart[] = [];
 
-	// Recall is the first reference part of the Briefing, background for the
-	// Turns ahead of it, and it is trimmed to its own Budget so it can never
-	// crowd out the tail.
+	// Recall follows the Opening in the Briefing, background for the Turns
+	// ahead of it, and it is trimmed to its own Budget so it can never crowd
+	// out the tail.
 	const carried = inTail.concat(current ? [current] : []);
 	const eligible = eligibleRecollections(recalled, carried);
 	const selectRecall = selecting(
@@ -418,6 +454,40 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			unavailable: unavailable.recalled,
 		}),
 		shortened: recollections.shortened || undefined,
+	});
+
+	// The Opening is the first reference part: what the user set out to do,
+	// carried whatever the prompt asks, once the Turns no longer carry it
+	// (ADR-0014). Its prompt only, never Turn 0's actions or reply.
+	const withheld = openingWithheld({
+		turnsCarryIt: carriesFirstTurn(completed, tail.carried, current),
+		unavailable: unavailable.opening,
+		prompt: opening,
+	});
+	const offered = withheld === undefined ? opening : undefined;
+	const selectOpening = openingSelector(offered);
+	const opened = selectOpening(config.opening);
+	const openingCause = absence({
+		budget: config.opening.count,
+		carried: opened.carried,
+		candidates: offered === undefined ? 0 : 1,
+		rejected: 0,
+	});
+	parts.push({
+		source: "opening",
+		messages: opened.messages,
+		approximateTokens: opened.tokens,
+		carried: opened.carried,
+		turnIndices: opened.turnIndices,
+		budget: config.opening,
+		candidates: offered === undefined ? 0 : 1,
+		// Turn 0 by position, not by relevance.
+		unranked: true,
+		excluded: exclusion(0, opened),
+		excludedCandidates: ledger(opened.excluded, bound),
+		// Nothing on offer means the reason it was withheld, never "none".
+		absent: openingCause === "none" ? withheld : openingCause,
+		shortened: opened.shortened || undefined,
 	});
 
 	// Curated knowledge follows recall in the Briefing: background the agent is
@@ -492,20 +562,6 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		shortened: structural.shortened || undefined,
 	});
 
-	// The tail fills from its most recent Turn backwards, and the most recent
-	// Turn is kept even when it alone exceeds the Budget — shrunk by its
-	// oldest actions, not dropped. Measured on real Journals, the newest
-	// completed Turn of a working session can be three times the whole tail
-	// Budget, and a drop-only rule would empty the tail exactly when working
-	// state matters most. A configured token Budget of nothing is the one
-	// thing that disables it, decided here so that a ceiling leaving no room
-	// still gets that Turn's smallest form.
-	const selectTail = tailSelector(
-		completed,
-		tailFromPosition,
-		config.tail.tokens > 0,
-	);
-	const tail = selectTail(config.tail);
 	parts.push({
 		source: "verbatim-tail",
 		messages: tail.messages,
@@ -580,7 +636,22 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		structure: { select: selectStructure, budget: config.graph },
 		curated: { select: selectCurated, budget: config.docs },
 		recalled: { select: selectRecall, budget: config.recall },
+		opening: { select: selectOpening, budget: config.opening },
 		"verbatim-tail": { select: selectTail, budget: config.tail },
+	});
+	// The ceiling takes the tail's oldest Turns, so it can take Turn 0 after
+	// the Opening stood aside for it. The Opening gives way before the tail,
+	// so it gets only the room the tail left.
+	reopenAfterCeiling(parts, {
+		turnsCarryIt: carriesFirstTurn(
+			completed,
+			parts.find((part) => part.source === "verbatim-tail")?.carried ?? 0,
+			current,
+		),
+		unavailable: unavailable.opening,
+		prompt: opening,
+		budget: config.opening,
+		room: config.packTokens - FENCE_TOKENS - totalOf(parts),
 	});
 
 	const composed = compose(parts);
@@ -597,6 +668,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		budgets: {
 			tail: config.tail.count,
 			recall: config.recall.count,
+			opening: config.opening.count,
 			docs: config.docs.count,
 			graph: config.graph.count,
 			pins: config.pins.count,
@@ -643,7 +715,7 @@ const FENCE_TOKENS = approximateTokens([
 ]);
 
 /** The parts the Briefing carries after the marker, in the order it carries them. */
-const REFERENCE: PackSource[] = ["recalled", "curated", "structure"];
+const REFERENCE: PackSource[] = ["opening", "recalled", "curated", "structure"];
 
 function carriesBriefing(parts: PackPart[]): boolean {
 	return parts.some(
@@ -1210,6 +1282,160 @@ function absence(part: {
 }
 
 /**
+ * Why the Opening has nothing to offer, first match wins; undefined when
+ * Turn 0's prompt is on offer. The Turns carrying Turn 0 comes before
+ * anything the Store did, because it holds whatever the Store answered and
+ * is the normal state of a Conversation's first Turns. A Budget of nothing
+ * outranks all of these, as for every part, and is decided by `absence`.
+ */
+function openingWithheld(source: {
+	turnsCarryIt: boolean;
+	unavailable?: "unconfigured" | "failed";
+	prompt: string | undefined;
+}): AbsenceCause | undefined {
+	if (source.turnsCarryIt) return "carried";
+	if (source.unavailable !== undefined) return source.unavailable;
+	if (source.prompt === undefined) return "missing";
+	if (source.prompt.trim() === "") return "empty";
+	return undefined;
+}
+
+/**
+ * The Opening, withheld because the tail carried Turn 0, re-selected once
+ * the ceiling has taken that Turn from the tail: under its own Budget and
+ * the room the ceiling left, or absent for want of it. In place; any other
+ * Opening is left as selected.
+ */
+function reopenAfterCeiling(
+	parts: PackPart[],
+	source: Parameters<typeof openingWithheld>[0] & { budget: Budget; room: number },
+): void {
+	const part = parts.find((each) => each.source === "opening");
+	if (part?.absent !== "carried") return;
+	const withheld = openingWithheld(source);
+	if (withheld === "carried") return;
+	if (withheld !== undefined) {
+		part.absent = withheld;
+		return;
+	}
+	const room = Math.max(Math.min(source.room, source.budget.tokens), 0);
+	const result = openingSelector(source.prompt)({ count: source.budget.count, tokens: room });
+	part.messages = result.messages;
+	part.approximateTokens = result.tokens;
+	part.carried = result.carried;
+	part.turnIndices = result.turnIndices ?? [];
+	part.candidates = 1;
+	part.shortened = result.shortened || undefined;
+	part.excluded = { ...(part.excluded ?? {}), ceiling: 1 - result.carried };
+	part.excludedCandidates =
+		result.carried > 0 ? [] : [{ turnIndex: 0, reason: "ceiling" }];
+	part.absent = result.carried > 0 ? undefined : "size";
+}
+
+/**
+ * Whether the Turns sent carry Turn 0: the tail's oldest kept Turn, or the
+ * Turn in progress. The tail keeps a contiguous run of the newest Turns, so
+ * Turn 0 is carried only as its oldest. A Turn without a recorded position
+ * counts by where it sits in the Turns.
+ */
+function carriesFirstTurn(
+	completed: Turn[],
+	tailCarried: number,
+	current: Turn | undefined,
+): boolean {
+	const oldest = completed.length - tailCarried;
+	if (tailCarried > 0 && (completed[oldest]?.index ?? oldest) === 0) return true;
+	return current !== undefined && (current.index ?? completed.length) === 0;
+}
+
+/** Turn 0, in the numbering recollections use, so both name it alike. */
+export const OPENING_HEADER = "[the opening of this conversation: the user's prompt at turn 0]";
+
+function asOpening(prompt: string): HarnessMessage {
+	return { role: "user", content: `${OPENING_HEADER}\n${prompt}` };
+}
+
+/**
+ * The Opening's selection: the prompt whole when it fits, else elided to
+ * the room, else nothing. One Selector for its own Budget and the
+ * ceiling's re-run, as for every reducible part. `prompt` is undefined when
+ * there is nothing to offer, whatever the reason.
+ */
+function openingSelector(prompt: string | undefined): Selector {
+	return (within) => {
+		const nothing: Selected = {
+			carried: 0,
+			messages: [],
+			tokens: 0,
+			excludedByCount: 0,
+			excludedBySize: 0,
+			shortened: false,
+			excluded: [],
+			turnIndices: [],
+		};
+		if (prompt === undefined) return nothing;
+		if (within.count < 1) {
+			return {
+				...nothing,
+				excludedByCount: 1,
+				excluded: [{ turnIndex: 0, reason: "count", budget: within.count }],
+			};
+		}
+
+		const whole = asOpening(prompt);
+		const cost = approximateTokens([whole]);
+		const carried = (message: HarnessMessage, tokens: number, shortened: boolean): Selected => ({
+			...nothing,
+			carried: 1,
+			messages: [message],
+			tokens,
+			shortened,
+			turnIndices: [0],
+		});
+		if (cost <= within.tokens) return carried(whole, cost, false);
+
+		const elided = within.tokens >= SHORTEST_TOKENS ? elidedOpening(prompt, within.tokens) : undefined;
+		if (elided === undefined) {
+			return {
+				...nothing,
+				excludedBySize: 1,
+				excluded: [{ turnIndex: 0, reason: "size", tokens: cost, budget: within.tokens }],
+			};
+		}
+		return carried(elided.message, elided.tokens, true);
+	};
+}
+
+/**
+ * The Opening elided to `allowance`. Sized by construction then checked,
+ * as a recollection is, because JSON escaping makes the estimate of the
+ * elided prompt a non-linear function of the characters kept.
+ */
+function elidedOpening(
+	prompt: string,
+	allowance: number,
+): { message: HarnessMessage; tokens: number } | undefined {
+	const fixed = approximateTokens([asOpening("")]) * 4;
+	for (const room of shrinkingRooms(allowance * 4 - fixed)) {
+		const kept = elide(prompt, room);
+		if (kept === undefined) return undefined;
+		const message = asOpening(kept);
+		const tokens = approximateTokens([message]);
+		if (tokens <= allowance) return { message, tokens };
+	}
+	return undefined;
+}
+
+/**
+ * The character allowances to try, largest first, when the estimate of
+ * what is kept is a non-linear function of the characters kept: each one
+ * 10% and a character under the last, while any room is left.
+ */
+function* shrinkingRooms(start: number): Generator<number> {
+	for (let room = start; room > 0; room = Math.floor(room * 0.9) - 1) yield room;
+}
+
+/**
  * Every recollection the pack could legitimately carry, strongest first,
  * minus anything it already carries verbatim — a Turn must never appear
  * twice in one window. The Budget is applied after, so the caller can see
@@ -1367,10 +1593,7 @@ function fitRecollection(
 		header.length,
 	);
 	const giving = lines.filter(shortenable);
-	let room = Math.max(allowance * 4 - fixed, 0);
-
-	let best = recollection(header, lines.map((line) => lineText(line)));
-	while (room >= 0) {
+	const build = (room: number): HarnessMessage => {
 		const allocation = shares(
 			giving.map((line) => line.payload.length),
 			room,
@@ -1380,12 +1603,13 @@ function fitRecollection(
 			if (!shortenable(line)) return lineText(line);
 			return lineText(line, elideLine(line.payload, allocation[at++] ?? 0));
 		});
-		best = { ...recollection(header, shortened), piChartShortened: true };
-		if (approximateTokens([best]) <= allowance || room === 0) break;
-		room = Math.floor(room * 0.9) - 1;
-		if (room < 0) room = 0;
+		return { ...recollection(header, shortened), piChartShortened: true };
+	};
+	for (const room of shrinkingRooms(allowance * 4 - fixed)) {
+		const best = build(room);
+		if (approximateTokens([best]) <= allowance) return best;
 	}
-	return best;
+	return build(0);
 }
 
 /** One line of a recollection, split into what may give way and what may not. */
@@ -1468,6 +1692,7 @@ const REDUCTION_ORDER: PackSource[] = [
 	"structure",
 	"curated",
 	"recalled",
+	"opening",
 	"verbatim-tail",
 ];
 

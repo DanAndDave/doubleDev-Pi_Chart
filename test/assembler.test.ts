@@ -5,6 +5,7 @@ import {
 	assemble,
 	BRIEFING_FRAMING,
 	BRIEFING_MARKER,
+	OPENING_HEADER,
 	tailTokens,
 	type Pack,
 	type PackSource,
@@ -150,10 +151,14 @@ describe("assembled parts follow the turn in progress", () => {
 		expect(text(pack.messages[5])).toBe(pack.briefing!);
 	});
 
-	test("the Briefing runs framing, pins, marker, then recall, curated and structure", () => {
-		const turns = reconstructTurns(conversation(2));
+	test("the Briefing runs framing, pins, marker, then the opening, recall, curated and structure", () => {
+		// Three completed Turns and a tail of one, so Turn 0 has left the tail.
+		const turns = reconstructTurns(conversation(3));
 
-		const pack = assemble({ turns, ...everything }, wide);
+		const pack = assemble(
+			{ turns, ...everything, opening: "prompt 1" },
+			budgets({ tailTurns: 1, recallTurns: 2, docConcepts: 2, graphSymbols: 2, openingTokens: 1_000 }),
+		);
 		const of = (source: PackSource) =>
 			pack.parts.find((part) => part.source === source)!.messages.map(text);
 
@@ -162,11 +167,13 @@ describe("assembled parts follow the turn in progress", () => {
 				BRIEFING_FRAMING,
 				"[pinned by the user: #4, 1 of 1]\nuse tabs",
 				BRIEFING_MARKER,
+				...of("opening"),
 				...of("recalled"),
 				...of("curated"),
 				...of("structure"),
 			].join("\n\n"),
 		);
+		expect(of("opening")[0]).toStartWith(OPENING_HEADER);
 		expect(of("recalled")[0]).toContain("[recalled from turn 9");
 		expect(of("curated")[0]).toContain("[curated knowledge");
 		expect(of("structure")[0]).toContain("assemble()");
@@ -1400,6 +1407,284 @@ describe("the pack ceiling", () => {
 		expect(bounded.parts.map((part) => part.withoutCeiling)).toEqual(
 			unbounded.parts.map(() => undefined),
 		);
+	});
+});
+
+describe("the opening", () => {
+	const turn0Prompt = "the codeword is maple; build the parser";
+	const first: Turn = {
+		index: 0,
+		prompt: turn0Prompt,
+		messages: [
+			{ role: "user", content: turn0Prompt },
+			toolCall("read", { path: "src/parser.ts" }, "call-0"),
+			toolResult("export function parse() {}", "call-0"),
+			{ role: "assistant", content: "the parser is started" },
+		],
+	};
+	/** Turn 0 then Turns 1..`later`, the last of them in progress. */
+	const turnsAfter = (later: number): Turn[] => [
+		first,
+		...Array.from({ length: later }, (_, offset) => turnOf(offset + 1)),
+	];
+	const on = (counts: Parameters<typeof budgets>[0] = {}) =>
+		budgets({ tailTurns: 2, openingTokens: 1_000, ...counts });
+	const openingOf = (pack: Pack) =>
+		pack.parts.find((part) => part.source === "opening")!;
+
+	test("the Opening is carried once the tail has evicted Turn 0, whatever is asked", () => {
+		const pack = assemble({ turns: turnsAfter(4), opening: turn0Prompt }, on());
+
+		expect(openingOf(pack).messages).toEqual([
+			{ role: "user", content: `${OPENING_HEADER}\n${turn0Prompt}` },
+		]);
+		expect(openingOf(pack).absent).toBeUndefined();
+		expect(pack.briefing).toContain(`${OPENING_HEADER}\n${turn0Prompt}`);
+	});
+
+	test("it is absent because the turns carry it while the tail holds Turn 0", () => {
+		const pack = assemble({ turns: turnsAfter(2), opening: turn0Prompt }, on({ tailTurns: 8 }));
+
+		expect(openingOf(pack).messages).toEqual([]);
+		expect(openingOf(pack).absent).toBe("carried");
+	});
+
+	test("it is absent because the turns carry it while Turn 0 is in progress", () => {
+		const pack = assemble({ turns: [first], opening: turn0Prompt }, on());
+
+		expect(openingOf(pack).absent).toBe("carried");
+	});
+
+	test("a turn without a recorded position counts by where it sits", () => {
+		const carriedWhole = assemble(
+			{ turns: reconstructTurns(conversation(2)), opening: "prompt 1" },
+			on({ tailTurns: 8 }),
+		);
+		const evicted = assemble(
+			{ turns: reconstructTurns(conversation(4)), opening: "prompt 1" },
+			on({ tailTurns: 1 }),
+		);
+
+		expect(openingOf(carriedWhole).absent).toBe("carried");
+		expect(openingOf(evicted).carried).toBe(1);
+	});
+
+	test("only the prompt is carried, never Turn 0's actions or reply", () => {
+		const pack = assemble({ turns: turnsAfter(4), opening: turn0Prompt }, on());
+		const text = openingOf(pack).messages.map(messageText).join("\n");
+
+		expect(text).toContain(turn0Prompt);
+		expect(text).not.toContain("export function parse");
+		expect(text).not.toContain("the parser is started");
+	});
+
+	test("it is reference data, after the marker and ahead of recollections", () => {
+		const pack = assemble(
+			{
+				turns: turnsAfter(4),
+				opening: turn0Prompt,
+				pins: [{ id: 1, text: "use tabs" }],
+				recalled: [{ turnIndex: 1, turn: turnOf(1) }],
+			},
+			on({ recallTurns: 1 }),
+		);
+		const briefing = pack.briefing ?? "";
+		const marker = briefing.indexOf(BRIEFING_MARKER);
+
+		expect(briefing.slice(0, marker)).not.toContain(turn0Prompt);
+		expect(briefing.indexOf(OPENING_HEADER)).toBeGreaterThan(marker);
+		expect(briefing.indexOf(OPENING_HEADER)).toBeLessThan(briefing.indexOf("[recalled from turn 1"));
+	});
+
+	test("a long Opening is shortened to its Budget, not dropped", () => {
+		const long = `${"head ".repeat(400)}${"tail ".repeat(400)}`;
+
+		const pack = assemble({ turns: turnsAfter(4), opening: long }, on({ openingTokens: 300 }));
+		const opening = openingOf(pack);
+
+		expect(opening.carried).toBe(1);
+		expect(opening.absent).toBeUndefined();
+		expect(opening.shortened).toBe(true);
+		expect(opening.approximateTokens).toBeLessThanOrEqual(300);
+		expect(messageText(opening.messages[0]!)).toStartWith(`${OPENING_HEADER}\nhead `);
+		expect(messageText(opening.messages[0]!)).toContain("[pi-chart elided ~");
+		expect(messageText(opening.messages[0]!)).toEndWith("tail ");
+	});
+
+	test("a Budget of nothing turns it off and leaves the pack otherwise unchanged", () => {
+		const off = budgets({ tailTurns: 2 });
+
+		const pack = assemble({ turns: turnsAfter(4), opening: turn0Prompt }, off);
+		const without = assemble({ turns: turnsAfter(4) }, off);
+
+		expect(openingOf(pack).absent).toBe("disabled");
+		expect(pack.messages).toEqual(without.messages);
+		expect(pack.briefing).toBeUndefined();
+	});
+
+	test("an empty or blank Turn 0 prompt carries nothing", () => {
+		for (const blank of ["", "  \n\t"]) {
+			const pack = assemble({ turns: turnsAfter(4), opening: blank }, on());
+
+			expect(openingOf(pack).messages).toEqual([]);
+			expect(openingOf(pack).absent).toBe("empty");
+		}
+	});
+
+	test("a first turn no longer stored has no stand-in", () => {
+		const pack = assemble({ turns: turnsAfter(4).slice(1) }, on());
+
+		expect(openingOf(pack).messages).toEqual([]);
+		expect(openingOf(pack).absent).toBe("missing");
+		expect(pack.briefing).toBeUndefined();
+	});
+
+	test("an Opening no Store could supply is absent for that reason", () => {
+		for (const reason of ["unconfigured", "failed"] as const) {
+			const pack = assemble(
+				{ turns: turnsAfter(4), unavailable: { opening: reason } },
+				on(),
+			);
+
+			expect(openingOf(pack).absent).toBe(reason);
+		}
+	});
+
+	test("an off Budget and carrying Turns outrank whatever the Store did", () => {
+		const offButCarried = assemble(
+			{ turns: turnsAfter(2), unavailable: { opening: "failed" } },
+			budgets({ tailTurns: 8 }),
+		);
+		const carriedButFailed = assemble(
+			{ turns: turnsAfter(2), unavailable: { opening: "failed" } },
+			on({ tailTurns: 8 }),
+		);
+
+		expect(openingOf(offButCarried).absent).toBe("disabled");
+		expect(openingOf(carriedButFailed).absent).toBe("carried");
+	});
+
+	test("recall and the Opening may both carry Turn 0", () => {
+		const pack = assemble(
+			{ turns: turnsAfter(4), opening: turn0Prompt, recalled: [{ turnIndex: 0, turn: first }] },
+			on({ recallTurns: 1 }),
+		);
+		const recalled = pack.parts.find((part) => part.source === "recalled")!;
+
+		expect(openingOf(pack).carried).toBe(1);
+		expect(recalled.turnIndices).toEqual([0]);
+		expect((pack.briefing ?? "").split(turn0Prompt)).toHaveLength(3);
+	});
+
+	test("the Opening reads the same on every Call", () => {
+		const earlier = assemble({ turns: turnsAfter(4), opening: turn0Prompt }, on());
+		const later = assemble({ turns: turnsAfter(7), opening: turn0Prompt }, on());
+
+		expect(later.parts.find((part) => part.source === "opening")!.messages).toEqual(
+			earlier.parts.find((part) => part.source === "opening")!.messages,
+		);
+	});
+
+	test("it is recorded as its own part: Turn 0, with its Budget", () => {
+		const pack = assemble({ turns: turnsAfter(4), opening: turn0Prompt }, on());
+
+		expect(openingOf(pack)).toMatchObject({
+			source: "opening",
+			carried: 1,
+			turnIndices: [0],
+			budget: { count: 1, tokens: 1_000 },
+		});
+		expect(openingOf(pack).approximateTokens).toBeGreaterThan(0);
+		expect(pack.budgets.opening).toBe(1);
+	});
+
+	describe("under the pack ceiling", () => {
+		const long = "word ".repeat(1_000);
+		const input = () => ({
+			turns: turnsAfter(4),
+			opening: long,
+			recalled: [{ turnIndex: 1, turn: turnOf(1, bulky(300, "r")) }],
+		});
+		const counts = { tailTurns: 2, recallTurns: 1, openingTokens: 5_000 };
+		/** The pack unbounded, and its parts' sizes, to set ceilings against. */
+		const sized = () => {
+			const pack = assemble(input(), budgets(counts));
+			const size = (source: PackSource) =>
+				pack.parts.find((part) => part.source === source)!.approximateTokens;
+			return { total: pack.approximateTokens, recalled: size("recalled"), opening: size("opening") };
+		};
+		const partOf = (pack: Pack, source: PackSource) =>
+			pack.parts.find((part) => part.source === source)!;
+
+		test("recollections give way before the Opening, the Opening before the tail", () => {
+			const { total, recalled } = sized();
+
+			const pack = assemble(input(), budgets({ ...counts, packTokens: total - recalled - 300 }));
+
+			expect(partOf(pack, "recalled").absent).toBe("size");
+			expect(partOf(pack, "opening").withoutCeiling).toBeDefined();
+			expect(partOf(pack, "verbatim-tail").withoutCeiling).toBeUndefined();
+			expect(pack.approximateTokens).toBeLessThanOrEqual(total - recalled - 300);
+		});
+
+		test("the Opening is shortened to the room the ceiling leaves it", () => {
+			const { total, recalled, opening } = sized();
+
+			const pack = assemble(input(), budgets({ ...counts, packTokens: total - recalled - 300 }));
+			const reduced = partOf(pack, "opening");
+
+			expect(reduced.carried).toBe(1);
+			expect(reduced.absent).toBeUndefined();
+			expect(reduced.shortened).toBe(true);
+			expect(reduced.approximateTokens).toBeLessThanOrEqual(opening - 300);
+			expect(messageText(reduced.messages[0]!)).toContain("[pi-chart elided ~");
+		});
+
+		test("the Opening is absent for size when the room is below a readable prompt", () => {
+			const { total, recalled, opening } = sized();
+
+			const pack = assemble(
+				input(),
+				budgets({ ...counts, packTokens: total - recalled - opening + 100 }),
+			);
+
+			expect(partOf(pack, "opening").messages).toEqual([]);
+			expect(partOf(pack, "opening").absent).toBe("size");
+			expect(partOf(pack, "verbatim-tail").withoutCeiling).toBeUndefined();
+		});
+
+		describe("when it takes Turn 0 from the tail", () => {
+			const bulkyFirst: Turn = { ...first, messages: [...first.messages, bulky(2_000, "f")] };
+			const carriedInput = () => ({
+				turns: [bulkyFirst, turnOf(1), turnOf(2), turnOf(3)],
+				opening: turn0Prompt,
+			});
+			const carriedCounts = { tailTurns: 8, openingTokens: 1_000 };
+			const whole = () => assemble(carriedInput(), budgets(carriedCounts));
+
+			test("the Opening gets the room the tail left", () => {
+				const ceiling = whole().approximateTokens - 1_000;
+
+				const pack = assemble(carriedInput(), budgets({ ...carriedCounts, packTokens: ceiling }));
+
+				expect(partOf(whole(), "opening").absent).toBe("carried");
+				expect(partOf(pack, "verbatim-tail").turnIndices).not.toContain(0);
+				expect(partOf(pack, "opening").carried).toBe(1);
+				expect(partOf(pack, "opening").absent).toBeUndefined();
+				expect(pack.briefing).toContain(turn0Prompt);
+				expect(pack.approximateTokens).toBeLessThanOrEqual(ceiling);
+			});
+
+			test("the Opening is absent for size when the tail left no room", () => {
+				const ceiling = whole().approximateTokens - approximateTokens(bulkyFirst.messages) + 5;
+
+				const pack = assemble(carriedInput(), budgets({ ...carriedCounts, packTokens: ceiling }));
+
+				expect(partOf(pack, "verbatim-tail").turnIndices).not.toContain(0);
+				expect(partOf(pack, "opening").messages).toEqual([]);
+				expect(partOf(pack, "opening").absent).toBe("size");
+			});
+		});
 	});
 });
 

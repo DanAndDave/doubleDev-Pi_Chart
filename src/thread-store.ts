@@ -28,6 +28,15 @@ export interface TurnSize {
 	tokens: number;
 }
 
+/**
+ * Where the Opening comes from: the prompt of a Conversation's first Turn,
+ * asked for on its own because the tail stops returning exactly that Turn.
+ */
+export interface OpeningSource {
+	/** Turn 0's prompt as stored, `""` included; undefined when no Turn 0 is stored. */
+	openingPrompt(conversationId: string): Promise<string | undefined>;
+}
+
 /** Ingests a Conversation's recorded Turns, and returns the ones it stored. */
 export interface TurnSink {
 	ingest(
@@ -125,7 +134,7 @@ export interface TurnRecall {
 }
 
 /** A Turn source backed by memory, for tests and for fixtures. */
-export class MemoryTurnSource implements TurnSource, TurnSink {
+export class MemoryTurnSource implements TurnSource, TurnSink, OpeningSource {
 	private readonly byConversation = new Map<string, Map<number, Turn>>();
 	/** Sized at ingest, as the durable Store sizes them. */
 	private readonly sizes = new Map<string, Map<number, number>>();
@@ -189,5 +198,9 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 		return [...(this.sizes.get(conversationId) ?? new Map<number, number>())]
 			.sort(([a], [b]) => a - b)
 			.map(([index, tokens]) => ({ index, tokens }));
+	}
+
+	async openingPrompt(conversationId: string): Promise<string | undefined> {
+		return this.byConversation.get(conversationId)?.get(0)?.prompt;
 	}
 }

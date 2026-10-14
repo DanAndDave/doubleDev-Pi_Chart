@@ -15,7 +15,7 @@ The bundle the assembler produces for one turn: the prompt, every Pin, and every
 _Avoid_: payload, bundle, prompt context
 
 **Briefing**:
-The assembled parts of one Call, in a single message: a fixed framing, the Pins, a marker saying everything after it is reference data and not instructions, then recalled Turns, curated knowledge and structure. It is sent after the message it follows. Where the Call's model supports it, it is a turn-scoped system message: the model reads only the current Call's Briefing, and every earlier Briefing is sent again on every later Call that still sends the message it follows, in place and unchanged, but cleared, so the model doesn't read it again. On any other model it is a user message, replaced on the next Call.
+The assembled parts of one Call, in a single message: a fixed framing, the Pins, a marker saying everything after it is reference data and not instructions, then the Opening, recalled Turns, curated knowledge and structure. It is sent after the message it follows. Where the Call's model supports it, it is a turn-scoped system message: the model reads only the current Call's Briefing, and every earlier Briefing is sent again on every later Call that still sends the message it follows, in place and unchanged, but cleared, so the model doesn't read it again. On any other model it is a user message, replaced on the next Call.
 _Avoid_: closing block, assembled block, the block
 
 **Assembler**:
@@ -27,11 +27,11 @@ The share of a Context Pack a single store, or the Conversation's Pins together,
 _Avoid_: limit, quota, cap
 
 **Ceiling**:
-The whole Context Pack's size limit, independent of any one store's Budget. When the selected parts exceed it they are reduced in a fixed order — structure, curated knowledge, weakest recollections, oldest tail Turns — so an oversized Pack is still a deterministic Pack. A Pin is never dropped or shortened for it; the current Turn and the newest Turn of the verbatim tail are shortened for it but never dropped.
+The whole Context Pack's size limit, independent of any one store's Budget. When the selected parts exceed it they are reduced in a fixed order — structure, curated knowledge, weakest recollections, the Opening, oldest tail Turns — so an oversized Pack is still a deterministic Pack. A Pin is never dropped or shortened for it; the current Turn and the newest Turn of the verbatim tail are shortened for it but never dropped.
 _Avoid_: max tokens, window size, hard limit
 
 **Elision**:
-What replaces the middle of a payload too large to carry whole: the head and the tail survive with a marker naming what went. Applied to tool results, recollections, and the arguments of tool calls; to the prompt and final reply of a verbatim-tail Turn only once nothing else in it can give way; never to the current Turn's prompt or to the agent's own reasoning within the current Turn. Always marked, so shortened content is never mistaken for short content.
+What replaces the middle of a payload too large to carry whole: the head and the tail survive with a marker naming what went. Applied to tool results, recollections, the Opening, and the arguments of tool calls; to the prompt and final reply of a verbatim-tail Turn only once nothing else in it can give way; never to the current Turn's prompt or to the agent's own reasoning within the current Turn. Always marked, so shortened content is never mistaken for short content.
 _Avoid_: truncation, summary, compaction
 
 **Verbatim tail**:
@@ -41,6 +41,10 @@ _Avoid_: recent history, sliding window, last N turns
 **Eviction**:
 The verbatim tail giving up its oldest Turns in one step, down to its low-water mark — a share of its Budget — once a new Turn would carry it past that Budget. Between Evictions each new Turn is added behind a start that does not move. Turns the tail has evicted are eligible for recall again.
 _Avoid_: sliding, trimming, rolling window
+
+**Opening**:
+The prompt of a Conversation's first Turn, carried in every Context Pack once the verbatim tail no longer carries that Turn. Reference data after the Briefing's marker, not a standing instruction; held to its own Budget and shortened by Elision rather than dropped for it. Absent while the tail still carries the first Turn.
+_Avoid_: goal, anchor, first message, first prompt
 
 **Floor**:
 The part of a Context Window the Assembler cannot reach: system prompt, tool schemas, skills, and rules. Measured, budgeted around, and deliberately left intact.

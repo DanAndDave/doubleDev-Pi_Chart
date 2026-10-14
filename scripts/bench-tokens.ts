@@ -11,9 +11,13 @@
  * Every turn of the workload is one `omp -p` process, the second onwards with
  * `-c`, so a run is one multi-turn Conversation. Figures come from the
  * provider's own `usage` on each Call in the Journal — nothing is estimated.
- * The last prompt is a probe: it asks for a codeword given in the first, and
- * the run records whether the answer still knew it, so a cheaper arm that
- * forgot what it was told is visible as such.
+ * The last prompt is a probe: it asks for a codeword given in the first
+ * Turn and a build number given in the third, and the run scores each
+ * separately. The codeword sits in Turn 0's prompt, which the Opening
+ * carries; the build number sits only in a later Turn, so only recall can
+ * bring it back. A cheaper arm that forgot what it was told is visible as
+ * such. Probes are scored on the default workload only, never on a
+ * `--workload` file.
  *
  *     bun scripts/bench-tokens.ts                       # 3 runs per arm
  *     bun scripts/bench-tokens.ts --runs 5 --parallel 4 --model sonnet
@@ -40,18 +44,20 @@ const READ_RATE = 0.1;
 const WRITE_RATE = 1.25;
 
 const CODEWORD = "TANGERINE-42";
-const PROBE = `What codeword did I give you at the start of this conversation? Reply with just the codeword, or UNKNOWN if you do not know it. Do not use any tools.`;
+const BUILD_NUMBER = "7341";
+const PROBE = `What codeword did I give you at the start of this conversation, and what build number did I give you later? Reply with just the codeword and the build number, using UNKNOWN for either you do not know. Do not use any tools.`;
 
 /**
  * Read-only work over pi-chart's own source: each turn reads something new,
  * so an accumulating window grows, and there are more turns than the
- * default tail carries (`PICHART_TAIL_TURNS=8`), so the probe has to be
- * answered from recall rather than the tail.
+ * default tail carries (`PICHART_TAIL_TURNS=8`), so the probe cannot be
+ * answered from the tail: the codeword from the Opening, the build number
+ * from recall.
  */
 const DEFAULT_WORKLOAD = [
 	`Remember this codeword for later: ${CODEWORD}. Then read src/pins.ts and say in two sentences what a Pin entry holds.`,
 	"Read src/elision.ts. What does elision keep, and how is the shortened part marked? Three sentences at most.",
-	"Where is PICHART_TAIL_TURNS read, and what is its default? Answer in one sentence.",
+	`Where is PICHART_TAIL_TURNS read, and what is its default? Answer in one sentence. Also remember this build number for later: ${BUILD_NUMBER}.`,
 	"Read src/tokens.ts and explain how token counts are estimated.",
 	"Read src/sections.ts. What does it split, and on what boundaries?",
 	"Read src/shares.ts and summarise what it computes.",
@@ -90,7 +96,8 @@ interface Run {
 	journal: string;
 	turns: number;
 	failedTurn?: number;
-	probe?: { answer: string; recalled: boolean };
+	/** `recalled`: the codeword, from Turn 0. `fact`: the build number, from turn 3. */
+	probe?: { answer: string; recalled: boolean; fact?: boolean };
 	calls: Call[];
 }
 
@@ -225,6 +232,7 @@ async function runOne(
 	workload: string[],
 	options: Saved["options"],
 	timeoutMs: number,
+	scored: boolean,
 ): Promise<Run> {
 	const cwd = await copyCodebase();
 	const run: Run = { arm, index, cwd, journal: "", turns: 0, calls: [] };
@@ -259,9 +267,13 @@ async function runOne(
 			break;
 		}
 		run.turns = turn + 1;
-		if (prompt === PROBE) {
+		if (scored && prompt === PROBE) {
 			const answer = stdout.replace(/^Working\.\.\.\s*/m, "").trim();
-			run.probe = { answer: answer.slice(0, 200), recalled: answer.includes(CODEWORD) };
+			run.probe = {
+				answer: answer.slice(0, 200),
+				recalled: answer.includes(CODEWORD),
+				fact: answer.includes(BUILD_NUMBER),
+			};
 		}
 		log(`${arm}#${index} turn ${turn + 1}/${workload.length}`);
 	}
@@ -407,11 +419,20 @@ function report(saved: Saved): void {
 		console.log(`| ${label} | ${show(v)} | ${show(p)} | ${ratio} |`);
 	}
 
-	const probes = ARMS.map((arm) => {
-		const probed = complete.filter((run) => run.arm === arm && run.probe);
-		return `${arm} ${probed.filter((run) => run.probe?.recalled).length}/${probed.length}`;
-	});
-	if (saved.options.workload.includes(PROBE)) console.log(`\nCodeword recalled at the probe: ${probes.join(", ")}`);
+	// Gated on what the runs recorded, not on the probe's wording, so a run
+	// saved before the wording changed still reports what it scored.
+	const scoredRuns = complete.filter((run) => run.probe);
+	const tally = (hit: (run: Run) => boolean | undefined) =>
+		ARMS.map((arm) => {
+			const probed = scoredRuns.filter((run) => run.arm === arm);
+			return `${arm} ${probed.filter(hit).length}/${probed.length}`;
+		}).join(", ");
+	if (scoredRuns.length > 0) {
+		console.log(`\nCodeword recalled at the probe: ${tally((run) => run.probe?.recalled)}`);
+	}
+	if (scoredRuns.some((run) => run.probe?.fact !== undefined)) {
+		console.log(`Build number recalled at the probe: ${tally((run) => run.probe?.fact)}`);
+	}
 
 	console.log("\nWindow size per turn (median prompt tokens of the turn's last Call):\n");
 	console.log("| Turn | vanilla | pi-chart |");
@@ -460,7 +481,7 @@ if (reportFrom) {
 	// Interleave the arms so drift over the session (provider load, cache
 	// state) falls on both alike.
 	const jobs = Array.from({ length: runs }, (_, index) =>
-		ARMS.map((arm) => () => runOne(arm, index, workload, options, timeoutMs)),
+		ARMS.map((arm) => () => runOne(arm, index, workload, options, timeoutMs, !workloadFile)),
 	).flat();
 	log(`${jobs.length} Conversations × ${turns} turns, ${positive("--parallel", 2)} at a time`);
 	const saved: Saved = { options, runs: await pool(jobs, positive("--parallel", 2)) };
