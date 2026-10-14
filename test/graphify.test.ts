@@ -105,8 +105,10 @@ describeReal("against the real graphify", () => {
 			await extracted(store, root);
 
 			// The graph must actually have moved: asserting the command ran
-			// would pass even if refreshing did nothing.
-			const after = await store.graph(root);
+			// would pass even if refreshing did nothing. A fresh Store, since
+			// one that has read a graph keeps serving it while the newer
+			// extraction is read in the background.
+			const after = await new GraphStore().graph(root);
 			expect(
 				before?.symbols.some((each) => each.label.includes("probeAfterEdit")),
 			).toBe(false);

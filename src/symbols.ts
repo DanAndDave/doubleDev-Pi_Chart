@@ -2,7 +2,7 @@ import type { CodeGraph, GraphEdge, GraphSymbol } from "./graph.ts";
 import {
 	isToolCall,
 	messageText,
-	renderToolCall,
+	toolCallText,
 	type HarnessMessage,
 	type Turn,
 } from "./messages.ts";
@@ -24,8 +24,14 @@ export interface PreparedGraph {
 	byName: Map<string, GraphSymbol[]>;
 	/** Source file to the symbols it defines. */
 	byFile: Map<string, GraphSymbol[]>;
-	/** A file's name without directories or extension, to its files. */
+	/**
+	 * A file's name without directories or extension, to its files. Test and
+	 * script files are left out: a bare word is a plain word, and plain words
+	 * do not reach them.
+	 */
 	byStem: Map<string, string[]>;
+	/** Ids of the symbols defined in a test or script file; see `isHeldBack`. */
+	heldBack: Set<string>;
 	/** Symbol id to every edge touching it, either direction. */
 	incident: Map<string, GraphEdge[]>;
 }
@@ -34,18 +40,21 @@ export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 	const byName = new Map<string, GraphSymbol[]>();
 	const byFile = new Map<string, GraphSymbol[]>();
 	const byStem = new Map<string, string[]>();
+	const heldBack = new Set<string>();
 	for (const symbol of graph.symbols) {
 		const key = canonical(symbol.label);
 		if (key.length > 0) append(byName, key, symbol);
 		const file = normalisePath(symbol.file);
 		if (file === "") continue;
+		const held = isHeldBack(file);
 		const known = byFile.get(file);
 		if (known) known.push(symbol);
 		else {
 			byFile.set(file, [symbol]);
 			const stem = canonical(stemOf(file));
-			if (stem.length > 0) append(byStem, stem, file);
+			if (stem.length > 0 && !held) append(byStem, stem, file);
 		}
+		if (held) heldBack.add(symbol.id);
 	}
 
 	const incident = new Map<string, GraphEdge[]>();
@@ -61,6 +70,7 @@ export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 		byName,
 		byFile,
 		byStem,
+		heldBack,
 		incident,
 	};
 }
@@ -75,6 +85,28 @@ function append<T>(map: Map<string, T[]>, key: string, value: T): void {
 /** Forward slashes, no leading `./` or `/`: one spelling per file. */
 function normalisePath(path: string): string {
 	return path.replace(/\\/g, "/").replace(/^\.?\//, "");
+}
+
+const HELD_BACK_DIRECTORY = new Set(["test", "tests", "__tests__", "scripts"]);
+const HELD_BACK_NAME = /\.(?:test|spec)\.|_test\.|^test_/;
+
+/**
+ * Whether a file is a test or a script, which plain words do not reach.
+ *
+ * Tests and scripts reuse the ordinary words of a Codebase's domain for
+ * helpers and fixtures. Measured on this repository's benchmark, plain words
+ * on a Turn's first Call carried `conversation()` and `CONVERSATION` from
+ * `test/`, and of 90 slots spent in `test/` or `scripts/`, none was what the
+ * Turn worked with. Decided on the path alone, so the rule holds for any
+ * Codebase rather than for this one's names.
+ */
+function isHeldBack(file: string): boolean {
+	const segments = file.split("/");
+	const name = segments.pop() ?? "";
+	return (
+		segments.some((segment) => HELD_BACK_DIRECTORY.has(segment)) ||
+		HELD_BACK_NAME.test(name)
+	);
 }
 
 function stemOf(path: string): string {
@@ -146,55 +178,75 @@ const PATH_TOKEN = /[A-Za-z0-9_@.~-]*(?:\/[A-Za-z0-9_@.-]+)+|[A-Za-z0-9_-]+\.[A-
  *
  * The whole Turn, not its opening prompt: a Call made ten tool results into
  * an agentic Turn would otherwise derive structure from a sentence written
- * before any of them. What the prompt names still comes first, then what
- * the rest of the Turn names, then what is reached only through a file the
- * Turn is working with.
+ * before any of them. Order is the whole contract — a Budget takes symbols
+ * from the front — and the prompt, being what was asked about, leads:
+ *
+ * 1. what the prompt writes as code;
+ * 2. the files whose path the prompt names;
+ * 3. what the rest of the Turn writes as code, or, when nothing in the Turn
+ *    is written as code, every plain word, the prompt's first;
+ * 4. every other file: paths the rest of the Turn names, and bare words
+ *    equal to a file's stem, which are plain words and so the weakest.
  */
 export function symbolsInPlay(graph: PreparedGraph, turn: Turn): GraphSymbol[] {
-	const wider = widerText(turn);
-	// One pass over the whole text, so the rule that disregards an ordinary
-	// word matching only a member's name weighs the Turn rather than the
-	// prompt alone; the prompt is scanned again only to order the result.
-	const all = mentioned(graph, `${turn.prompt}\n${wider}`);
-	const named = new Set(mentioned(graph, turn.prompt).map((symbol) => symbol.id));
+	const whole = `${turn.prompt}\n${widerText(turn)}`;
+	// One pass over the whole text, so whether anything is written as code
+	// is judged over the Turn rather than the prompt alone; the prompt is
+	// scanned again only to order the result.
+	const all = mentioned(graph, whole);
+	const prompt = mentioned(graph, turn.prompt);
 
+	const tiers = [
+		all.symbols.filter((symbol) => prompt.code.has(symbol.id)),
+		throughFiles(graph, pathsNamed(graph, turn.prompt)),
+		all.symbols,
+		throughFiles(graph, [
+			...new Set([...pathsNamed(graph, whole), ...stemsNamed(graph, whole)]),
+		]),
+	];
 	const found = new Map<string, GraphSymbol>();
-	for (const symbol of all.filter((each) => named.has(each.id))) {
-		found.set(symbol.id, symbol);
-	}
-	for (const symbol of all) found.set(symbol.id, symbol);
-	// Last: a file in play says what the Turn is looking at, not what it
-	// asked about, so a symbol named outright outranks a file's others.
-	for (const symbol of throughFiles(graph, `${turn.prompt}\n${wider}`)) {
-		found.set(symbol.id, symbol);
+	for (const symbol of tiers.flat()) {
+		if (!found.has(symbol.id)) found.set(symbol.id, symbol);
 	}
 	return [...found.values()];
 }
 
-/** The Turn's text beyond its prompt, bounded by message and by recency. */
+/**
+ * The Turn's text beyond its prompt, bounded by message and by recency.
+ *
+ * A tool call contributes what it passed, not the name it was made with:
+ * `read(` reads as a call written as code, and measured live every Call of a
+ * Turn that used the `read` tool carried `.read()`. A tool's name says what
+ * the agent did, not what the Turn is about; its arguments and its result
+ * still name the code it touched.
+ */
 function widerText(turn: Turn): string {
 	const recent = turn.messages.slice(-RECENT_MESSAGES);
 	const parts: string[] = [];
 	for (const message of recent) {
-		if (message.toolName) parts.push(message.toolName);
 		parts.push(messageText(message).slice(0, MESSAGE_HEAD));
 		const content = message.content;
 		if (!Array.isArray(content)) continue;
 		for (const block of content) {
-			if (isToolCall(block)) parts.push(renderToolCall(block).slice(0, MESSAGE_HEAD));
+			if (isToolCall(block)) parts.push(toolCallText(block).passed.slice(0, MESSAGE_HEAD));
 		}
 	}
 	return parts.filter((each) => each.length > 0).join("\n");
 }
 
-/** The symbols a piece of text names, strongest first. */
-function mentioned(graph: PreparedGraph, text: string): GraphSymbol[] {
-	/** What one identifier matched, and how it was written. */
-	interface Mention {
-		code: boolean;
-		symbols: GraphSymbol[];
-	}
+/** The symbols a piece of text names, and which of them it wrote as code. */
+interface Mentioned {
+	symbols: GraphSymbol[];
+	code: Set<string>;
+}
 
+/** What one identifier matched, and how it was written. */
+interface Mention {
+	code: boolean;
+	symbols: GraphSymbol[];
+}
+
+function mentioned(graph: PreparedGraph, text: string): Mentioned {
 	const mentions = new Map<string, Mention>();
 	for (const match of text.matchAll(IDENTIFIER)) {
 		const [, member, identifier = "", call] = match;
@@ -224,47 +276,72 @@ function mentioned(graph: PreparedGraph, text: string): GraphSymbol[] {
 		mentions.set(key, { code: code || (seen?.code ?? false), symbols });
 	}
 
-	// A bare English word that matches only a *method* name is the one
-	// ambiguous case: measured live, "do not read, grep, or list any files"
-	// matched `.read()` and `.list()` and spent 457 tokens on them. A bare
-	// word matching a function or a type is not ambiguous in the same way.
-	const unambiguous = [...mentions.values()].filter(
-		(mention) =>
-			mention.code || mention.symbols.some((each) => !each.label.startsWith(".")),
+	// A plain word counts only when nothing in the text is written as code.
+	// Prose is full of words that happen to name symbols: measured live,
+	// "read" carried `.read()`, "explain" `explain()`, "summarise"
+	// `summarise()`, "conversation" `conversation()` and "report" `report()`,
+	// each spending a slot beside the symbol the text wrote as code. A text
+	// written entirely in prose still finds what its words name — but a word
+	// matching only a method gives way to one matching a function or a type:
+	// the first Call of a Turn has seen no code yet, and measured on the
+	// benchmark, "Read src/elision.ts" spent a slot on `.read()` that way.
+	// Nor does a plain word reach a test or script file (`isHeldBack`) —
+	// decided after choosing which words count, so a word naming a test
+	// helper still sets aside a method word rather than handing it the slot.
+	const all = [...mentions.values()];
+	const code = all.filter((mention) => mention.code);
+	const unambiguous = all.filter((mention) =>
+		mention.symbols.some((each) => !each.label.startsWith(".")),
 	);
-	const considered = unambiguous.length > 0 ? unambiguous : [...mentions.values()];
+	const considered = (
+		code.length > 0 ? code : unambiguous.length > 0 ? unambiguous : all
+	).map((mention) =>
+		mention.code
+			? mention
+			: {
+					...mention,
+					symbols: mention.symbols.filter((each) => !graph.heldBack.has(each.id)),
+				},
+	);
 
-	// Written-as-code first, then one symbol per identifier per round: a
-	// word that happens to name three methods must not spend a Budget
-	// ahead of the symbol the text was actually about.
-	const ordered = [
-		...considered.filter((mention) => mention.code),
-		...considered.filter((mention) => !mention.code),
-	];
+	// One symbol per identifier per round: a word that happens to name
+	// three methods must not spend a Budget ahead of the next identifier.
 	const found = new Map<string, GraphSymbol>();
-	for (let round = 0; ; round++) {
-		let added = false;
-		for (const mention of ordered) {
-			const symbol = mention.symbols[round];
-			if (!symbol) continue;
-			found.set(symbol.id, symbol);
-			added = true;
-		}
-		if (!added) break;
+	for (const symbol of takenInTurn(considered.map((mention) => mention.symbols))) {
+		if (!found.has(symbol.id)) found.set(symbol.id, symbol);
 	}
 
-	return [...found.values()];
+	// What is considered is either all written as code or all plain words.
+	return {
+		symbols: [...found.values()],
+		code: new Set(code.length > 0 ? found.keys() : []),
+	};
+}
+
+/** One from each list per round, so no list spends a Budget before the rest. */
+function takenInTurn<T>(lists: T[][]): T[] {
+	const result: T[] = [];
+	for (let round = 0; ; round++) {
+		let added = false;
+		for (const list of lists) {
+			if (round >= list.length) continue;
+			result.push(list[round] as T);
+			added = true;
+		}
+		if (!added) return result;
+	}
 }
 
 /**
- * The symbols of every file the text names.
+ * The files a text names by path, in the order it first names them.
  *
  * Through the file the graph itself states, not through a suffix rule on
  * the name: that is how `assembler` reaches `assemble` without `canonical`
  * learning morphology, and why a path matching no file yields nothing
- * rather than a partial-token guess.
+ * rather than a partial-token guess. A path reaches a test or script file
+ * like any other.
  */
-function throughFiles(graph: PreparedGraph, text: string): GraphSymbol[] {
+function pathsNamed(graph: PreparedGraph, text: string): string[] {
 	const files = new Set<string>();
 	for (const [token] of text.matchAll(PATH_TOKEN)) {
 		const path = normalisePath(token);
@@ -275,14 +352,54 @@ function throughFiles(graph: PreparedGraph, text: string): GraphSymbol[] {
 			if (endsWithPath(file, path) || endsWithPath(path, file)) files.add(file);
 		}
 	}
-	// A bare word naming a file: `assembler` for `src/assembler.ts`.
+	return [...files];
+}
+
+/**
+ * The files a text names by a bare word equal to a file's stem: `assembler`
+ * for `src/assembler.ts`. A bare word is a plain word, so it never reaches a
+ * test or script file (`isHeldBack`).
+ */
+function stemsNamed(graph: PreparedGraph, text: string): string[] {
+	const files = new Set<string>();
 	for (const [, , identifier = ""] of text.matchAll(IDENTIFIER)) {
 		for (const file of graph.byStem.get(canonical(identifier)) ?? []) {
 			files.add(file);
 		}
 	}
+	return [...files];
+}
 
-	return [...files].flatMap((file) => graph.byFile.get(file) ?? []);
+/**
+ * The symbols of some files: within a file, the most-connected first, a tie
+ * going to the earlier line; across files, one from each per round, so a
+ * prompt naming two files carries both under a Budget of three.
+ *
+ * Connections, because extraction order is not importance: what most of the
+ * codebase touches says most about what a file is for. The file's own node
+ * takes part like any other — its connections are what it imports and what
+ * imports it.
+ */
+function throughFiles(graph: PreparedGraph, files: string[]): GraphSymbol[] {
+	return takenInTurn(
+		files.map((file) =>
+			(graph.byFile.get(file) ?? [])
+				.map((symbol) => ({
+					symbol,
+					degree: graph.incident.get(symbol.id)?.length ?? 0,
+					line: lineOf(symbol),
+				}))
+				// Stable, so a full tie keeps extraction order.
+				.sort((a, b) => b.degree - a.degree || a.line - b.line)
+				.map((each) => each.symbol),
+		),
+	);
+}
+
+/** A symbol's line, `L92` → 92; one with no position sorts after the rest. */
+function lineOf(symbol: GraphSymbol): number {
+	const digits = symbol.position?.match(/\d+/);
+	return digits ? Number(digits[0]) : Number.MAX_SAFE_INTEGER;
 }
 
 /** Whether one path ends with another at a directory boundary. */
