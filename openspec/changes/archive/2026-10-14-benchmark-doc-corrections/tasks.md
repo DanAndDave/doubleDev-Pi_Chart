@@ -12,4 +12,4 @@
 
 - [x] 3.1 Delete the untracked `docs/benchmarks/Untitled`. Verify: `git status --short` no longer lists it.
 - [x] 3.2 Run `openspec validate benchmark-doc-corrections`. Verify: valid.
-- [ ] 3.3 After `/opsx-archive`, check the archive path written in 2.1 resolves, then rewrite `HANDOFF.md` to the post-archive state: HEAD, checks, no open changes, and that the next step is charting new work. Verify: every change it names exists under `openspec/changes/archive/`, and the link from the document opens `audit.sql`.
+- [x] 3.3 After `/opsx-archive`, check the archive path written in 2.1 resolves, then rewrite `HANDOFF.md` to the post-archive state: HEAD, checks, no open changes, and that the next step is charting new work. Verify: every change it names exists under `openspec/changes/archive/`, and the link from the document opens `audit.sql`.
