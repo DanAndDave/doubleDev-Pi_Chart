@@ -21,7 +21,7 @@ The system SHALL record, for each Turn, the size of the Context Pack it assemble
 
 ### Requirement: Accounting attributes pack contents to their source
 
-Each Turn's record SHALL attribute the Context Pack's composition to the parts that contributed it, so that a pack's size can be explained rather than merely observed. Each part SHALL also record the Budget that bounded it, how many candidates it had, and the identity of what it contributed, so that a pack can be examined after the fact rather than only measured. Where a part carried less than its candidates offered, the record SHALL carry the reason — insufficient relevance, an exhausted count Budget, an exhausted size Budget, or reduction to fit the Pack ceiling — as distinct reasons rather than one undifferentiated shortfall.
+Each Turn's record SHALL attribute the Context Pack's composition to the parts that contributed it, so that a pack's size can be explained rather than merely observed. Each part SHALL also record the Budget that bounded it, how many candidates it had, and the identity of what it contributed, so that a pack can be examined after the fact rather than only measured. Where a part carried less than its candidates offered, the record SHALL carry the reason — insufficient relevance, an exhausted count Budget, an exhausted size Budget, or reduction to fit the Pack ceiling — as distinct reasons rather than one undifferentiated shortfall. Where a part carried a Turn with messages dropped, the record SHALL carry how many messages were dropped, distinct from whether content was shortened.
 
 #### Scenario: Composition is itemised
 
@@ -57,6 +57,11 @@ Each Turn's record SHALL attribute the Context Pack's composition to the parts t
 
 - **WHEN** a part carried content that was shortened to fit
 - **THEN** the record SHALL state that the part carried shortened content
+
+#### Scenario: Dropped messages are recorded as a count
+
+- **WHEN** the verbatim tail carried its newest Turn with tool-call groups dropped
+- **THEN** the record SHALL give the number of messages dropped for that part, and a part that dropped none SHALL carry no count
 
 ### Requirement: Accounting records what a call did not carry
 
