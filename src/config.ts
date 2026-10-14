@@ -149,13 +149,22 @@ export function pinBudget(config: Config): Budget {
 	return { count: config.pinCount, tokens: config.pinTokens };
 }
 
+/**
+ * The tail's two Budgets, with `DEFAULT_TAIL_TOKENS`. The 2026-10-14
+ * eviction sweep (docs/benchmarks/2026-10-14-eviction-defaults.md) set
+ * 25,000 tokens / 8 Turns against 40,000 / 13 and 60,000 / 19: a larger
+ * tail evicts less often, but sends as much again as cache read on every
+ * Call, and cost no less.
+ */
 export const DEFAULT_TAIL_TURNS = 8;
 /**
- * Where an Eviction leaves the tail, as a share of its Budgets. The
- * 2026-10-13 benchmark could not tell 0.5 to 0.7 apart; 0.6 is the middle
- * (ADR-0013).
+ * Where an Eviction leaves the tail, as a share of its Budgets: at 0.2,
+ * the newest Turn alone. The cheapest mark in the 2026-10-14 eviction
+ * sweep; at the default Budgets, each of its runs cost less than each run
+ * at the old 0.6. A low mark evicts more at a time and so less often, and
+ * each Eviction rewrites the cache from the tail's start (ADR-0013).
  */
-export const DEFAULT_TAIL_LOW_WATER = 0.6;
+export const DEFAULT_TAIL_LOW_WATER = 0.2;
 /**
  * The relevance minimum, re-measured under the query derivation and the
  * bounded embed text (the old 0.50 was measured on a hand-written prompt and
@@ -195,6 +204,7 @@ export function readSavedUrl(path: string = SAVED_URL_PATH): string | undefined 
 		return undefined;
 	}
 }
+/** The tail's token Budget; measured with `DEFAULT_TAIL_TURNS`. */
 export const DEFAULT_TAIL_TOKENS = 25_000;
 export const DEFAULT_RECALL_TOKENS = 8_000;
 export const DEFAULT_OPENING_TOKENS = 1_000;

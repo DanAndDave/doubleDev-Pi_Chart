@@ -3753,16 +3753,16 @@ describe("retention at the end of a session", () => {
 });
 
 describe("the tail's low-water mark setting", () => {
-	test("defaults to the middle of the measured range, and takes a share", () => {
-		expect(loadConfig({}).tailLowWater).toBe(0.6);
+	test("defaults to the sweep's cheapest mark, and takes a share", () => {
+		expect(loadConfig({}).tailLowWater).toBe(0.2);
 		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "1" }).tailLowWater).toBe(1);
 	});
 
 	test("a mark outside (0, 1] is the default", () => {
 		// 0 would leave only the newest Turn after every Eviction; above 1
 		// the tail would never drop below its own Budget.
-		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "0" }).tailLowWater).toBe(0.6);
-		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "1.5" }).tailLowWater).toBe(0.6);
+		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "0" }).tailLowWater).toBe(0.2);
+		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "1.5" }).tailLowWater).toBe(0.2);
 	});
 
 	test("is a known setting", () => {

@@ -55,8 +55,9 @@ const PROBE = `What codeword did I give you at the start of this conversation, a
  * Read-only work over pi-chart's own source, 40 turns: each turn reads
  * something new, so an accumulating window grows. The build number at
  * turn 3 leaves the default tail (`PICHART_TAIL_TURNS=8`,
- * `PICHART_TAIL_TOKENS=25000`) about ten turns later and stays out of it
- * for the remaining thirty, so the probe cannot be answered from the tail:
+ * `PICHART_TAIL_TOKENS=25000`, `PICHART_TAIL_LOW_WATER=0.2`) at its first
+ * Eviction, about turn 6, and stays out of it for the remaining
+ * thirty-four, so the probe cannot be answered from the tail:
  * the codeword from the Opening, the build number from recall.
  */
 const DEFAULT_WORKLOAD = [

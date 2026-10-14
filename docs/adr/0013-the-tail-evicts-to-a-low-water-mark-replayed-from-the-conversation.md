@@ -2,6 +2,8 @@
 
 Partly superseded by ADR-0015: the start is still replayed from the Store's Turn sizes, but the tail's content is the matching slice of the harness's live history, and a Store copy is used only for a Turn that history no longer holds. Evicted Turns are searched by the `recall_earlier_turns` tool rather than recalled into every Pack.
 
+Amended 2026-10-14: the default mark is 0.2, and the tail's Budgets stay 25,000 tokens and 8 Turns. A sweep of those Budgets (25,000 / 8, 40,000 / 13, 60,000 / 19) against marks 0.2, 0.4 and 0.6 found that cell cheapest over 40 Turns (`docs/benchmarks/2026-10-14-eviction-defaults.md`). At 0.2 the count mark is ⌊8 × 0.2⌋ = 1 Turn, so an Eviction leaves the newest Turn alone. The text below keeps the 0.6 it was decided with.
+
 The verbatim tail used to keep as many of the newest Turns as its Budget allowed. Each new Turn that pushed it over the Budget therefore moved its start forward. Each move changed the first message after the Briefing, so the tail was rewritten to the cache in full. In the 12-Turn benchmark (`docs/benchmarks/2026-10-13-token-usage-parts-follow-turn.json`) the start moved 5 times, and a simulation over the measured Turn sizes put the tail's rewritten tokens at 110k–133k per run.
 
 **The tail now gives up its oldest Turns only by Eviction.** Between Evictions the start does not move, and each new Turn is added behind it. When a new Turn would carry the tail past either Budget (tokens or count), the oldest Turns are dropped in one step until both are at or under the low-water mark. The mark is a share of each Budget, 0.6 by default. For the count Budget that share is rounded down, never below 1 Turn (8 × 0.6 → 4). Turns the tail has evicted become eligible for recall again.

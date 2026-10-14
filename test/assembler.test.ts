@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { approximateTokens } from "../src/tokens.ts";
+import { assemblerConfig, loadConfig } from "../src/config.ts";
 import {
 	asCuratedKnowledge,
 	assemble,
@@ -990,7 +991,7 @@ describe("the verbatim tail evicts to a low-water mark", () => {
 	const carried = (pack: Pack) => tailOf(pack)?.turnIndices;
 
 	test("the start holds between evictions", () => {
-		const config = budgets({ tailTurns: 8 });
+		const config = budgets({ tailTurns: 8, tailLowWater: 0.6 });
 		const starts = [9, 10, 11, 12, 13, 14].map(
 			(completed) => carried(assemble({ turns: conversationOf(completed) }, config))?.[0],
 		);
@@ -1001,8 +1002,8 @@ describe("the verbatim tail evicts to a low-water mark", () => {
 
 	test("eviction drops to the mark in one step", () => {
 		// Turns of about 4,000 tokens: six fit 25,000, the seventh does not,
-		// and three is the most that fits the default mark of 15,000.
-		const config = budgets({ tailTurns: 8, tailTokens: 25_000 });
+		// and three is the most that fits a mark of 0.6, 15,000 tokens.
+		const config = budgets({ tailTurns: 8, tailTokens: 25_000, tailLowWater: 0.6 });
 
 		expect(carried(assemble({ turns: conversationOf(6, 4_000) }, config))).toEqual([1, 2, 3, 4, 5, 6]);
 		const evicted = tailOf(assemble({ turns: conversationOf(7, 4_000) }, config));
@@ -1010,14 +1011,26 @@ describe("the verbatim tail evicts to a low-water mark", () => {
 		expect(evicted?.approximateTokens).toBeLessThanOrEqual(15_000);
 	});
 
+	test("the default mark", () => {
+		// Turns of about 4,000 tokens: the seventh carries the tail past
+		// 25,000. The default mark of 0.2, 5,000 tokens, keeps it alone;
+		// 0.6 would keep three.
+		const config = assemblerConfig(loadConfig({ PICHART_TAIL_TOKENS: "25000" }));
+		const evicted = tailOf(assemble({ turns: conversationOf(7, 4_000) }, config));
+
+		expect(evicted?.turnIndices).toEqual([7]);
+		expect(evicted?.approximateTokens).toBeLessThanOrEqual(5_000);
+	});
+
 	test("the count budget evicts to its mark", () => {
-		const pack = assemble({ turns: conversationOf(9) }, budgets({ tailTurns: 8 }));
+		// A mark of 0.6 of 8 Turns is 4.
+		const pack = assemble({ turns: conversationOf(9) }, budgets({ tailTurns: 8, tailLowWater: 0.6 }));
 
 		expect(carried(pack)).toEqual([6, 7, 8, 9]);
 	});
 
 	test("a newest turn larger than the mark is kept alone", () => {
-		const config = budgets({ tailTurns: 8, tailTokens: 1_000 });
+		const config = budgets({ tailTurns: 8, tailTokens: 1_000, tailLowWater: 0.6 });
 		const ending = (tokens: number) =>
 			tailOf(
 				assemble(
@@ -1026,7 +1039,7 @@ describe("the verbatim tail evicts to a low-water mark", () => {
 				),
 			);
 
-		// Over the mark of 600, within the Budget: alone and whole.
+		// Over a mark of 0.6, 600 tokens, within the Budget: alone and whole.
 		expect(ending(800)?.turnIndices).toEqual([3]);
 		expect(ending(800)?.shortened).toBeUndefined();
 		// Over the Budget as well: alone and shrunk.
@@ -1094,7 +1107,7 @@ describe("the verbatim tail evicts to a low-water mark", () => {
 	});
 
 	test("evicted turns are recorded as evicted", () => {
-		const tail = tailOf(assemble({ turns: conversationOf(9) }, budgets({ tailTurns: 8 })));
+		const tail = tailOf(assemble({ turns: conversationOf(9) }, budgets({ tailTurns: 8, tailLowWater: 0.6 })));
 
 		expect(tail?.excluded).toEqual({ evicted: 5 });
 		expect(tail?.excludedCandidates?.map((each) => [each.turnIndex, each.reason])).toEqual([
