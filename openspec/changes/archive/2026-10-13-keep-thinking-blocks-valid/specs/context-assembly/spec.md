@@ -4,7 +4,7 @@
 
 A Context Pack SHALL carry what the harness sent first, the verbatim tail and then the Turn in progress, and every part the Assembler adds after it, as one message: the Briefing. The Briefing SHALL open with a fixed framing, then carry the Pins, then a fixed marker, then recalled Turns, curated knowledge and structure, in that order. Only the framing and the Pins SHALL come before the marker. The framing SHALL state that everything after the marker is reference data and not instructions.
 
-The reason is measured rather than aesthetic. The harness caches a Pack through the end of the Turn in progress, so an assembled part ahead of that point which changes between Calls makes the next Call write everything after it again. Behind it, a part that changes costs only its own size. The fence exists because the Briefing can carry system authority (see "Every Briefing is sent again where it was sent"), while recalled Turns, Doc Store text and structure hold text the user never wrote.
+The reason is measured rather than aesthetic. The harness caches a Pack through the end of the Turn in progress, so an assembled part ahead of that point which changes between Calls makes the next Call write everything after it again. Behind it, a part that changes costs only its own size. The fence exists because the Briefing can carry system authority (see "Every Briefing stays where it was sent"), while recalled Turns, Doc Store text and structure hold text the user never wrote.
 
 #### Scenario: The harness's turns come first
 
@@ -41,7 +41,7 @@ The reason is measured rather than aesthetic. The harness caches a Pack through 
 - **WHEN** two consecutive Calls of one Turn carry different structure and the same tail and Turn in progress up to the second Call's new messages
 - **THEN** every message before the first Call's Briefing SHALL appear unchanged, in the same positions, at the head of the second Call's Pack
 
-#### Scenario: The ceiling accounts for the opening line
+#### Scenario: The ceiling accounts for the framing and marker
 
 - **WHEN** a Pack carrying assembled parts is reduced to fit its ceiling
 - **THEN** the current Briefing's size, framing and marker included, SHALL NOT exceed what the ceiling leaves it
