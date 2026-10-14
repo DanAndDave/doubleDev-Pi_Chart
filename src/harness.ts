@@ -23,6 +23,8 @@ export interface MemoryStatus {
 
 export interface BranchEntry {
 	id?: string;
+	/** The entry this one was written under; `null` at the root. */
+	parentId?: string | null;
 	type?: string;
 	/** An extension's own `custom` entry: its namespaced name. */
 	customType?: string;
@@ -31,6 +33,8 @@ export interface BranchEntry {
 	message?: {
 		role?: string;
 		content?: HarnessMessage["content"];
+		/** When the harness made the message, in epoch milliseconds. */
+		timestamp?: number;
 		contextSnapshot?: ContextSnapshot;
 		/** What the provider charged for the Call this entry answered. */
 		usage?: CallUsage;
@@ -71,6 +75,17 @@ export interface HandlerContext {
 			provider: string,
 			sessionId?: string,
 		) => Promise<string | undefined> | string | undefined;
+	};
+	/**
+	 * The session's current model, read per Call: a model switch takes
+	 * effect on the next one. Only the capability flags this extension
+	 * decides on are declared.
+	 */
+	model?: {
+		compat?: {
+			supportsMidConversationSystem?: boolean;
+			supportsTurnScopedSystem?: boolean;
+		};
 	};
 }
 

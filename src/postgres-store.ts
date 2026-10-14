@@ -5,6 +5,7 @@ import { bunSql, type Sql } from "./sql.ts";
 import {
 	groupByTurn,
 	type AccountingStore,
+	type BriefingFigures,
 	type CallAccounting,
 	recordPart,
 	type RecordedPart,
@@ -307,6 +308,18 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS leading_tokens INTEGER`,
 		],
 	},
+	{
+		version: 22,
+		statements: [
+			// How a Call sent its Briefing and the earlier Briefings it sent
+			// again. Nullable: a row written before has no figures, which
+			// is not the same as a Call that re-sent none.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS briefing_mode TEXT`,
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS resent_briefings INTEGER`,
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS resent_briefing_bytes INTEGER`,
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS missing_briefings INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -356,6 +369,10 @@ interface AccountingRow {
 	cache_read: number | null;
 	cache_write: number | null;
 	input_tokens: number | null;
+	briefing_mode: BriefingFigures["mode"] | null;
+	resent_briefings: number | null;
+	resent_briefing_bytes: number | null;
+	missing_briefings: number | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -817,6 +834,7 @@ export class PostgresStore implements
 		pack: Pack,
 		tailSource: TailSource,
 		memoryBackend: MemoryBackendState,
+		briefing?: BriefingFigures,
 	): Promise<void> {
 		const parts = pack.parts.map(recordPart);
 
@@ -825,14 +843,16 @@ export class PostgresStore implements
 				(conversation_id, turn_index, call_index, recorded_at, parts,
 				 approximate_tokens, unassembled, tail_source, budgets, rejected,
 				 unsearched, concepts_unsearched, leading_tokens, ceiling,
-				 before_ceiling, memory_backend)
+				 before_ceiling, memory_backend, briefing_mode, resent_briefings,
+				 resent_briefing_bytes, missing_briefings)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
 				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
 				${pack.unsearched}, ${pack.conceptsUnsearched}, ${pack.leadingTokens},
 				${pack.ceiling}, ${pack.beforeCeiling},
-				${memoryBackend}
+				${memoryBackend}, ${briefing?.mode ?? null}, ${briefing?.resent ?? null},
+				${briefing?.resentBytes ?? null}, ${briefing?.missing ?? null}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -848,7 +868,11 @@ export class PostgresStore implements
 				leading_tokens = EXCLUDED.leading_tokens,
 				ceiling = EXCLUDED.ceiling,
 				before_ceiling = EXCLUDED.before_ceiling,
-				memory_backend = EXCLUDED.memory_backend`;
+				memory_backend = EXCLUDED.memory_backend,
+				briefing_mode = EXCLUDED.briefing_mode,
+				resent_briefings = EXCLUDED.resent_briefings,
+				resent_briefing_bytes = EXCLUDED.resent_briefing_bytes,
+				missing_briefings = EXCLUDED.missing_briefings`;
 	}
 
 	async recordUnassembled(
@@ -960,7 +984,9 @@ export class PostgresStore implements
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
 			       rejected, unsearched, concepts_unsearched, leading_tokens,
 			       ceiling, before_ceiling, compaction_epoch,
-			       memory_backend, cache_read, cache_write, input_tokens
+			       memory_backend, cache_read, cache_write, input_tokens,
+			       briefing_mode, resent_briefings, resent_briefing_bytes,
+			       missing_briefings
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -992,6 +1018,17 @@ export class PostgresStore implements
 			cacheRead: row.cache_read ?? undefined,
 			cacheWrite: row.cache_write ?? undefined,
 			inputTokens: row.input_tokens ?? undefined,
+			// Absent rather than zero on rows written before the figures
+			// existed: a Call nobody counted did not re-send nothing.
+			briefing:
+				row.briefing_mode === null
+					? undefined
+					: {
+							mode: row.briefing_mode,
+							resent: row.resent_briefings ?? 0,
+							resentBytes: row.resent_briefing_bytes ?? 0,
+							missing: row.missing_briefings ?? 0,
+						},
 		}));
 
 		return groupByTurn(conversationId, calls);

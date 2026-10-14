@@ -13,13 +13,14 @@ import { readJournal } from "../src/journal.ts";
 
 import {
 	MemoryAccounting,
+	type BriefingFigures,
 	type AccountingStore,
 	type CallAddress,
 	type Measurement,
 	type MemoryBackendState,
 	type TailSource,
 } from "../src/accounting.ts";
-import { assemble, type Pack } from "../src/assembler.ts";
+import { assemble, BRIEFING_FRAMING, BRIEFING_MARKER, type Pack } from "../src/assembler.ts";
 import {
 	DEFAULT_RETRIEVAL_DEADLINE_MS,
 	DEFAULT_TAIL_TURNS,
@@ -48,7 +49,7 @@ import type {
 	SessionTreeHandler,
 	ToolResult,
 } from "../src/harness.ts";
-import type { ContextSnapshot } from "../src/messages.ts";
+import type { ContextSnapshot, HarnessMessage } from "../src/messages.ts";
 import {
 	branchOf,
 	COMPACTION_FIXTURE,
@@ -59,12 +60,14 @@ import {
 } from "./fixtures.ts";
 import { storeLocation } from "./store-support.ts";
 import { PIN_ENTRY } from "../src/pins.ts";
+import { BRIEFING_ENTRY, briefingMessage, hashOf } from "../src/briefings.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
 	unassembled?: boolean;
 	tailSource?: TailSource;
 	memoryBackend?: MemoryBackendState;
+	briefing?: BriefingFigures;
 }
 
 interface Harness {
@@ -147,7 +150,15 @@ function harness(overrides: Overrides = {}): Harness {
 			tools[tool.name] = tool;
 		},
 		appendEntry(customType: string, data: unknown) {
-			journal.push({ id: `entry-${journal.length}`, type: "custom", customType, data });
+			// At the leaf, as the harness writes it: on a linear session, the
+			// entry written last.
+			journal.push({
+				id: `entry-${journal.length}`,
+				parentId: journal.at(-1)?.id ?? null,
+				type: "custom",
+				customType,
+				data,
+			});
 		},
 	} as ExtensionAPI;
 
@@ -162,10 +173,10 @@ function harness(overrides: Overrides = {}): Harness {
 	}
 
 	const accounting: AccountingStore = {
-		recordPack: (_conversationId, address, pack, tailSource, memoryBackend) =>
+		recordPack: (_conversationId, address, pack, tailSource, memoryBackend, briefing) =>
 			track(
 				Promise.resolve(
-					recorded.push({ ...address, pack, tailSource, memoryBackend }),
+					recorded.push({ ...address, pack, tailSource, memoryBackend, briefing }),
 				).then(() => {}),
 			),
 		recordUnassembled: (_conversationId, address, memoryBackend) =>
@@ -831,15 +842,17 @@ describe("the verbatim tail", () => {
 		await cm.settle();
 
 		// The tail first, read from the store rather than the array, then
-		// the Turn in progress, then the assembled block behind it.
+		// the Turn in progress, then the Briefing behind it.
 		expect(result?.messages.slice(0, 3).map((message) => message.content)).toEqual([
 			"earlier",
 			"answered",
 			"current",
 		]);
 		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
-		expect(String(result?.messages[3]?.content)).toStartWith("[background for the request above");
-		expect(JSON.stringify(result?.messages[4])).toContain("curated knowledge");
+		const briefing = String(result?.messages[3]?.content);
+		expect(result?.messages).toHaveLength(4);
+		expect(briefing).toStartWith(BRIEFING_FRAMING);
+		expect(briefing.slice(briefing.indexOf(BRIEFING_MARKER))).toContain("curated knowledge");
 		// The harness places its cache breakpoint on the last message it
 		// recognises as its own, so the Turn in progress has to go back as
 		// the very objects it sent, not copies.
@@ -4057,8 +4070,9 @@ describe("pins", () => {
 	/** What a Call's Pack sent, as text. */
 	const sent = (result: { messages: { content?: unknown }[] } | undefined) =>
 		result?.messages.map((message) => message.content);
-	/** The line that opens the assembled block whenever a Pin is carried. */
-	const opening = expect.stringMatching(/^\[background for the request above/);
+	/** The Briefing a Call carries when the Pins are all it holds. */
+	const briefing = (...pinned: string[]) =>
+		[BRIEFING_FRAMING, ...pinned, BRIEFING_MARKER].join("\n\n");
 	const lastStatus = (cm: Harness) =>
 		cm.statuses.filter((each) => each.key === "pi-chart.pins").at(-1)?.text;
 
@@ -4071,8 +4085,7 @@ describe("pins", () => {
 
 		expect(sent(result)).toEqual([
 			"hello",
-			opening,
-			"[pinned by the user: #1, 1 of 1]\nuse tabs",
+			briefing("[pinned by the user: #1, 1 of 1]\nuse tabs"),
 		]);
 		expect(cm.notified.at(-1)).toContain("#1");
 		expect(lastStatus(cm)).toMatch(/^pinned: 1 \(~\d+ tok\)$/);
@@ -4143,9 +4156,7 @@ describe("pins", () => {
 
 		expect(sent(result)).toEqual([
 			"hello",
-			opening,
-			"[pinned by the user: #1, 1 of 2]\nfirst",
-			"[pinned by the user: #3, 2 of 2]\nthird",
+			briefing("[pinned by the user: #1, 1 of 2]\nfirst", "[pinned by the user: #3, 2 of 2]\nthird"),
 		]);
 	});
 
@@ -4196,7 +4207,7 @@ describe("pins", () => {
 		await cm.sessionTree({ oldLeafId: "entry-0" }, session);
 		const result = await cm.context(prompt, session);
 
-		expect(sent(result)).toEqual(["hello", opening, "[pinned by the user: #1, 1 of 1]\nlater"]);
+		expect(sent(result)).toEqual(["hello", briefing("[pinned by the user: #1, 1 of 1]\nlater")]);
 		expect(lastStatus(cm)).toMatch(/^pinned: 1 /);
 	});
 
@@ -4216,9 +4227,10 @@ describe("pins", () => {
 		expect(cm.journal.at(-1)?.data).toMatchObject({ op: "snapshot", nextId: 3 });
 		expect(sent(result)).toEqual([
 			"hello",
-			opening,
-			"[pinned by the user: #1, 1 of 2]\non the path",
-			"[pinned by the user: #2, 2 of 2]\nafter the leaf moved",
+			briefing(
+				"[pinned by the user: #1, 1 of 2]\non the path",
+				"[pinned by the user: #2, 2 of 2]\nafter the leaf moved",
+			),
 		]);
 	});
 
@@ -4278,4 +4290,269 @@ describe("pins", () => {
 		expect(sent(result)).toEqual(["hello"]);
 		expect(cm.reported.filter((said) => said.includes("Pins are off"))).toHaveLength(1);
 	});
+});
+
+describe("briefings", () => {
+	const capable = {
+		model: { compat: { supportsMidConversationSystem: true, supportsTurnScopedSystem: true } },
+	};
+	const incapable = { model: { compat: { supportsMidConversationSystem: true } } };
+	const pinned = "[pinned by the user: #1, 1 of 1]\nuse tabs";
+	/** The Briefing every Call below sends: the Pin is all it holds. */
+	const text = [BRIEFING_FRAMING, pinned, BRIEFING_MARKER].join("\n\n");
+	const hash = hashOf(text);
+
+	const p1: HarnessMessage = { role: "user", content: "first", timestamp: 1_000 };
+	const c1: HarnessMessage = {
+		role: "assistant",
+		content: [{ type: "toolCall", id: "call-1", name: "read" }],
+		timestamp: 1_001,
+	};
+	const r1: HarnessMessage = {
+		role: "toolResult",
+		toolCallId: "call-1",
+		content: "file contents",
+		timestamp: 1_002,
+	};
+	const a1: HarnessMessage = { role: "assistant", content: "done", timestamp: 1_003 };
+	const p2: HarnessMessage = { role: "user", content: "second", timestamp: 2_000 };
+
+	/**
+	 * Writes a message as the harness flushes it: under the entry given, or
+	 * under the last entry written, as on a linear branch.
+	 */
+	function flush(cm: Harness, id: string, message: HarnessMessage, parentId?: string): void {
+		cm.journal.push({
+			id,
+			parentId: parentId ?? cm.journal.at(-1)?.id ?? null,
+			type: "message",
+			message,
+		});
+	}
+
+	/** Every Briefing entry the Journal holds, in the order written. */
+	const stored = (cm: Harness) =>
+		cm.journal.filter((entry) => entry.customType === BRIEFING_ENTRY).map((entry) => entry.data);
+
+	/** A linear session holding one Pin, on the model given. */
+	async function started(model: Partial<HandlerContext> = capable) {
+		const cm = harness();
+		const session = { ...cm.session(cm.journal), ...model };
+		await cm.commands.pins?.handler("add use tabs", session);
+		return { cm, session };
+	}
+
+	/** Turn 1 on a capable model: the prompt, a tool call, its result, and the answer. */
+	async function firstTurn(cm: Harness, session: HandlerContext) {
+		await cm.context({ messages: [p1] }, session);
+		flush(cm, "u1", p1);
+		flush(cm, "c1", c1);
+		flush(cm, "t1", r1);
+		const second = await cm.context({ messages: [p1, c1, r1] }, session);
+		flush(cm, "a1", a1);
+		return second;
+	}
+
+	test("a capable model's Briefing goes out cleared, last, and stored before its prompt", async () => {
+		const { cm, session } = await started();
+
+		const result = await cm.context({ messages: [p1] }, session);
+		await cm.settle();
+
+		expect(result?.messages).toEqual([p1, briefingMessage(text, 1_000)]);
+		expect(result?.messages.at(-1)).toMatchObject({
+			role: "developer",
+			providerPayload: { type: "anthropicMessage", clearAt: "next_user_message" },
+		});
+		expect(stored(cm)).toEqual([{ v: 1, precedes: true, at: 1_000, hash, text }]);
+		expect(cm.recorded[0]?.briefing).toEqual({
+			mode: "kept",
+			resent: 0,
+			resentBytes: 0,
+			missing: 0,
+		});
+	});
+
+	test("a later Call stores its Briefing as following its message, by hash", async () => {
+		const { cm, session } = await started();
+
+		const result = await firstTurn(cm, session);
+
+		expect(result?.messages).toEqual([
+			p1,
+			briefingMessage(text, 1_000),
+			c1,
+			r1,
+			briefingMessage(text, 1_002),
+		]);
+		expect(stored(cm).at(-1)).toEqual({ v: 1, follows: "t1", hash });
+	});
+
+	test("the next Turn sends every earlier Briefing again, in place, and reads only its own", async () => {
+		const { cm, session } = await started();
+		await firstTurn(cm, session);
+
+		const result = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
+		await cm.settle();
+		const messages = result?.messages ?? [];
+
+		expect(messages).toEqual([
+			p1,
+			briefingMessage(text, 1_000),
+			c1,
+			r1,
+			briefingMessage(text, 1_002),
+			a1,
+			p2,
+			briefingMessage(text, 2_000),
+		]);
+		// Every earlier Briefing is cleared by the prompt after it; only the
+		// current one follows the last user message.
+		const lastPrompt = messages.lastIndexOf(p2);
+		const developers = messages.flatMap((each, at) => (each.role === "developer" ? [at] : []));
+		expect(developers.filter((at) => at > lastPrompt)).toEqual([messages.length - 1]);
+		expect(cm.recorded.at(-1)?.briefing).toEqual({
+			mode: "kept",
+			resent: 2,
+			resentBytes: 2 * Buffer.byteLength(text),
+			missing: 0,
+		});
+	});
+
+	test("a Briefing whose text is lost is counted missing and nothing takes its place", async () => {
+		const { cm, session } = await started();
+		await firstTurn(cm, session);
+		// The text was written once, on the first Call's entry; that copy is lost.
+		for (const entry of cm.journal) {
+			if (entry.customType !== BRIEFING_ENTRY) continue;
+			const { text: _lost, ...kept } = entry.data as Record<string, unknown>;
+			entry.data = kept;
+		}
+
+		const result = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
+		await cm.settle();
+
+		expect(result?.messages).toEqual([p1, c1, r1, a1, p2, briefingMessage(text, 2_000)]);
+		expect(cm.recorded.at(-1)?.briefing).toMatchObject({ resent: 0, missing: 2 });
+	});
+
+	test("a model without turn-scoped system messages gets one user Briefing and stores nothing", async () => {
+		const { cm, session } = await started(incapable);
+
+		const result = await cm.context({ messages: [p1] }, session);
+		await cm.settle();
+
+		expect(result?.messages).toEqual([p1, { role: "user", content: text }]);
+		expect(stored(cm)).toEqual([]);
+		expect(cm.recorded[0]?.briefing).toEqual({
+			mode: "replaced",
+			resent: 0,
+			resentBytes: 0,
+			missing: 0,
+		});
+	});
+
+	test("switching back to a capable model sends the stored Briefings again", async () => {
+		const { cm, session } = await started();
+		await firstTurn(cm, session);
+		const other = { ...session, ...incapable };
+
+		const fallback = await cm.context({ messages: [p1, c1, r1, a1, p2] }, other);
+		expect(fallback?.messages).toEqual([p1, c1, r1, a1, p2, { role: "user", content: text }]);
+		expect(stored(cm)).toHaveLength(2);
+
+		const back = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
+
+		expect(back?.messages).toEqual([
+			p1,
+			briefingMessage(text, 1_000),
+			c1,
+			r1,
+			briefingMessage(text, 1_002),
+			a1,
+			p2,
+			briefingMessage(text, 2_000),
+		]);
+	});
+
+	test("after /tree, a Briefing off the active branch is not sent", async () => {
+		const { cm, session } = await started();
+		await firstTurn(cm, session);
+		// Back to the tool call, which is run again with another result.
+		const rerun: HarnessMessage = { ...r1, content: "other contents", timestamp: 1_500 };
+		flush(cm, "t1b", rerun, "c1");
+		const branch = cm.journal.filter((entry) =>
+			["entry-0", "entry-1", "u1", "c1", "t1b"].includes(entry.id ?? ""),
+		);
+		const moved = { ...cm.session(branch), ...capable };
+		await cm.sessionTree({ oldLeafId: "a1" }, moved);
+
+		const result = await cm.context({ messages: [p1, c1, rerun] }, moved);
+
+		expect(result?.messages).toEqual([
+			p1,
+			briefingMessage(text, 1_000),
+			c1,
+			rerun,
+			briefingMessage(text, 1_500),
+		]);
+	});
+
+	test("a Briefing whose message left the tail is not sent and not missing", async () => {
+		const cm = harness({ config: { tailTurns: 0 } });
+		const session = { ...cm.session(cm.journal), ...capable };
+		await cm.commands.pins?.handler("add use tabs", session);
+		await firstTurn(cm, session);
+
+		const result = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
+		await cm.settle();
+
+		expect(result?.messages).toEqual([p2, briefingMessage(text, 2_000)]);
+		expect(cm.recorded.at(-1)?.briefing).toMatchObject({ resent: 0, missing: 0 });
+	});
+
+	test("a Call that assembled nothing records no Briefing of its own", async () => {
+		const cm = harness();
+		const session = { ...cm.session(cm.journal), ...capable };
+
+		const result = await cm.context({ messages: [p1] }, session);
+		await cm.settle();
+
+		expect(result?.messages).toEqual([p1]);
+		expect(stored(cm)).toEqual([]);
+		expect(cm.recorded[0]?.briefing).toEqual({ mode: "none", resent: 0, resentBytes: 0, missing: 0 });
+	});
+
+	for (const reason of ["branch", "fork", "btw"]) {
+		test(`a ${reason} carries only the Briefings on its path, with their text`, async () => {
+			const { cm, session } = await started();
+			await firstTurn(cm, session);
+			await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
+			flush(cm, "u2", p2);
+			await cm.agentEnd({}, session);
+			// The new file holds the root-to-leaf path to the tool result:
+			// the first Call's entry is an ancestor of its prompt, the second
+			// Call's lies after the leaf, and the second Turn is off the path.
+			const path = cm.journal.slice(0, cm.journal.findIndex((entry) => entry.id === "t1") + 1);
+			cm.journal.splice(0, cm.journal.length, ...path);
+
+			await cm.sessionBranch({ reason }, session);
+			const p3: HarnessMessage = { role: "user", content: "third", timestamp: 3_000 };
+			const result = await cm.context({ messages: [p1, c1, r1, p3] }, session);
+
+			expect(stored(cm).slice(1)).toEqual([
+				{ v: 1, follows: "t1", hash, text },
+				{ v: 1, precedes: true, at: 3_000, hash },
+			]);
+			expect(result?.messages).toEqual([
+				p1,
+				briefingMessage(text, 1_000),
+				c1,
+				r1,
+				briefingMessage(text, 1_002),
+				p3,
+				briefingMessage(text, 3_000),
+			]);
+		});
+	}
 });

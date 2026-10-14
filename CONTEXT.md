@@ -11,8 +11,12 @@ The messages sent to the model for a single turn. It is rebuilt each turn rather
 _Avoid_: context, context memory, memory
 
 **Context Pack**:
-The bundle the assembler produces for one turn: the prompt, every Pin, and everything retrieved from the stores to support it. The unit that fills a Context Window. What the harness sent comes first, then the parts the assembler adds.
+The bundle the assembler produces for one turn: the prompt, every Pin, and everything retrieved from the stores to support it. The unit that fills a Context Window. What the harness sent comes first, then the Call's Briefing.
 _Avoid_: payload, bundle, prompt context
+
+**Briefing**:
+The assembled parts of one Call, in a single message: a fixed framing, the Pins, a marker saying everything after it is reference data and not instructions, then recalled Turns, curated knowledge and structure. It is sent after the message it follows. Where the Call's model supports it, it is a turn-scoped system message: the model reads only the current Call's Briefing, and every earlier Briefing is sent again on every later Call that still sends the message it follows, in place and unchanged, but cleared, so the model doesn't read it again. On any other model it is a user message, replaced on the next Call.
+_Avoid_: closing block, assembled block, the block
 
 **Assembler**:
 The component that selects what enters a Context Pack, under a fixed budget per store.

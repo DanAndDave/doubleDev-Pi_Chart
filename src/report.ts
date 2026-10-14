@@ -222,6 +222,22 @@ export function renderCall(view: CallView): string {
 		lines.push("  tail          from the harness's own history, not the store");
 	}
 
+	// How the Briefing went out, said only where it was recorded: a Call
+	// from before Briefings were kept has no figures, and zeros would claim
+	// a count nobody made.
+	if (view.briefing?.mode === "replaced") {
+		lines.push(
+			"  briefing      sent as a user message, replaced on the next call",
+		);
+	} else if (view.briefing !== undefined) {
+		const { mode, resent, resentBytes, missing } = view.briefing;
+		lines.push(
+			`  briefing      ${mode === "kept" ? "sent cleared and kept" : "none of its own"}; ` +
+				`${resent} earlier briefing${resent === 1 ? "" : "s"} sent again ` +
+				`(${resentBytes} bytes), ${missing} missing`,
+		);
+	}
+
 	if (view.floorTokens === undefined || view.packTokens === undefined) {
 		lines.push("  window        not reported yet");
 		if (view.approximateTokens !== undefined) {
@@ -274,8 +290,7 @@ export function renderCall(view: CallView): string {
 
 	// What the cache figure above can be explained by: the harness caches
 	// through the Turn in progress (ADR-0010), so what precedes the
-	// assembled block is what a Call could read back when the tail did not
-	// slide.
+	// Briefing is what a Call could read back when the tail did not slide.
 	if (view.leadingTokens !== undefined) {
 		lines.push(
 			`  prefix        ~${view.leadingTokens} tokens the harness sent, ` +
@@ -373,6 +388,15 @@ export function renderSummary(summary: ConversationSummary): string {
 		lines.push(
 			`  the harness memory backend was not off for ${summary.exposed.length} ` +
 				`of ${summary.calls} calls: ${addresses}`,
+		);
+	}
+
+	if (summary.briefings !== undefined) {
+		const { kept, replaced, missing } = summary.briefings;
+		lines.push(
+			`  briefing      ${kept} call${kept === 1 ? "" : "s"} kept it, ` +
+				`${replaced} sent it as a user message; ${missing} earlier ` +
+				`briefing${missing === 1 ? "" : "s"} missing`,
 		);
 	}
 

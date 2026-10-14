@@ -204,7 +204,7 @@ describeStore("PostgresStore", () => {
 		expect([second?.inputTokens, second?.cacheRead, second?.cacheWrite]).toEqual([9, 7, 5]);
 	});
 
-	test("what precedes the assembled block survives the write", async () => {
+	test("what precedes the Briefing survives the write", async () => {
 		const messages = [
 			{ role: "user", content: "earlier" },
 			{ role: "assistant", content: "answered" },
@@ -222,6 +222,76 @@ describeStore("PostgresStore", () => {
 		// nothing about why without it.
 		expect(pack.leadingTokens).toBeGreaterThan(0);
 		expect(turn?.calls[0]?.leadingTokens).toBe(pack.leadingTokens);
+	});
+
+	test("the briefings a call sent again survive the write", async () => {
+		const pack = assemble(
+			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+		);
+		const briefing = { mode: "kept" as const, resent: 3, resentBytes: 1200, missing: 1 };
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off", briefing);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off", {
+			mode: "replaced",
+			resent: 0,
+			resentBytes: 0,
+			missing: 0,
+		});
+
+		const [turn] = await store.readAccounting("conv-1");
+
+		expect(turn?.calls[0]?.briefing).toEqual(briefing);
+		expect(turn?.calls[1]?.briefing).toEqual({ mode: "replaced", resent: 0, resentBytes: 0, missing: 0 });
+	});
+
+	test("a call recorded without briefing figures reads them back absent, not zero", async () => {
+		const pack = assemble(
+			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
+			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+		await store.recordUnassembled("conv-1", { turnIndex: 1, callIndex: 0 }, "off");
+
+		const turns = await store.readAccounting("conv-1");
+
+		expect(turns[0]?.calls[0]).not.toHaveProperty("briefing", expect.anything());
+		expect(turns[0]?.calls[0]?.briefing).toBeUndefined();
+		expect(turns[1]?.calls[0]?.briefing).toBeUndefined();
+	});
+
+	test("briefings sent again leave the recorded pack size unchanged", async () => {
+		const messages = [
+			{ role: "user", content: "earlier" },
+			{ role: "assistant", content: "answered" },
+			{ role: "user", content: "hi" },
+		];
+		const pack = assemble(
+			{ turns: reconstructTurns(messages) },
+			budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off", {
+			mode: "kept",
+			resent: 3,
+			resentBytes: 1200,
+			missing: 0,
+		});
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off", {
+			mode: "kept",
+			resent: 0,
+			resentBytes: 0,
+			missing: 0,
+		});
+
+		const [turn] = await store.readAccounting("conv-1");
+		const [resending, plain] = turn?.calls ?? [];
+
+		// A cleared Briefing adds no input tokens, so the pack size, and
+		// everything compared against it, comes from the Pack alone.
+		expect(resending?.approximateTokens).toBe(pack.approximateTokens);
+		expect(resending?.approximateTokens).toBe(plain?.approximateTokens);
+		expect(resending?.beforeCeiling).toBe(plain?.beforeCeiling);
+		expect(resending?.leadingTokens).toBe(plain?.leadingTokens);
+		expect(resending?.ceiling).toBe(plain?.ceiling);
 	});
 
 	test("accounting for a tool-using turn groups its calls", async () => {

@@ -86,7 +86,6 @@ export function renderPin(pin: Pin, position: number, total: number): HarnessMes
 	return {
 		role: "user",
 		content: `[pinned by the user: #${pin.id}, ${position} of ${total}]\n${pin.text}`,
-		cmPinned: true,
 	};
 }
 

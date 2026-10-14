@@ -174,6 +174,16 @@ describe("rendering a summary", () => {
 
 		expect(text).toBe("Nothing recorded for this conversation yet.");
 	});
+
+	test("counts how each call sent its briefing and how many went missing", () => {
+		const text = renderSummary({ ...summary, briefings: { kept: 5, replaced: 2, missing: 3 } });
+
+		expect(text).toContain("  briefing      5 calls kept it, 2 sent it as a user message; 3 earlier briefings missing");
+	});
+
+	test("says nothing about briefings where no call recorded them", () => {
+		expect(renderSummary(summary)).not.toContain("briefing");
+	});
 });
 
 describe("rendering relevance", () => {
@@ -443,6 +453,32 @@ describe("rendering a call that recalled nothing", () => {
 		// this is what the Call could have read back, and a cache read far
 		// below it says the tail slid or the provider dropped the entry.
 		expect(led).toContain("prefix        ~3412 tokens the harness sent, ahead of the assembled parts");
+	});
+
+	test("a call that kept its briefing reports what it sent again and what was missing", () => {
+		const text = renderCall(view({ briefing: { mode: "kept", resent: 4, resentBytes: 5_120, missing: 1 } }));
+
+		expect(text).toContain(
+			"  briefing      sent cleared and kept; 4 earlier briefings sent again (5120 bytes), 1 missing",
+		);
+	});
+
+	test("a fallback call says its briefing went as a user message", () => {
+		const text = renderCall(view({ briefing: { mode: "replaced", resent: 0, resentBytes: 0, missing: 0 } }));
+
+		expect(text).toContain("  briefing      sent as a user message, replaced on the next call");
+	});
+
+	test("a call that assembled nothing says so, beside what it sent again", () => {
+		const text = renderCall(view({ briefing: { mode: "none", resent: 2, resentBytes: 900, missing: 0 } }));
+
+		expect(text).toContain(
+			"  briefing      none of its own; 2 earlier briefings sent again (900 bytes), 0 missing",
+		);
+	});
+
+	test("a call recorded before briefings were kept has no briefing line", () => {
+		expect(renderCall(view())).not.toContain("briefing");
 	});
 
 	test("a curated part mid-repair is named apart from a thin recall", () => {

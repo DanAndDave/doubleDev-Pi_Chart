@@ -80,7 +80,6 @@ describe("rendering a pin", () => {
 		expect(message).toEqual({
 			role: "user",
 			content: "[pinned by the user: #3, 2 of 4]\nline one\nline two",
-			cmPinned: true,
 		});
 	});
 });

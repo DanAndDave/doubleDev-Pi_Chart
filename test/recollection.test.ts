@@ -190,7 +190,6 @@ describe("a recollection carries the actions its turn took", () => {
 
 		expect(part?.messages).toHaveLength(1);
 		expect(message?.role).toBe("user");
-		expect(message?.cmRecalled).toBe(true);
 		expect(messageText(message ?? { role: "user" })).toContain(
 			"[recalled from turn 7 of this conversation]",
 		);

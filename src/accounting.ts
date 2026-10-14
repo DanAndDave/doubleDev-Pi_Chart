@@ -28,6 +28,25 @@ export type TailSource = "thread-store" | "harness-fallback";
 export type MemoryBackendState = "off" | "active" | "unconfirmed";
 
 /**
+ * How one Call sent its Briefing, and the earlier Briefings it sent again.
+ * `kept` is a cleared, turn-scoped system message stored and re-sent by
+ * later Calls; `replaced` is the fallback user message the next Call
+ * replaces, used where the model or the harness can't keep one; `none` is
+ * a Call that assembled nothing, which may still send earlier ones again.
+ * Sizes in UTF-8 bytes: a cleared Briefing costs no tokens, so none of
+ * this counts toward the pack size, a Budget, the Ceiling or the Floor.
+ */
+export interface BriefingFigures {
+	mode: "kept" | "replaced" | "none";
+	/** Earlier Briefings this Call sent again. */
+	resent: number;
+	/** Their total size in UTF-8 bytes. */
+	resentBytes: number;
+	/** Earlier Briefings it could not send again: no stored text was found. */
+	missing: number;
+}
+
+/**
  * What one Call's Context Window was made of.
  *
  * `packTokens` and `floorTokens` come from the harness's own report and are
@@ -65,7 +84,7 @@ export interface CallAccounting extends CallAddress {
 	 */
 	conceptsUnsearched?: number;
 	/**
-	 * The size of what preceded the assembled block — the tail and the Turn
+	 * The size of what preceded the Briefing — the tail and the Turn
 	 * in progress — which the harness caches through (ADR-0010). Before
 	 * ADR-0010, how much of the Pack led with the harness's own messages.
 	 * Absent on records written before it was recorded.
@@ -101,6 +120,11 @@ export interface CallAccounting extends CallAddress {
 	cacheRead?: number;
 	cacheWrite?: number;
 	inputTokens?: number;
+	/**
+	 * How this Call sent its Briefing and what it sent again. Absent on
+	 * records written before it was recorded — not zero.
+	 */
+	briefing?: BriefingFigures;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -188,6 +212,7 @@ export interface AccountingStore {
 		pack: Pack,
 		tailSource: TailSource,
 		memoryBackend: MemoryBackendState,
+		briefing?: BriefingFigures,
 	): Promise<void>;
 	recordUnassembled(
 		conversationId: string,
@@ -324,6 +349,7 @@ export class MemoryAccounting implements AccountingStore {
 		pack: Pack,
 		tailSource: TailSource,
 		memoryBackend: MemoryBackendState,
+		briefing?: BriefingFigures,
 	): Promise<void> {
 		const call = this.at(conversationId, address);
 		call.at = new Date().toISOString();
@@ -338,6 +364,7 @@ export class MemoryAccounting implements AccountingStore {
 		call.ceiling = pack.ceiling;
 		call.beforeCeiling = pack.beforeCeiling;
 		call.memoryBackend = memoryBackend;
+		call.briefing = briefing === undefined ? undefined : { ...briefing };
 	}
 
 	async recordUnassembled(

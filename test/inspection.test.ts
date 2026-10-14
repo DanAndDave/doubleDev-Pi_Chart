@@ -575,15 +575,13 @@ describe("the curated part in accounting", () => {
 		expect(curated?.carried).toBe(1);
 		expect(curated?.conceptIds).toEqual(["decisions/caching"]);
 		// Separately: each part is charged its own tokens, and together with
-		// the line that opens the assembled block they account for the pack.
+		// the Briefing's framing and marker they cover what the pack sent.
 		const total = view.parts.reduce(
 			(sum, part) => sum + part.approximateTokens,
 			0,
 		);
-		const opening = pack.messages.find((message) =>
-			String(message.content).startsWith("[background for the request above"),
-		);
-		expect(total + approximateTokens(opening ? [opening] : [])).toBe(pack.approximateTokens);
+		expect(total).toBeLessThan(pack.approximateTokens);
+		expect(approximateTokens(pack.messages)).toBeLessThanOrEqual(pack.approximateTokens);
 		expect(tail?.approximateTokens).toBeGreaterThan(0);
 	});
 

@@ -1,4 +1,5 @@
 import type {
+	BriefingFigures,
 	CallAccounting,
 	MemoryBackendState,
 	RecordedPart,
@@ -112,7 +113,7 @@ export interface CallView {
 	 */
 	conceptsUnsearched: number;
 	/**
-	 * The size of what preceded the assembled block — the tail and the Turn
+	 * The size of what preceded the Briefing — the tail and the Turn
 	 * in progress — which the harness caches through (ADR-0010). Absent on
 	 * records that predate it.
 	 */
@@ -166,6 +167,11 @@ export interface CallView {
 	 * the Floor has taken its share, over the Pack's own size.
 	 */
 	cachedPackShare?: number;
+	/**
+	 * How this Call sent its Briefing and what it sent again. Absent on
+	 * records that predate it, which is not a Call that re-sent nothing.
+	 */
+	briefing?: BriefingFigures;
 	/** Whether any part of this Call names what it excluded. */
 	explained: boolean;
 }
@@ -213,6 +219,12 @@ export interface ConversationSummary {
 		callIndex: number;
 		state: MemoryBackendState;
 	}[];
+	/**
+	 * How many Calls sent their Briefing each way, and how many earlier
+	 * Briefings went missing across the Conversation. Absent where no Call
+	 * recorded the figures.
+	 */
+	briefings?: { kept: number; replaced: number; missing: number };
 	/** Per part: how much of its Budget it typically spent. */
 	budgetUse: {
 		source: PackSource;
@@ -278,6 +290,7 @@ export function inspectCall(call: CallAccounting): CallView {
 		cacheWrite: call.cacheWrite,
 		inputTokens: call.inputTokens,
 		cachedPackShare,
+		briefing: call.briefing,
 		// Set by `inspectConversation`, which is the only place that can
 		// see the Call before this one: a compaction is a change of epoch,
 		// and one Call alone has nothing to have changed from.
@@ -437,6 +450,15 @@ export function summarise(
 		summary.averageEstimateRatio = mean(
 			reconciled.map((call) => call.estimateRatio ?? 0),
 		);
+	}
+
+	const briefed = calls.flatMap((call) => (call.briefing ? [call.briefing] : []));
+	if (briefed.length > 0) {
+		summary.briefings = {
+			kept: briefed.filter((briefing) => briefing.mode === "kept").length,
+			replaced: briefed.filter((briefing) => briefing.mode === "replaced").length,
+			missing: briefed.reduce((sum, briefing) => sum + briefing.missing, 0),
+		};
 	}
 
 	if (measured.length === 0) return summary;

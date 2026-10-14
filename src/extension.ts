@@ -1,6 +1,7 @@
 import {
 	MemoryAccounting,
 	type AccountingStore,
+	type BriefingFigures,
 	type CallAddress,
 	type Measurement,
 	type MemoryBackendState,
@@ -121,6 +122,15 @@ import {
 	type PinEvent,
 	type PinState,
 } from "./pins.ts";
+import {
+	BRIEFING_ENTRY,
+	briefingEntry,
+	briefingMessage,
+	carriedBriefings,
+	placeBriefings,
+	replayBriefings,
+	type StoredBriefing,
+} from "./briefings.ts";
 import { approximateTokens } from "./tokens.ts";
 
 export interface Dependencies {
@@ -398,6 +408,99 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
+	 * The Briefings the Conversation's Journal stored, as of the last
+	 * replay. Like `held`, it is what a branch carries from, because by
+	 * then the Journal it came from is gone. Refreshed wherever the Journal
+	 * may have grown: after each Call writes its own, and at the end of
+	 * each Turn, once the prompt a first Call's entry precedes is flushed.
+	 */
+	let storedBriefings: Map<string, StoredBriefing> = new Map();
+
+	function storedBriefingsOf(session: SessionView | undefined): Map<string, StoredBriefing> {
+		return replayBriefings(session?.getEntries?.() ?? []);
+	}
+
+	/**
+	 * How this Call sends its Briefing (ADR-0011). On a model that declares
+	 * both mid-Conversation and turn-scoped system messages, and a harness
+	 * that can store it, the Briefing goes out cleared after the Turn in
+	 * progress and is stored as sent, and every earlier one whose message
+	 * the Pack still carries is sent again where it was. Anywhere else the
+	 * Pack goes as assembled: one user Briefing, replaced next Call, with
+	 * nothing stored and nothing sent again.
+	 */
+	function brief(
+		pack: Pack,
+		ctx: HandlerContext,
+		branch: BranchEntry[],
+	): { messages: HarnessMessage[]; figures: BriefingFigures } {
+		const compat = ctx.model?.compat;
+		const session = ctx.sessionManager;
+		if (
+			compat?.supportsMidConversationSystem !== true ||
+			compat.supportsTurnScopedSystem !== true ||
+			!pi.appendEntry ||
+			!session?.getEntries
+		) {
+			return {
+				messages: pack.messages,
+				figures: { mode: "replaced", resent: 0, resentBytes: 0, missing: 0 },
+			};
+		}
+
+		// Pack messages are matched to the Journal by role and timestamp:
+		// the tail may be the Thread Store's copies, not the hook's objects.
+		const ids = new Map<string, string>();
+		for (const entry of branch) {
+			const message = entry.message;
+			if (entry.type !== "message" || entry.id === undefined) continue;
+			if (message?.timestamp === undefined) continue;
+			const key = `${message.role}@${message.timestamp}`;
+			if (!ids.has(key)) ids.set(key, entry.id);
+		}
+		const idOf = (message: HarnessMessage) =>
+			message.timestamp === undefined ? undefined : ids.get(`${message.role}@${message.timestamp}`);
+
+		const entries = session.getEntries();
+		const leading = pack.briefing === undefined ? pack.messages : pack.messages.slice(0, -1);
+		const followed = leading.at(-1);
+		// The message this Call's Briefing follows gets this Call's, never
+		// an earlier one: a retried Call replaces what the first try sent.
+		const placed = placeBriefings(
+			leading,
+			(message) => (message === followed ? undefined : idOf(message)),
+			replayBriefings(entries),
+		);
+		const figures: BriefingFigures = {
+			mode: pack.briefing === undefined ? "none" : "kept",
+			resent: placed.resent,
+			resentBytes: placed.resentBytes,
+			missing: placed.missing,
+		};
+		if (pack.briefing === undefined) return { messages: placed.messages, figures };
+
+		// Written before the request goes out, so no sent Briefing exists only
+		// in memory. A first Call's prompt is not flushed yet: its entry
+		// precedes it, and resolves to it once it is.
+		const flushed = followed === undefined ? undefined : idOf(followed);
+		pi.appendEntry(
+			BRIEFING_ENTRY,
+			briefingEntry(
+				pack.briefing,
+				flushed === undefined
+					? { precedes: true, at: followed?.timestamp }
+					: { follows: flushed },
+				entries,
+			),
+		);
+		storedBriefings = storedBriefingsOf(session);
+		return {
+			messages: [...placed.messages, briefingMessage(pack.briefing, followed?.timestamp)],
+			figures,
+		};
+	}
+
+	/**
 	 * Says on the footer that Pins are held, and whether the last Call
 	 * carried them. Cleared when there are none, so a Conversation without
 	 * Pins shows nothing.
@@ -497,6 +600,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		ui = ctx.ui;
 		governing = true;
 		held = pinsOf(ctx.sessionManager);
+		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 		// Said once: without the Journal surface every Pack goes out with no
 		// Pins, which must not look like a Conversation that holds none.
@@ -684,6 +788,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 			warnIfNearCeiling(conversationId, pack);
 
+			const sent = brief(pack, ctx, branch);
+
 			inBackground(
 				"Accounting",
 				// The state rides the write that already happens off the
@@ -694,12 +800,13 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					pack,
 					tailSource,
 					memoryBackend,
+					sent.figures,
 				),
 			);
 
 			governing = true;
 			showPins(ui);
-			return { messages: pack.messages };
+			return { messages: sent.messages };
 		} catch (error) {
 			// Fails open, toward the accumulating window this exists to prevent,
 			// so every occurrence is reported and the Call is marked unassembled
@@ -726,6 +833,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	pi.on("session_switch", async (_event, ctx) => {
 		ui = ctx.ui;
 		held = pinsOf(ctx.sessionManager);
+		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 	});
 
@@ -733,7 +841,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	// to the leaf, which misses a Pin added after the leaf moved and keeps
 	// one removed off it. Where the copy disagrees with what the parent
 	// held, the parent's state is written into the new Journal, once; from
-	// then on the two hold their Pins independently.
+	// then on the two hold their Pins independently. A Briefing's entry
+	// lands after the message it follows, so it can be off the path while
+	// its message is on it: every Briefing the parent stored for a message
+	// on the path is written into the copy, text and all.
 	pi.on("session_branch", async (_event, ctx) => {
 		ui = ctx.ui;
 		const journal = pinJournal(ctx.sessionManager);
@@ -743,6 +854,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		} else {
 			held = copied;
 		}
+		if (journal) {
+			const path = ctx.sessionManager?.getBranch?.() ?? [];
+			const carried = carriedBriefings(path, storedBriefings, storedBriefingsOf(ctx.sessionManager));
+			for (const entry of carried) pi.appendEntry?.(BRIEFING_ENTRY, entry);
+		}
+		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 	});
 
@@ -784,6 +901,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		ui = ctx.ui;
 		const conversationId = conversationOf(ctx);
 		reconcile(conversationId, ctx.sessionManager?.getBranch?.() ?? []);
+		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		// The Turn that just finished is the Turn that may have edited the
 		// Codebase, so this is where a graph frozen at session start stops
 		// being frozen. Notification-only and in the background, so nothing
@@ -870,6 +988,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// The whole file holds the Pins, not the branch, so a move inside
 		// it changes none; the status is refreshed all the same.
 		held = pinsOf(ctx.sessionManager);
+		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 		const sink = deps.ingest;
 		if (!sink) return;
