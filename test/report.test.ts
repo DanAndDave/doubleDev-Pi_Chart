@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CallView, ConversationSummary, PackDiff } from "../src/inspection.ts";
+import { inspectCall, type CallView, type ConversationSummary, type PackDiff } from "../src/inspection.ts";
 import {
 	renderCall,
 	renderDiff,
@@ -370,6 +370,38 @@ describe("rendering relevance", () => {
 
 		expect(text).toContain("content shortened");
 		expect(text).toContain("~5000 tokens without the ceiling");
+	});
+
+	test("a part that dropped messages says so apart from shortening, and an older record says neither", () => {
+		const recorded = (fields: { droppedMessages?: number }) =>
+			renderCall(
+				inspectCall({
+					turnIndex: 10,
+					callIndex: 0,
+					parts: [
+						{
+							source: "verbatim-tail",
+							approximateTokens: 4_900,
+							approximate: true,
+							carried: 1,
+							turnIndices: [9],
+							budget: { count: 8, tokens: 5_000 },
+							candidates: 9,
+							excludedCandidates: [],
+							shortened: true,
+							...fields,
+						},
+					],
+				}),
+			);
+
+		const shrunk = recorded({ droppedMessages: 412 });
+		expect(shrunk).toContain("412 messages dropped");
+		expect(shrunk).toContain("content shortened");
+		expect(shrunk.indexOf("412 messages dropped")).toBeLessThan(
+			shrunk.indexOf("content shortened"),
+		);
+		expect(recorded({})).not.toContain("messages dropped");
 	});
 });
 

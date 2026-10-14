@@ -547,10 +547,15 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		if (pack.ceiling <= 0) return;
 
 		if (pack.approximateTokens > pack.ceiling) {
+			const tailCarried = pack.parts.some(
+				(part) => part.source === "verbatim-tail" && (part.carried ?? 0) > 0,
+			);
 			announce(
 				`Context Pack exceeds its ceiling: ~${pack.approximateTokens} of ` +
-					`${pack.ceiling} tokens. The current turn could not be reduced ` +
-					`further and is never dropped, so the pack went out over budget.`,
+					`${pack.ceiling} tokens. The current turn` +
+					`${tailCarried ? " and the newest tail turn" : ""} could not be ` +
+					`reduced further and ${tailCarried ? "are" : "is"} never dropped, ` +
+					`so the pack went out over budget.`,
 			);
 			return;
 		}

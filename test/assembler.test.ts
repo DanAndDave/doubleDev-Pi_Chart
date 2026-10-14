@@ -12,7 +12,7 @@ import type { Exclusion } from "../src/concept.ts";
 import { readJournal } from "../src/journal.ts";
 import { messageText, type HarnessMessage, type Turn } from "../src/messages.ts";
 import { reconstructTurns } from "../src/turns.ts";
-import { fixture, budgets, UNBOUNDED } from "./fixtures.ts";
+import { fixture, budgets, toolCall, toolResult, UNBOUNDED } from "./fixtures.ts";
 import { JOURNAL_FIXTURE } from "./turn-source-contract.ts";
 
 function conversation(turnCount: number): HarnessMessage[] {
@@ -822,33 +822,309 @@ describe("token budgets", () => {
 
 describe("a budget below what must be carried", () => {
 	test("an irreducible tail turn is carried and its budget reported as exceeded", () => {
-		// Many tool results, each already at the shortest length worth
-		// carrying, so no amount of eliding gets the Turn under the Budget —
-		// and the tail's newest Turn may not be dropped.
-		const many = Array.from({ length: 40 }, (_, index) =>
-			bulky(300, String.fromCharCode(97 + (index % 26))),
-		);
+		// A prompt and a final reply are never dropped and are elided only to
+		// a readable head and tail each, so together they have a floor no
+		// Budget below it can reach — and the tail's newest Turn may not go.
 		const pack = assemble(
 			{
 				turns: [
 					{
 						index: 1,
 						prompt: "big",
-						messages: [{ role: "user", content: "big" }, ...many],
+						messages: [
+							{ role: "user", content: "p".repeat(4_000) },
+							{ role: "assistant", content: "r".repeat(4_000) },
+						],
 					},
 					turnOf(2),
 				],
 			},
-			budgets({ tailTurns: 1, tailTokens: 500, packTokens: UNBOUNDED }),
+			budgets({ tailTurns: 1, tailTokens: 100, packTokens: UNBOUNDED }),
 		);
 		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
 
 		expect(tail?.carried).toBe(1);
 		expect(tail?.shortened).toBe(true);
-		expect(tail?.budget?.tokens).toBe(500);
+		expect(tail?.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+		expect(tail?.budget?.tokens).toBe(100);
 		// Carried, and honest about it: the Budget is reported beside a spend
 		// that exceeds it rather than the part reading as though it fitted.
-		expect(tail?.approximateTokens).toBeGreaterThan(500);
+		expect(tail?.approximateTokens).toBeGreaterThan(100);
+	});
+
+	test("a configured tail token budget of nothing still carries no tail", () => {
+		const pack = assemble(
+			{ turns: [turnOf(1, bulky(50)), turnOf(2)] },
+			budgets({ tailTurns: 1, tailTokens: 0 }),
+		);
+		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
+
+		expect(tail?.carried).toBe(0);
+		expect(tail?.messages).toEqual([]);
+	});
+});
+
+/**
+ * A Turn of tool-call groups, oldest first: each an assistant call to the
+ * named tool and the result answering it, of roughly `tokens` tokens.
+ */
+function workingTurn(
+	index: number,
+	groups: { name: string; tokens: number }[],
+	reply?: string,
+): Turn {
+	const messages: HarnessMessage[] = [{ role: "user", content: `prompt ${index}` }];
+	groups.forEach((group, position) => {
+		const id = `call-${index}-${position}`;
+		messages.push(toolCall(group.name, { path: `/work/${position}` }, id));
+		messages.push(
+			toolResult(String(position % 10).repeat(group.tokens * 4), id, group.name),
+		);
+	});
+	if (reply !== undefined) messages.push({ role: "assistant", content: reply });
+	return { index, prompt: `prompt ${index}`, messages };
+}
+
+function tailOf(pack: Pack) {
+	return pack.parts.find((part) => part.source === "verbatim-tail");
+}
+
+describe("the newest tail turn shrinks by its oldest actions", () => {
+	test("a long working turn fits its tail budget with its prompt, marker and final reply", () => {
+		// The incident's shape: hundreds of results, each already too short
+		// to elide, so only dropping messages gets the Turn under its Budget.
+		const groups = Array.from({ length: 200 }, () => ({ name: "read", tokens: 100 }));
+		const pack = assemble(
+			{ turns: [workingTurn(1, groups, "all done"), turnOf(2)] },
+			budgets({ tailTurns: 1, tailTokens: 5_000 }),
+		);
+		const tail = tailOf(pack);
+		const messages = tail?.messages ?? [];
+
+		expect(tail?.carried).toBe(1);
+		expect(tail?.approximateTokens).toBeLessThanOrEqual(5_000);
+		expect(messages[0]?.role).toBe("user");
+		expect(messageText(messages[0] ?? { role: "user" })).toContain(
+			"[pi-chart did not carry",
+		);
+		expect(messages.at(-1)).toEqual({ role: "assistant", content: "all done" });
+		expect(messages.map((message) => message.toolCallId)).toContain("call-1-199");
+	});
+
+	test("the oldest groups go first and every carried call keeps its result", () => {
+		const groups = Array.from({ length: 10 }, () => ({ name: "read", tokens: 300 }));
+		const tail = tailOf(
+			assemble(
+				{ turns: [workingTurn(1, groups, "done"), turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 1_500 }),
+			),
+		);
+		const messages = tail?.messages ?? [];
+		const calls = messages.flatMap((message) =>
+			Array.isArray(message.content)
+				? message.content.flatMap((block) =>
+						block.type === "toolCall" && "id" in block ? [block.id as string] : [],
+					)
+				: [],
+		);
+		const results = messages.flatMap((message) =>
+			message.role === "toolResult" ? [message.toolCallId] : [],
+		);
+
+		expect(tail?.approximateTokens).toBeLessThanOrEqual(1_500);
+		expect(calls.length).toBeGreaterThan(0);
+		expect(calls.length).toBeLessThan(10);
+		// The newest are what survive, and no newer group is skipped.
+		const firstKept = 10 - calls.length;
+		expect(calls).toEqual(
+			Array.from({ length: calls.length }, (_, offset) => `call-1-${firstKept + offset}`),
+		);
+		expect(results).toEqual(calls);
+		expect(tail?.droppedMessages).toBe(firstKept * 2);
+	});
+
+	test("every group may go when the prompt and final reply fill the room", () => {
+		const reply = "r".repeat(3_600);
+		const groups = Array.from({ length: 5 }, () => ({ name: "bash", tokens: 100 }));
+		const tail = tailOf(
+			assemble(
+				{ turns: [workingTurn(1, groups, reply), turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 1_000 }),
+			),
+		);
+		const messages = tail?.messages ?? [];
+
+		expect(messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+		expect(messageText(messages[0] ?? { role: "user" })).toBe(
+			"prompt 1\n\n[pi-chart did not carry 10 earlier messages of this Turn: bash ×5; " +
+				`${approximateTokens(workingTurn(1, groups).messages.slice(1))} tokens]`,
+		);
+		expect(messages[1]).toEqual({ role: "assistant", content: reply });
+		expect(tail?.droppedMessages).toBe(10);
+	});
+
+	test("a turn that fits by eliding drops nothing and carries no marker", () => {
+		const groups = Array.from({ length: 3 }, () => ({ name: "read", tokens: 2_000 }));
+		const tail = tailOf(
+			assemble(
+				{ turns: [workingTurn(1, groups, "done"), turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 2_500 }),
+			),
+		);
+
+		expect(tail?.shortened).toBe(true);
+		expect(tail?.droppedMessages).toBeUndefined();
+		expect(tail?.messages).toHaveLength(8);
+		expect(tail?.messages[0]).toEqual({ role: "user", content: "prompt 1" });
+	});
+
+	test("the marker names each tool in the order first used", () => {
+		const groups = [
+			...Array.from({ length: 100 }, () => ({ name: "read", tokens: 10 })),
+			...Array.from({ length: 52 }, () => ({ name: "bash", tokens: 10 })),
+			...Array.from({ length: 40 }, () => ({ name: "read", tokens: 10 })),
+			...Array.from({ length: 13 }, () => ({ name: "edit", tokens: 10 })),
+		];
+		const tail = tailOf(
+			assemble(
+				{ turns: [workingTurn(1, groups, "done"), turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 70 }),
+			),
+		);
+
+		expect(messageText(tail?.messages[0] ?? { role: "user" })).toMatch(
+			/\n\n\[pi-chart did not carry 410 earlier messages of this Turn: read ×140, bash ×52, edit ×13; ~\d+k tokens\]$/,
+		);
+	});
+
+	test("the marker joins a block prompt's last text and counts an unnamed call as unknown", () => {
+		const turn = workingTurn(1, [{ name: "read", tokens: 10 }], "r".repeat(2_000));
+		turn.messages[0] = {
+			role: "user",
+			content: [
+				{ type: "text", text: "look" },
+				{ type: "image" },
+				{ type: "text", text: "then fix" },
+			],
+		};
+		turn.messages[1] = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "call-1-0", name: "" }],
+		};
+		const tail = tailOf(
+			assemble(
+				{ turns: [turn, turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 520 }),
+			),
+		);
+		const content = tail?.messages[0]?.content;
+
+		expect(Array.isArray(content) ? content.slice(0, 2) : content).toEqual([
+			{ type: "text", text: "look" },
+			{ type: "image" },
+		]);
+		expect(Array.isArray(content) ? content.slice(2) : content).toEqual([
+			{
+				type: "text",
+				text: expect.stringMatching(
+					/^then fix\n\n\[pi-chart did not carry 2 earlier messages of this Turn: unknown ×1; \d+ tokens\]$/,
+				),
+			},
+		]);
+	});
+
+	test("below the smallest form the final reply is elided before the prompt", () => {
+		const prompt = "p".repeat(1_200);
+		const groups = Array.from({ length: 3 }, () => ({ name: "read", tokens: 50 }));
+		const turn = workingTurn(1, groups, "r".repeat(12_000));
+		turn.messages[0] = { role: "user", content: prompt };
+		const tail = tailOf(
+			assemble(
+				{ turns: [turn, turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 1_000 }),
+			),
+		);
+		const [head, reply] = tail?.messages ?? [];
+
+		expect(tail?.messages).toHaveLength(2);
+		expect(messageText(reply ?? { role: "assistant" })).toContain("[pi-chart elided");
+		expect(messageText(head ?? { role: "user" })).toMatch(
+			new RegExp(`^${prompt}\\n\\n\\[pi-chart did not carry 6 earlier messages`),
+		);
+		expect(tail?.approximateTokens).toBeLessThanOrEqual(1_000);
+	});
+
+	test("when the reply alone cannot make room the prompt is elided and keeps the marker", () => {
+		const groups = Array.from({ length: 3 }, () => ({ name: "read", tokens: 50 }));
+		const turn = workingTurn(1, groups, "r".repeat(12_000));
+		turn.messages[0] = { role: "user", content: "p".repeat(12_000) };
+		const tail = tailOf(
+			assemble(
+				{ turns: [turn, turnOf(2)] },
+				budgets({ tailTurns: 1, tailTokens: 1_000 }),
+			),
+		);
+		const head = messageText(tail?.messages[0] ?? { role: "user" });
+
+		expect(messageText(tail?.messages[1] ?? { role: "assistant" })).toContain(
+			"[pi-chart elided",
+		);
+		expect(head).toContain("[pi-chart elided");
+		expect(head).toMatch(/\n\n\[pi-chart did not carry 6 earlier messages of this Turn: read ×3; \d+ tokens\]$/);
+		expect(tail?.approximateTokens).toBeLessThanOrEqual(1_000);
+	});
+
+	test("shrinking the same turn twice drops the same groups and carries the same marker", () => {
+		const groups = Array.from({ length: 60 }, (_, index) => ({
+			name: index % 3 === 0 ? "bash" : "read",
+			tokens: 80 + (index % 7) * 30,
+		}));
+		const input = () => ({ turns: [workingTurn(1, groups, "done"), turnOf(2)] });
+		const config = budgets({ tailTurns: 1, tailTokens: 2_000 });
+
+		expect(assemble(input(), config)).toEqual(assemble(input(), config));
+		expect(tailOf(assemble(input(), config))?.droppedMessages).toBeGreaterThan(0);
+	});
+});
+
+describe("the ceiling never empties the tail", () => {
+	const groups = Array.from({ length: 40 }, () => ({ name: "read", tokens: 100 }));
+
+	test("the newest tail turn is carried shrunk under a ceiling below it and the current turn", () => {
+		const pack = assemble(
+			{ turns: [workingTurn(1, groups, "done"), turnOf(2)] },
+			budgets({ tailTurns: 1, packTokens: 2_000 }),
+		);
+		const tail = tailOf(pack);
+
+		expect(tail?.carried).toBe(1);
+		expect(tail?.absent).toBeUndefined();
+		expect(tail?.droppedMessages).toBeGreaterThan(0);
+		expect(messageText(tail?.messages[0] ?? { role: "user" })).toContain(
+			"[pi-chart did not carry",
+		);
+		expect(pack.approximateTokens).toBeLessThanOrEqual(2_000);
+	});
+
+	test("a tail whose smallest form exceeds what the current turn leaves is still carried", () => {
+		// The current Turn alone nearly fills the ceiling, so even the tail's
+		// prompt and reply, both elided, do not fit beside it.
+		const reply = "r".repeat(4_000);
+		const current = turnOf(2, bulky(2_000, "c"));
+		const pack = assemble(
+			{ turns: [workingTurn(1, groups, reply), current] },
+			budgets({ tailTurns: 1, packTokens: 300 }),
+		);
+		const tail = tailOf(pack);
+		const now = pack.parts.find((part) => part.source === "current-turn");
+
+		expect(tail?.carried).toBe(1);
+		expect(tail?.absent).toBeUndefined();
+		expect(tail?.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+		expect(tail?.droppedMessages).toBe(80);
+		expect(now?.shortened).toBe(true);
+		expect(now?.messages).toHaveLength(current.messages.length);
+		expect(pack.approximateTokens).toBeGreaterThan(300);
 	});
 });
 
@@ -943,8 +1219,8 @@ describe("the pack ceiling", () => {
 		expect(pack.approximateTokens).toBe(exact);
 	});
 
-	test("reduction gives up structure, then curated, then recall, then the tail", () => {
-		const surviving = (packTokens: number) =>
+	test("reduction gives up structure, then curated, then recall, then shrinks the tail", () => {
+		const reduced = (packTokens: number) =>
 			assemble(
 				oversized(),
 				budgets({
@@ -954,9 +1230,14 @@ describe("the pack ceiling", () => {
 					graphSymbols: 1,
 					packTokens,
 				}),
-			)
+			);
+		const surviving = (packTokens: number) =>
+			reduced(packTokens)
 				.parts.filter((part) => (part.carried ?? 0) > 0)
 				.map((part) => part.source);
+		const tailTokens = (packTokens: number) =>
+			reduced(packTokens).parts.find((part) => part.source === "verbatim-tail")
+				?.approximateTokens ?? 0;
 
 		// Swept rather than sampled at chosen numbers: the claim is the order
 		// parts are given up in, and a threshold in the test would be a
@@ -979,11 +1260,16 @@ describe("the pack ceiling", () => {
 		// nothing about the parts' sizes.
 		const step = Math.ceil(total / 100);
 		const firstAbsent = new Map<PackSource, number>();
+		let tailFirstReduced: number | undefined;
+		const wholeTail = tailTokens(UNBOUNDED);
 		for (let ceiling = total; ceiling >= 0; ceiling -= step) {
 			const now = surviving(ceiling);
 			for (const source of whole) {
 				if (now.includes(source) || firstAbsent.has(source)) continue;
 				firstAbsent.set(source, ceiling);
+			}
+			if (tailFirstReduced === undefined && tailTokens(ceiling) < wholeTail) {
+				tailFirstReduced = ceiling;
 			}
 		}
 
@@ -998,10 +1284,16 @@ describe("the pack ceiling", () => {
 			[...firstAbsent.entries()]
 				.sort(([, a], [, b]) => b - a)
 				.map(([source]) => source),
-		).toEqual(["structure", "curated", "recalled", "verbatim-tail"]);
+		).toEqual(["structure", "curated", "recalled"]);
+		// The tail gives way last of the reducible parts, and only by
+		// shrinking: once it carried, the ceiling never empties it.
+		expect(tailFirstReduced).toBeDefined();
+		expect(tailFirstReduced ?? Infinity).toBeLessThanOrEqual(
+			firstAbsent.get("recalled") ?? -Infinity,
+		);
 		// The current Turn is never given up, because it is the prompt.
 		expect(firstAbsent.has("current-turn")).toBe(false);
-		expect(surviving(0)).toEqual(["current-turn"]);
+		expect(surviving(0)).toEqual(["verbatim-tail", "current-turn"]);
 	});
 
 	test("the tail gives up its oldest turn first", () => {
@@ -1164,7 +1456,10 @@ describe("pins in a pack", () => {
 		const pinned = part("pinned");
 		const current = part("current-turn");
 
-		expect(part("verbatim-tail")?.carried).toBe(0);
+		// Reduced to its smallest form, never emptied: the orphan result
+		// went, and the prompt carries the marker saying so.
+		expect(part("verbatim-tail")?.carried).toBe(1);
+		expect(part("verbatim-tail")?.droppedMessages).toBe(1);
 		expect(part("recalled")?.carried).toBe(0);
 		expect(pinned?.messages.map((message) => message.content)).toEqual([
 			`[pinned by the user: #1, 1 of 2]\n${"p".repeat(800)}`,

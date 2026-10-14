@@ -72,6 +72,10 @@ const REASONS: ((part: PartView) => string | undefined)[] = [
 		part.trimmed && part.excluded === undefined
 			? `${part.dropped} dropped`
 			: undefined,
+	(part) =>
+		part.droppedMessages !== undefined
+			? `${part.droppedMessages} message${part.droppedMessages === 1 ? "" : "s"} dropped`
+			: undefined,
 	(part) => (part.shortened === true ? "content shortened" : undefined),
 	// Said whenever the ceiling changed what this part carried, whether it
 	// lost whole candidates or only their bulk.

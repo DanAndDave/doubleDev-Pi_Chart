@@ -5,7 +5,7 @@ import {
 	type HarnessMessage,
 	type Turn,
 } from "./messages.ts";
-import { elideLine, elideTurn, SHORTEST_TOKENS } from "./elision.ts";
+import { elideLine, elideTurn, shrinkTurn, SHORTEST_TOKENS } from "./elision.ts";
 import { approximateTokens } from "./tokens.ts";
 import { shares } from "./shares.ts";
 import type { ConceptHit, ConceptMiss } from "./doc-index.ts";
@@ -155,6 +155,8 @@ export interface PackPart {
 	withoutCeiling?: number;
 	/** Whether any content in this part was carried shortened to fit. */
 	shortened?: boolean;
+	/** How many of its messages were dropped to fit; absent where none were. */
+	droppedMessages?: number;
 }
 
 export interface Pack {
@@ -473,12 +475,14 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	});
 
 	// The tail fills from its most recent Turn backwards, and the most recent
-	// Turn is kept even when it alone exceeds the Budget — shortened, not
-	// dropped. Measured on real Journals, the newest completed Turn of a
-	// working session can be three times the whole tail Budget, and a
-	// drop-only rule would empty the tail exactly when working state matters
-	// most.
-	const selectTail = tailSelector(completed);
+	// Turn is kept even when it alone exceeds the Budget — shrunk by its
+	// oldest actions, not dropped. Measured on real Journals, the newest
+	// completed Turn of a working session can be three times the whole tail
+	// Budget, and a drop-only rule would empty the tail exactly when working
+	// state matters most. A configured token Budget of nothing is the one
+	// thing that disables it, decided here so that a ceiling leaving no room
+	// still gets that Turn's smallest form.
+	const selectTail = tailSelector(completed, config.tail.tokens > 0);
 	const tail = selectTail(config.tail);
 	parts.push({
 		source: "verbatim-tail",
@@ -501,6 +505,7 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 			unavailable: unavailable["verbatim-tail"],
 		}),
 		shortened: tail.shortened || undefined,
+		droppedMessages: tail.droppedMessages,
 	});
 
 	// The user's own standing instructions lead the Briefing, before the
@@ -680,6 +685,8 @@ interface Fitted<T> {
 	excludedByCount: number;
 	excludedBySize: number;
 	shortened: boolean;
+	/** Messages dropped from within what it kept, not whole candidates. */
+	droppedMessages?: number;
 	/** Which candidates the Budgets excluded, strongest first. */
 	excluded: Excluded<T>[];
 }
@@ -698,6 +705,7 @@ interface Selected {
 	excludedByCount: number;
 	excludedBySize: number;
 	shortened: boolean;
+	droppedMessages?: number;
 	/** What the Budget kept out, by identity, strongest first. */
 	excluded: ExcludedCandidate[];
 	turnIndices?: number[];
@@ -862,11 +870,12 @@ function excludedOf<T>(
  * means the same thing for the tail as for every other part.
  *
  * Newest Turn first and kept in order. Unlike every other part the tail may
- * not come back empty: its newest Turn is retained with its tool results
- * shortened when it cannot fit whole, because that Turn is what the current
- * one is reasoning about.
+ * not come back empty: its newest Turn is retained, shrunk by its oldest
+ * actions when it cannot fit whole, because that Turn is what the current
+ * one is reasoning about. Only a configured Budget of nothing, which
+ * `keepsNewest` carries, disables it; a ceiling leaving no room does not.
  */
-function tailSelector(completed: Turn[]): Selector {
+function tailSelector(completed: Turn[], keepsNewest: boolean): Selector {
 	return (within) => {
 		const byCount = (
 			within.count > 0 ? completed.slice(-within.count) : []
@@ -883,7 +892,7 @@ function tailSelector(completed: Turn[]): Selector {
 				reason: "count" as const,
 				budget: within.count,
 			}));
-		const fitted = fitTail(byCount, within.tokens);
+		const fitted = fitTail(byCount, within.tokens, keepsNewest);
 		return {
 			carried: fitted.kept.length,
 			messages: fitted.messages,
@@ -891,6 +900,7 @@ function tailSelector(completed: Turn[]): Selector {
 			excludedByCount: byCountExcluded,
 			excludedBySize: fitted.excludedBySize,
 			shortened: fitted.shortened,
+			droppedMessages: fitted.droppedMessages,
 			excluded: [
 				...byBudget(fitted, (turn) => ({ turnIndex: turn.index })),
 				...beyondCount,
@@ -911,6 +921,7 @@ function tailSelector(completed: Turn[]): Selector {
 function fitTail(
 	byCount: Turn[],
 	tokenBudget: number,
+	keepsNewest: boolean,
 ): Omit<Fitted<Turn>, "excludedByCount"> {
 	const budget = Math.max(tokenBudget, 0);
 	const kept: Turn[] = [];
@@ -941,7 +952,7 @@ function fitTail(
 
 	if (kept.length === 0) {
 		const newest = byCount[byCount.length - 1];
-		if (newest === undefined || budget === 0) {
+		if (newest === undefined || !keepsNewest) {
 			return {
 				kept: [],
 				messages: [],
@@ -951,13 +962,14 @@ function fitTail(
 				excluded: excluded(byCount.length),
 			};
 		}
-		const shortened = elideTurn(newest.messages, budget);
+		const shrunk = shrinkTurn(newest.messages, budget);
 		return {
 			kept: [newest],
-			messages: shortened.messages,
-			tokens: shortened.tokens,
+			messages: shrunk.messages,
+			tokens: shrunk.tokens,
 			excludedBySize: byCount.length - 1,
-			shortened: shortened.shortened,
+			shortened: shrunk.shortened,
+			droppedMessages: shrunk.droppedMessages || undefined,
 			excluded: excluded(byCount.length - 1),
 		};
 	}
@@ -1361,8 +1373,9 @@ interface Reducible {
  * Each reducible part is re-selected under the room left by the parts that
  * outrank it, so a part loses whole candidates the way its own Budget would
  * have made it lose them — the tail its oldest Turns, recall its weakest
- * matches. The current Turn is never dropped, so when it alone exceeds the
- * ceiling its tool results are elided instead.
+ * matches. The current Turn and the tail's newest Turn are never dropped:
+ * the tail keeps that Turn at its smallest form, and when what is left
+ * still exceeds the ceiling the current Turn's tool results are elided.
  */
 function reduceToCeiling(
 	parts: PackPart[],
@@ -1393,7 +1406,13 @@ function reduceToCeiling(
 		// part reduced by it is the same selection under less room.
 		const reduce = reducible[source];
 		const result = reduce?.select({ count: reduce.budget.count, tokens: room });
-		const usable = result !== undefined && result.tokens <= room;
+		// The tail's newest Turn is never dropped (ADR-0012): once the tail
+		// carried, its smallest form counts toward the total the way Pins do,
+		// even over the room, and the current Turn is elided around it.
+		const usable =
+			result !== undefined &&
+			(result.tokens <= room ||
+				(source === "verbatim-tail" && result.carried > 0));
 
 		part.withoutCeiling = sizeBefore;
 		part.messages = usable ? result.messages : [];
@@ -1409,6 +1428,7 @@ function reduceToCeiling(
 			part.symbols = usable ? (result.symbols ?? []) : [];
 		}
 		part.shortened = (usable && result.shortened) || undefined;
+		part.droppedMessages = usable ? result.droppedMessages : undefined;
 		part.excluded = {
 			...(part.excluded ?? {}),
 			ceiling: carriedBefore - (part.carried ?? 0),

@@ -177,6 +177,8 @@ export interface RecordedPart {
 	withoutCeiling?: number;
 	/** Whether any of its content was carried shortened. */
 	shortened?: boolean;
+	/** How many of its messages were dropped to fit; absent where none were. */
+	droppedMessages?: number;
 }
 
 /** Everything recorded for one Turn, which is one or more Calls. */
@@ -268,6 +270,7 @@ export function recordPart(part: {
 	absent?: AbsenceCause;
 	withoutCeiling?: number;
 	shortened?: boolean;
+	droppedMessages?: number;
 }): RecordedPart {
 	return {
 		source: part.source,
@@ -288,6 +291,7 @@ export function recordPart(part: {
 		absent: part.absent,
 		withoutCeiling: part.withoutCeiling,
 		shortened: part.shortened,
+		droppedMessages: part.droppedMessages,
 	};
 }
 

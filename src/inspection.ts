@@ -71,6 +71,8 @@ export interface PartView {
 	withoutCeiling?: number;
 	/** Whether any of its content was shortened to fit. */
 	shortened?: boolean;
+	/** How many of its messages were dropped to fit; absent where none were. */
+	droppedMessages?: number;
 }
 
 /** What one Call's Context Window was made of. */
@@ -347,6 +349,7 @@ function viewPart(part: RecordedPart): PartView {
 		absent: part.absent,
 		withoutCeiling: part.withoutCeiling,
 		shortened: part.shortened === true ? true : undefined,
+		droppedMessages: (part.droppedMessages ?? 0) > 0 ? part.droppedMessages : undefined,
 	};
 }
 

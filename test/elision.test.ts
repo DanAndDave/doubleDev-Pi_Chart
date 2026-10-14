@@ -204,31 +204,33 @@ describe("shortening", () => {
 		expect(part?.approximateTokens).toBeLessThanOrEqual(3000);
 	});
 
-	test("a prompt and assistant reasoning are never shortened", () => {
+	test("a prompt and assistant reasoning in the current turn are never shortened", () => {
+		// The newest tail Turn's are elided below its smallest form (ADR-0012);
+		// the current Turn's never are, whatever the ceiling.
 		const reasoning = "why ".repeat(4000);
 		const pack = assemble(
 			{
 				turns: [
+					turnOf(1),
 					{
-						index: 1,
+						index: 2,
 						prompt: "long prompt",
 						messages: [
 							{ role: "user", content: reasoning },
 							{ role: "assistant", content: reasoning },
 						],
 					},
-					turnOf(2),
 				],
 			},
-			budgets({ tailTurns: 1, tailTokens: 100 }),
+			budgets({ tailTurns: 1, packTokens: 100 }),
 		);
-		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
+		const current = pack.parts.find((part) => part.source === "current-turn");
 
-		expect(tail?.messages.map((message) => message.content)).toEqual([
+		expect(current?.messages.map((message) => message.content)).toEqual([
 			reasoning,
 			reasoning,
 		]);
-		expect(tail?.shortened).toBeUndefined();
+		expect(current?.shortened).toBeUndefined();
 	});
 
 	test("content within its budget is carried unaltered and unmarked", () => {
