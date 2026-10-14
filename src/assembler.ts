@@ -10,7 +10,7 @@ import { approximateTokens } from "./tokens.ts";
 import { shares } from "./shares.ts";
 import type { ConceptHit, ConceptMiss } from "./doc-index.ts";
 import { describeEdge, qualify, type Neighbourhood } from "./symbols.ts";
-import type { RecalledTurn, TurnMiss } from "./thread-store.ts";
+import type { RecalledTurn, TurnMiss, TurnSize } from "./thread-store.ts";
 import { renderPins, type Pin } from "./pins.ts";
 
 /**
@@ -34,6 +34,11 @@ export interface Budget {
 export interface AssemblerConfig {
 	/** Completed Turns carried verbatim ahead of the current one. */
 	tail: Budget;
+	/**
+	 * The share of both tail Budgets the tail drops to when a completed Turn
+	 * carries it past either (ADR-0013). In (0, 1]; 1 slides the tail.
+	 */
+	tailLowWater: number;
 	/** Turns a pack may carry that were recalled by meaning. */
 	recall: Budget;
 	/** Concepts a pack may carry. A count of zero disables curated knowledge. */
@@ -236,10 +241,12 @@ export interface PartExclusion {
 	size?: number;
 	/** Excluded or shortened because the pack exceeded its ceiling. */
 	ceiling?: number;
+	/** Left behind by the verbatim tail's Eviction (ADR-0013). */
+	evicted?: number;
 }
 
 /** Why a candidate was offered to a part and not carried. */
-export type ExclusionReason = "irrelevant" | "count" | "size" | "ceiling";
+export type ExclusionReason = "irrelevant" | "count" | "size" | "ceiling" | "evicted";
 
 /**
  * One candidate a part did not carry, by identity.
@@ -318,6 +325,12 @@ export interface AssembleInput {
 	 * every one, whatever their Budget or the ceiling.
 	 */
 	pins?: Pin[];
+	/**
+	 * Every completed Turn the Conversation holds, oldest first, with its
+	 * `tailTokens` size: what the tail's start is replayed from. Absent,
+	 * the start is replayed from the completed Turns in `turns`.
+	 */
+	tailSizes?: TurnSize[];
 }
 
 /**
@@ -340,21 +353,26 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 		structure = [],
 		unavailable = {},
 		pins = [],
+		tailSizes,
 	} = input;
 	const bound = config.explainCandidates;
 
 	const current = turns[turns.length - 1];
 	const completed = turns.slice(0, -1);
-	// The Turns the tail will reach, needed here as well because a
-	// recollection of a Turn the tail already carries is a Turn in the
-	// window twice. Withheld calls are applied here rather than at ingest:
-	// the Journal recorded what happened, and an unanswered call is part of
-	// what happened. It is the Context Window that may not carry one — a
-	// provider refuses a call with no result outright — so the refusal
-	// belongs where messages become protocol messages, which is also where
-	// Turns from the live array pass.
+	// Where the tail starts, replayed (ADR-0013), and the Turns it reaches
+	// from there — needed here as well because a recollection of a Turn the
+	// tail already carries is a Turn in the window twice, and one the tail
+	// evicted is a Turn recall may bring back. Withheld calls are applied
+	// here rather than at ingest: the Journal recorded what happened, and an
+	// unanswered call is part of what happened. It is the Context Window
+	// that may not carry one — a provider refuses a call with no result
+	// outright — so the refusal belongs where messages become protocol
+	// messages, which is also where Turns from the live array pass.
+	const tailFromPosition = tailFrom(completed, tailSizes, config);
 	const inTail = (
-		config.tail.count > 0 ? completed.slice(-config.tail.count) : []
+		config.tail.count > 0
+			? completed.slice(tailFromPosition).slice(-config.tail.count)
+			: []
 	).map(paired);
 
 	const parts: PackPart[] = [];
@@ -482,7 +500,11 @@ export function assemble(input: AssembleInput, config: AssemblerConfig): Pack {
 	// state matters most. A configured token Budget of nothing is the one
 	// thing that disables it, decided here so that a ceiling leaving no room
 	// still gets that Turn's smallest form.
-	const selectTail = tailSelector(completed, config.tail.tokens > 0);
+	const selectTail = tailSelector(
+		completed,
+		tailFromPosition,
+		config.tail.tokens > 0,
+	);
 	const tail = selectTail(config.tail);
 	parts.push({
 		source: "verbatim-tail",
@@ -703,6 +725,8 @@ interface Selected {
 	messages: HarnessMessage[];
 	tokens: number;
 	excludedByCount: number;
+	/** Turns the verbatim tail evicted; no other part evicts. */
+	excludedByEviction?: number;
 	excludedBySize: number;
 	shortened: boolean;
 	droppedMessages?: number;
@@ -863,7 +887,78 @@ function excludedOf<T>(
 }
 
 /**
- * The verbatim tail's selector, over the Turns already answered.
+ * Where in `completed` the verbatim tail starts: the first position at or
+ * after the Turn `tailStart` replays to.
+ *
+ * Positions stand in for Turns with no index — the harness's own history
+ * reconstructed in a test — so sizes taken from `completed` and the Turns
+ * they size always agree. A tail disabled by a Budget of nothing evicts
+ * nothing; a start past every Turn held, which only sizes disagreeing with
+ * the Turns can produce, still leaves the newest.
+ */
+function tailFrom(
+	completed: Turn[],
+	tailSizes: TurnSize[] | undefined,
+	config: AssemblerConfig,
+): number {
+	if (config.tail.count <= 0 || config.tail.tokens <= 0) return 0;
+	const sizes =
+		tailSizes ??
+		completed.map((turn, position) => ({
+			index: turn.index ?? position,
+			tokens: tailTokens(turn),
+		}));
+	const start = tailStart(sizes, config.tail, config.tailLowWater);
+	if (start === undefined) return 0;
+	const from = completed.findIndex(
+		(turn, position) => (turn.index ?? position) >= start,
+	);
+	return from === -1 ? Math.max(completed.length - 1, 0) : from;
+}
+
+/**
+ * The index of the first Turn the verbatim tail carries (ADR-0013).
+ *
+ * Replayed over every completed Turn, oldest first: each is added behind
+ * the tail, and one that carries it past either Budget evicts its oldest
+ * Turns in one step, down to `mark` of both. The Turn just added is never
+ * evicted. Derived, never stored, so every process that sees the same
+ * sizes under the same configuration agrees where the tail starts — and
+ * between Evictions the first message after the Briefing does not change.
+ */
+function tailStart(
+	sizes: TurnSize[],
+	budget: Budget,
+	mark: number,
+): number | undefined {
+	const markTokens = Math.floor(mark * budget.tokens);
+	const markCount = Math.max(1, Math.floor(mark * budget.count));
+	let start = 0;
+	let tokens = 0;
+	for (let newest = 0; newest < sizes.length; newest++) {
+		tokens += sizes[newest]?.tokens ?? 0;
+		const over = (tokenLimit: number, countLimit: number) =>
+			tokens > tokenLimit || newest - start + 1 > countLimit;
+		if (!over(budget.tokens, budget.count)) continue;
+		while (start < newest && over(markTokens, markCount)) {
+			tokens -= sizes[start]?.tokens ?? 0;
+			start++;
+		}
+	}
+	return sizes[start]?.index;
+}
+
+/**
+ * A completed Turn's size as the verbatim tail carries it: withheld calls
+ * withheld. The one measure the tail's start is replayed from, wherever a
+ * Turn is sized — at ingest, from the live history, or here.
+ */
+export function tailTokens(turn: Turn): number {
+	return approximateTokens(paired(turn).messages);
+}
+
+/**
+ * The verbatim tail's selector, over the Turns from its start.
  *
  * Both Budgets arrive the same way every other part's do, and the count is
  * applied here rather than by the caller, so `Selected.excludedByCount`
@@ -874,17 +969,25 @@ function excludedOf<T>(
  * actions when it cannot fit whole, because that Turn is what the current
  * one is reasoning about. Only a configured Budget of nothing, which
  * `keepsNewest` carries, disables it; a ceiling leaving no room does not.
+ * Neither moves the start: the ceiling re-runs this over the same Turns.
  */
-function tailSelector(completed: Turn[], keepsNewest: boolean): Selector {
+function tailSelector(
+	completed: Turn[],
+	from: number,
+	keepsNewest: boolean,
+): Selector {
 	return (within) => {
+		// A disabled tail evicts nothing: what it does not carry, its
+		// Budget of nothing excluded.
+		const evicted = within.count > 0 ? from : 0;
+		const window = completed.slice(evicted);
 		const byCount = (
-			within.count > 0 ? completed.slice(-within.count) : []
+			within.count > 0 ? window.slice(-within.count) : []
 		).map(paired);
-		const byCountExcluded = Math.max(completed.length - byCount.length, 0);
-		// The Turns the count never reached, newest first: they are older
-		// than everything the window held, so they follow what the size
-		// Budget kept out.
-		const beyondCount: ExcludedCandidate[] = completed
+		const byCountExcluded = window.length - byCount.length;
+		// Older than everything the window held, so after what the size
+		// Budget kept out; newest first, the order a reader misses them in.
+		const beyondCount: ExcludedCandidate[] = window
 			.slice(0, byCountExcluded)
 			.reverse()
 			.map((turn) => ({
@@ -892,6 +995,10 @@ function tailSelector(completed: Turn[], keepsNewest: boolean): Selector {
 				reason: "count" as const,
 				budget: within.count,
 			}));
+		const evictedTurns: ExcludedCandidate[] = completed
+			.slice(0, evicted)
+			.reverse()
+			.map((turn) => ({ turnIndex: turn.index, reason: "evicted" as const }));
 		const fitted = fitTail(byCount, within.tokens, keepsNewest);
 		return {
 			carried: fitted.kept.length,
@@ -899,11 +1006,13 @@ function tailSelector(completed: Turn[], keepsNewest: boolean): Selector {
 			tokens: fitted.tokens,
 			excludedByCount: byCountExcluded,
 			excludedBySize: fitted.excludedBySize,
+			excludedByEviction: evicted,
 			shortened: fitted.shortened,
 			droppedMessages: fitted.droppedMessages,
 			excluded: [
 				...byBudget(fitted, (turn) => ({ turnIndex: turn.index })),
 				...beyondCount,
+				...evictedTurns,
 			],
 			turnIndices: fitted.kept
 				.map((turn) => turn.index)
@@ -1027,12 +1136,13 @@ function paired(turn: Turn): Turn {
 
 function exclusion(
 	irrelevant: number,
-	fitted: { excludedByCount: number; excludedBySize: number },
+	fitted: Pick<Selected, "excludedByCount" | "excludedBySize" | "excludedByEviction">,
 ): PartExclusion | undefined {
 	const result: PartExclusion = {};
 	if (irrelevant > 0) result.irrelevant = irrelevant;
 	if (fitted.excludedByCount > 0) result.count = fitted.excludedByCount;
 	if (fitted.excludedBySize > 0) result.size = fitted.excludedBySize;
+	if ((fitted.excludedByEviction ?? 0) > 0) result.evicted = fitted.excludedByEviction;
 	return Object.keys(result).length > 0 ? result : undefined;
 }
 

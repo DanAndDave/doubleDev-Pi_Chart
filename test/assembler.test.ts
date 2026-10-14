@@ -5,6 +5,7 @@ import {
 	assemble,
 	BRIEFING_FRAMING,
 	BRIEFING_MARKER,
+	tailTokens,
 	type Pack,
 	type PackSource,
 } from "../src/assembler.ts";
@@ -29,7 +30,7 @@ describe("assemble", () => {
 	test("carries the current prompt and the last N turns, dropping older ones", () => {
 		const turns = reconstructTurns(conversation(5));
 
-		const pack = assemble({ turns: turns }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
+		const pack = assemble({ turns: turns }, budgets({ tailTurns: 2, tailLowWater: 1, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
 		const texts = pack.messages.map((message) => message.content);
 
 		expect(texts).toEqual([
@@ -68,7 +69,7 @@ describe("assemble", () => {
 
 		const counts = [0, 1, 3].map(
 			(tailTurns) =>
-				assemble({ turns }, budgets({ tailTurns, recallTurns: 0, docConcepts: 0, graphSymbols: 0 })).messages
+				assemble({ turns }, budgets({ tailTurns, tailLowWater: 1, recallTurns: 0, docConcepts: 0, graphSymbols: 0 })).messages
 					.length,
 		);
 
@@ -78,7 +79,7 @@ describe("assemble", () => {
 	test("the pack does not grow as the conversation does", () => {
 		const sizes = [20, 200, 2000].map(
 			(turnCount) =>
-				assemble({ turns: reconstructTurns(conversation(turnCount)) }, budgets({ tailTurns: 3, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }))
+				assemble({ turns: reconstructTurns(conversation(turnCount)) }, budgets({ tailTurns: 3, tailLowWater: 1, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }))
 					.messages.length,
 		);
 
@@ -816,7 +817,8 @@ describe("token budgets", () => {
 		expect(tail?.turnIndices).toEqual([2]);
 		expect(tail?.shortened).toBe(true);
 		expect(tail?.approximateTokens).toBeLessThanOrEqual(400);
-		expect(tail?.excluded?.size).toBe(1);
+		// Turn 1 left by Eviction when Turn 2 carried the tail past its Budget.
+		expect(tail?.excluded).toEqual({ evicted: 1 });
 	});
 });
 
@@ -1494,5 +1496,150 @@ describe("pins in a pack", () => {
 		]);
 		expect(pinned?.absent).toBe("none");
 		expect(pinned?.carried).toBe(0);
+	});
+});
+
+describe("the verbatim tail evicts to a low-water mark", () => {
+	/** Turns 1 to `completed`, each `tokens` heavier than a bare prompt, then the Turn in progress. */
+	const conversationOf = (completed: number, tokens = 0): Turn[] => [
+		...Array.from({ length: completed }, (_, offset) =>
+			tokens > 0 ? turnOf(offset + 1, bulky(tokens)) : turnOf(offset + 1),
+		),
+		turnOf(completed + 1),
+	];
+	const carried = (pack: Pack) => tailOf(pack)?.turnIndices;
+
+	test("the start holds between evictions", () => {
+		const config = budgets({ tailTurns: 8 });
+		const starts = [9, 10, 11, 12, 13, 14].map(
+			(completed) => carried(assemble({ turns: conversationOf(completed) }, config))?.[0],
+		);
+
+		expect(starts).toEqual([6, 6, 6, 6, 6, 11]);
+		expect(carried(assemble({ turns: conversationOf(12) }, config))).toEqual([6, 7, 8, 9, 10, 11, 12]);
+	});
+
+	test("eviction drops to the mark in one step", () => {
+		// Turns of about 4,000 tokens: six fit 25,000, the seventh does not,
+		// and three is the most that fits the default mark of 15,000.
+		const config = budgets({ tailTurns: 8, tailTokens: 25_000 });
+
+		expect(carried(assemble({ turns: conversationOf(6, 4_000) }, config))).toEqual([1, 2, 3, 4, 5, 6]);
+		const evicted = tailOf(assemble({ turns: conversationOf(7, 4_000) }, config));
+		expect(evicted?.turnIndices).toEqual([5, 6, 7]);
+		expect(evicted?.approximateTokens).toBeLessThanOrEqual(15_000);
+	});
+
+	test("the count budget evicts to its mark", () => {
+		const pack = assemble({ turns: conversationOf(9) }, budgets({ tailTurns: 8 }));
+
+		expect(carried(pack)).toEqual([6, 7, 8, 9]);
+	});
+
+	test("a newest turn larger than the mark is kept alone", () => {
+		const config = budgets({ tailTurns: 8, tailTokens: 1_000 });
+		const ending = (tokens: number) =>
+			tailOf(
+				assemble(
+					{ turns: [turnOf(1, bulky(300)), turnOf(2, bulky(300)), turnOf(3, bulky(tokens)), turnOf(4)] },
+					config,
+				),
+			);
+
+		// Over the mark of 600, within the Budget: alone and whole.
+		expect(ending(800)?.turnIndices).toEqual([3]);
+		expect(ending(800)?.shortened).toBeUndefined();
+		// Over the Budget as well: alone and shrunk.
+		expect(ending(1_500)?.turnIndices).toEqual([3]);
+		expect(ending(1_500)?.shortened).toBe(true);
+	});
+
+	test("a mark of one slides the tail", () => {
+		expect(carried(assemble({ turns: conversationOf(12) }, budgets({ tailTurns: 8, tailLowWater: 1 })))).toEqual([
+			5, 6, 7, 8, 9, 10, 11, 12,
+		]);
+		expect(
+			carried(
+				assemble(
+					{ turns: conversationOf(9, 4_000) },
+					budgets({ tailTurns: 8, tailTokens: 25_000, tailLowWater: 1 }),
+				),
+			),
+		).toEqual([4, 5, 6, 7, 8, 9]);
+	});
+
+	test("the ceiling does not move the start", () => {
+		// A Pin too heavy for the ceiling takes the tail's oldest Turns on
+		// one Call; removed, the next Call's Pack fits again.
+		const turns = conversationOf(3, 200);
+		const config = budgets({ tailTurns: 8, packTokens: 900 });
+		const pinned = assemble({ turns, pins: [{ id: 1, text: "p".repeat(1_600) }] }, config);
+		const next = assemble({ turns }, config);
+
+		expect(carried(pinned)).not.toEqual([1, 2, 3]);
+		expect(carried(next)).toEqual([1, 2, 3]);
+		expect(tailOf(next)).toEqual(tailOf(assemble({ turns }, budgets({ tailTurns: 8 }))));
+	});
+
+	test("the start is the same however it is reached", () => {
+		// Sizes that vary, so the count Budget evicts on some Calls (the
+		// ninth) and the token Budget on others (the fourteenth).
+		const conversation = Array.from({ length: 30 }, (_, offset) =>
+			turnOf(offset + 1, bulky(((offset * 37) % 11) * 120 + 20)),
+		);
+		const sizes = conversation.map((turn) => ({ index: turn.index ?? 0, tokens: tailTokens(turn) }));
+		const config = budgets({ tailTurns: 8, tailTokens: 5_000 });
+
+		for (let completed = 1; completed < conversation.length; completed++) {
+			// The answering process: the Store's recent Turns, then the Turn in progress.
+			const answering = assemble(
+				{
+					turns: conversation.slice(Math.max(completed - 8, 0), completed + 1),
+					tailSizes: sizes.slice(0, completed),
+				},
+				config,
+			);
+			// A fresh process holding the whole Conversation.
+			const fresh = assemble(
+				{ turns: conversation.slice(0, completed + 1), tailSizes: sizes.slice(0, completed) },
+				config,
+			);
+
+			expect(carried(answering)?.[0]).toBe(carried(fresh)?.[0]);
+		}
+	});
+
+	test("an evicted turn can be recalled", () => {
+		const turns = conversationOf(9);
+		const pack = assemble(
+			{ turns, recalled: [{ turnIndex: 3, turn: turnOf(3) }] },
+			budgets({ tailTurns: 8, recallTurns: 1 }),
+		);
+
+		expect(carried(pack)).toEqual([6, 7, 8, 9]);
+		expect(pack.parts.find((part) => part.source === "recalled")?.turnIndices).toEqual([3]);
+	});
+
+	test("a turn in the tail is not recalled", () => {
+		const turns = conversationOf(9);
+		const pack = assemble(
+			{ turns, recalled: [{ turnIndex: 7, turn: turnOf(7) }] },
+			budgets({ tailTurns: 8, recallTurns: 1 }),
+		);
+
+		expect(pack.parts.find((part) => part.source === "recalled")?.turnIndices).toEqual([]);
+	});
+
+	test("evicted turns are recorded as evicted", () => {
+		const tail = tailOf(assemble({ turns: conversationOf(9) }, budgets({ tailTurns: 8 })));
+
+		expect(tail?.excluded).toEqual({ evicted: 5 });
+		expect(tail?.excludedCandidates?.map((each) => [each.turnIndex, each.reason])).toEqual([
+			[5, "evicted"],
+			[4, "evicted"],
+			[3, "evicted"],
+			[2, "evicted"],
+			[1, "evicted"],
+		]);
 	});
 });

@@ -15,7 +15,7 @@ import {
 	type TailSource,
 	type TurnAccounting,
 } from "./accounting.ts";
-import type { Pack, PackSource } from "./assembler.ts";
+import { tailTokens, type Pack, type PackSource } from "./assembler.ts";
 import { PINNED_DIMENSIONS, type Embedder } from "./embedder.ts";
 import type { Concept, TrustTier } from "./concept.ts";
 import type {
@@ -37,6 +37,7 @@ import type {
 	TurnMiss,
 	TurnRecall,
 	TurnSink,
+	TurnSize,
 	TurnSource,
 	VectorModels,
 } from "./thread-store.ts";
@@ -320,6 +321,16 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS missing_briefings INTEGER`,
 		],
 	},
+	{
+		version: 23,
+		statements: [
+			// A Turn's size as the verbatim tail carries it, which the tail's
+			// start is replayed from (ADR-0013). Nullable: a row ingested
+			// before is sized from its messages on first read, then written
+			// back, rather than by a backfill.
+			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS tail_tokens INTEGER`,
+		],
+	},
 ];
 
 /**
@@ -495,19 +506,27 @@ export class PostgresStore implements
 				continue;
 			}
 
+			const tailSize = tailTokens({
+				index: turn.turnIndex,
+				prompt: turn.prompt,
+				messages: turn.messages,
+			});
 			await this.sql.begin(async (tx: Sql) => {
 				await tx`
 					INSERT INTO turns
-						(conversation_id, turn_index, prompt, codebase, call_count, text_hash)
+						(conversation_id, turn_index, prompt, codebase, call_count, text_hash,
+						 tail_tokens)
 					VALUES (
 						${conversationId}, ${turn.turnIndex}, ${turn.prompt},
-						${codebase ?? null}, ${Math.max(turn.callCount, 1)}, ${fingerprint}
+						${codebase ?? null}, ${Math.max(turn.callCount, 1)}, ${fingerprint},
+						${tailSize}
 					)
 					ON CONFLICT (conversation_id, turn_index)
 					DO UPDATE SET
 						prompt = EXCLUDED.prompt,
 						call_count = EXCLUDED.call_count,
 						text_hash = EXCLUDED.text_hash,
+						tail_tokens = EXCLUDED.tail_tokens,
 						-- The Codebase is deliberately not updated here: a Turn
 						-- happened in one place, and resuming its Conversation
 						-- from another directory does not move it. Not COALESCE
@@ -826,6 +845,31 @@ export class PostgresStore implements
 			if (message) turns[turns.length - 1]?.messages.push(message);
 		}
 		return turns;
+	}
+
+	async turnSizes(conversationId: string): Promise<TurnSize[]> {
+		const rows = (await this.sql`
+			SELECT turn_index, tail_tokens FROM turns
+			WHERE conversation_id = ${conversationId}
+			ORDER BY turn_index ASC`) as { turn_index: number; tail_tokens: number | null }[];
+
+		const sizes: TurnSize[] = [];
+		for (const row of rows) {
+			let tokens = row.tail_tokens;
+			// Ingested before sizes were recorded: sized from its messages
+			// once, and written back so no later Call reads them again.
+			if (tokens === null) {
+				const turn = await this.turnAt(conversationId, row.turn_index);
+				tokens = turn ? tailTokens(turn) : 0;
+				await this.sql`
+					UPDATE turns SET tail_tokens = ${tokens}
+					WHERE conversation_id = ${conversationId}
+						AND turn_index = ${row.turn_index}
+						AND tail_tokens IS NULL`;
+			}
+			sizes.push({ index: row.turn_index, tokens });
+		}
+		return sizes;
 	}
 
 	async recordPack(

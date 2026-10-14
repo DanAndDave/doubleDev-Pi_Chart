@@ -300,6 +300,40 @@ describe("rendering relevance", () => {
 		expect(overSize).not.toContain("over the count");
 	});
 
+	test("an evicted turn is attributed to eviction", () => {
+		const tail = (excluded: { evicted?: number; count?: number }) =>
+			renderCall(
+				view({
+					parts: [
+						{
+							source: "verbatim-tail",
+							approximateTokens: 40,
+							carried: 4,
+							turnIndices: [6, 7, 8, 9],
+							conceptIds: [],
+							symbols: [],
+							pinIds: [],
+							budget: { count: 8, tokens: UNBOUNDED },
+							candidates: 9,
+							trimmed: false,
+							dropped: 5,
+							irrelevant: 0,
+							excluded,
+							excludedCandidates: [],
+							explained: false,
+							unranked: true,
+						},
+					],
+				}),
+			);
+
+		expect(tail({ evicted: 5 })).toContain("5 evicted");
+		expect(tail({ evicted: 5 })).not.toContain("over the count");
+		// A record from before Eviction reads as it always did.
+		expect(tail({ count: 5 })).toContain("5 over the count");
+		expect(tail({ count: 5 })).not.toContain("evicted");
+	});
+
 	test("a part the ceiling reduced says what it would have carried", () => {
 		const text = renderCall(
 			view({

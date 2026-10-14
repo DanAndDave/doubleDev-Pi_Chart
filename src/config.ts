@@ -13,6 +13,11 @@ export interface Config {
 	problems: string[];
 	/** Completed Turns carried verbatim ahead of the current one. */
 	tailTurns: number;
+	/**
+	 * The share of the tail's Budgets it drops to when a completed Turn
+	 * carries it past either (ADR-0013). In (0, 1]; 1 slides the tail.
+	 */
+	tailLowWater: number;
 	/** How many recalled Turns a pack may carry. Zero disables recall. */
 	recallTurns: number;
 	/**
@@ -138,6 +143,7 @@ export interface Config {
 export function assemblerConfig(config: Config): AssemblerConfig {
 	return {
 		tail: { count: config.tailTurns, tokens: config.tailTokens },
+		tailLowWater: config.tailLowWater,
 		recall: { count: config.recallTurns, tokens: config.recallTokens },
 		docs: { count: config.docConcepts, tokens: config.docTokens },
 		graph: { count: config.graphSymbols, tokens: config.graphTokens },
@@ -159,6 +165,12 @@ export function pinBudget(config: Config): Budget {
 }
 
 export const DEFAULT_TAIL_TURNS = 8;
+/**
+ * Where an Eviction leaves the tail, as a share of its Budgets. The
+ * 2026-10-13 benchmark could not tell 0.5 to 0.7 apart; 0.6 is the middle
+ * (ADR-0013).
+ */
+export const DEFAULT_TAIL_LOW_WATER = 0.6;
 export const DEFAULT_RECALL_TURNS = 4;
 /**
  * The relevance minimum, re-measured under the query derivation and the
@@ -281,6 +293,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_RETAIN_DAYS",
 	"PICHART_SPECS",
 	"PICHART_TAIL_DEADLINE_MS",
+	"PICHART_TAIL_LOW_WATER",
 	"PICHART_TAIL_TOKENS",
 	"PICHART_TAIL_TURNS",
 ];
@@ -332,6 +345,7 @@ export function loadConfig(
 	return {
 		problems,
 		tailTurns: count(env.PICHART_TAIL_TURNS, DEFAULT_TAIL_TURNS),
+		tailLowWater: share(env.PICHART_TAIL_LOW_WATER, DEFAULT_TAIL_LOW_WATER),
 		recallTurns: count(env.PICHART_RECALL_TURNS, DEFAULT_RECALL_TURNS),
 		recallMaxDistance: distance(
 			env.PICHART_RECALL_MAX_DISTANCE,
@@ -441,7 +455,7 @@ export function setBudget(
 	return { ok: true, budget: parsed };
 }
 
-/** A share in [0, 1], or the default when unset or unusable. */
+/** A share in (0, 1], or the default when unset or unusable. */
 function share(raw: string | undefined, fallback: number): number {
 	const parsed = raw === undefined ? Number.NaN : Number.parseFloat(raw);
 	return Number.isFinite(parsed) && parsed > 0 && parsed <= 1 ? parsed : fallback;

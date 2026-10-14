@@ -11,6 +11,7 @@ import {
 	DEFAULT_EXPLAIN_CANDIDATES,
 	DEFAULT_PIN_COUNT,
 	DEFAULT_PIN_TOKENS,
+	DEFAULT_TAIL_LOW_WATER,
 	DEFAULT_RECALL_MAX_DISTANCE,
 	loadConfig,
 	type Config,
@@ -54,10 +55,13 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 		recallMaxDistance: DEFAULT_RECALL_MAX_DISTANCE,
 		docMaxDistance: DEFAULT_DOC_MAX_DISTANCE,
 		explainCandidates: DEFAULT_EXPLAIN_CANDIDATES,
+		// The real default: tests that mean "the newest N" set it to 1.
+		tailLowWater: DEFAULT_TAIL_LOW_WATER,
 		...counts,
 	};
 	return {
 		tail: { count: flat.tailTurns, tokens: flat.tailTokens },
+		tailLowWater: flat.tailLowWater,
 		recall: { count: flat.recallTurns, tokens: flat.recallTokens },
 		docs: { count: flat.docConcepts, tokens: flat.docTokens },
 		graph: { count: flat.graphSymbols, tokens: flat.graphTokens },
@@ -89,6 +93,7 @@ interface FlatBudgets {
 	recallMaxDistance: number;
 	docMaxDistance: number;
 	explainCandidates: number;
+	tailLowWater: number;
 }
 
 /** Larger than any pack a test builds, so a size Budget never binds by accident. */

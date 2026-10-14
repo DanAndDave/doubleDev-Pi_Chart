@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { assemble } from "../src/assembler.ts";
+import { assemble, tailTokens } from "../src/assembler.ts";
 import { readJournal, type JournalTurn } from "../src/journal.ts";
 import type { TurnSink, TurnSource } from "../src/thread-store.ts";
 import { budgets, JOURNAL_FIXTURE } from "./fixtures.ts";
@@ -149,5 +149,46 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 		const turns = await store.recentTurns("conv-1", 10);
 		expect(turns.map((turn) => turn.prompt)).toEqual(["first", "kept"]);
 		expect(JSON.stringify(turns)).not.toContain("abandoned");
+	});
+
+	test(`${name}: every stored turn is sized as the tail carries it, oldest first`, async () => {
+		const store = await fresh();
+		const turns = [journalTurn(0, "first"), journalTurn(1, "second"), journalTurn(2, "third")];
+		await store.ingest("conv-1", turns);
+		await store.ingest("conv-2", [journalTurn(0, "elsewhere")]);
+
+		expect(await store.turnSizes("conv-1")).toEqual(
+			turns.map((turn) => ({
+				index: turn.turnIndex,
+				tokens: tailTokens({ index: turn.turnIndex, prompt: turn.prompt, messages: turn.messages }),
+			})),
+		);
+		expect(await store.turnSizes("never-seen")).toEqual([]);
+	});
+
+	test(`${name}: a turn re-ingested as it grows is sized as it now is`, async () => {
+		const store = await fresh();
+		const short = journalTurn(0, "first");
+		await store.ingest("conv-1", [short]);
+		const grown: JournalTurn = {
+			...short,
+			messages: [...short.messages, { role: "assistant", content: "a longer answer".repeat(40) }],
+			calls: [0, 0, 0],
+		};
+
+		await store.ingest("conv-1", [grown]);
+
+		expect(await store.turnSizes("conv-1")).toEqual([
+			{ index: 0, tokens: tailTokens({ index: 0, prompt: grown.prompt, messages: grown.messages }) },
+		]);
+	});
+
+	test(`${name}: a rewound turn is no longer sized`, async () => {
+		const store = await fresh();
+		await store.ingest("conv-1", [journalTurn(0, "first"), journalTurn(1, "abandoned")]);
+
+		await store.rewind("conv-1", 1);
+
+		expect((await store.turnSizes("conv-1")).map((size) => size.index)).toEqual([0]);
 	});
 }

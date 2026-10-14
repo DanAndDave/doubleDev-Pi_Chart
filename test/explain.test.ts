@@ -431,6 +431,16 @@ describe("explaining an absence", () => {
 		expect(text).not.toContain("threshold");
 	});
 
+	test("an evicted turn is attributed to eviction", async () => {
+		// Turn 2 carried a one-Turn tail past its count, and Turn 1 went.
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1 }));
+		const text = renderExplanation(explain(view, "1"));
+
+		expect(text).toContain("turn 1");
+		expect(text).toContain("evicted from the tail");
+		expect(text).not.toContain("budget");
+	});
+
 	test("a subject that was never a candidate says so", async () => {
 		const text = renderExplanation(explain(await call(), "docs/never-written"));
 

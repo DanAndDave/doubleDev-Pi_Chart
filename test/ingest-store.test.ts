@@ -5,6 +5,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { tailTokens } from "../src/assembler.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import type { JournalTurn } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
@@ -203,5 +204,24 @@ describeStore("what a sweep costs", () => {
 		expect((await store.recentTurns("conv-1", 10)).map((each) => each.index)).toEqual([
 			0, 1, 2,
 		]);
+	});
+
+	test("a turn stored before sizes were recorded is sized once, then read", async () => {
+		const conversation = [turn(0), turn(1, 4)];
+		await store.ingest("conv-1", conversation, HERE);
+		// What a row ingested before migration 23 holds.
+		await sql`UPDATE turns SET tail_tokens = NULL WHERE turn_index = 1`;
+		const expected = conversation.map((each) => ({
+			index: each.turnIndex,
+			tokens: tailTokens({ index: each.turnIndex, prompt: each.prompt, messages: each.messages }),
+		}));
+
+		expect(await store.turnSizes("conv-1")).toEqual(expected);
+		// Written back: the second read touches no message.
+		const [unsized] = await sql`SELECT count(*)::int AS n FROM turns WHERE tail_tokens IS NULL`;
+		expect(unsized?.n).toBe(0);
+		counter.since();
+		expect(await store.turnSizes("conv-1")).toEqual(expected);
+		expect(counter.since()).toBe(1);
 	});
 });

@@ -1,3 +1,4 @@
+import { tailTokens } from "./assembler.ts";
 import type { JournalTurn } from "./journal.ts";
 import type { Turn } from "./messages.ts";
 
@@ -11,6 +12,20 @@ import type { Turn } from "./messages.ts";
 export interface TurnSource {
 	/** The most recent completed Turns of a Conversation, oldest first. */
 	recentTurns(conversationId: string, limit: number): Promise<Turn[]>;
+	/**
+	 * Every completed Turn of a Conversation, oldest first, sized by
+	 * `tailTokens`: what the verbatim tail's start is replayed from.
+	 */
+	turnSizes(conversationId: string): Promise<TurnSize[]>;
+}
+
+/**
+ * A completed Turn's position and its size as the verbatim tail would carry
+ * it: what the tail's start is replayed from (ADR-0013).
+ */
+export interface TurnSize {
+	index: number;
+	tokens: number;
 }
 
 /** Ingests a Conversation's recorded Turns, and returns the ones it stored. */
@@ -112,6 +127,8 @@ export interface TurnRecall {
 /** A Turn source backed by memory, for tests and for fixtures. */
 export class MemoryTurnSource implements TurnSource, TurnSink {
 	private readonly byConversation = new Map<string, Map<number, Turn>>();
+	/** Sized at ingest, as the durable Store sizes them. */
+	private readonly sizes = new Map<string, Map<number, number>>();
 
 	async ingest(
 		conversationId: string,
@@ -120,6 +137,7 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 		const existing =
 			this.byConversation.get(conversationId) ?? new Map<number, Turn>();
 		const written: JournalTurn[] = [];
+		const sized = this.sizes.get(conversationId) ?? new Map<number, number>();
 		for (const turn of turns) {
 			// Keyed by address, so re-ingesting the same Journal replaces rather
 			// than duplicates. Returned as written only when it is new or when
@@ -133,13 +151,16 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 			) {
 				written.push(turn);
 			}
-			existing.set(turn.turnIndex, {
+			const stored = {
 				index: turn.turnIndex,
 				prompt: turn.prompt,
 				messages: turn.messages,
-			});
+			};
+			existing.set(turn.turnIndex, stored);
+			sized.set(turn.turnIndex, tailTokens(stored));
 		}
 		this.byConversation.set(conversationId, existing);
+		this.sizes.set(conversationId, sized);
 		return written;
 	}
 
@@ -148,7 +169,9 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 		if (!turns) return 0;
 		let discarded = 0;
 		for (const index of [...turns.keys()]) {
-			if (index >= fromTurn && turns.delete(index)) discarded++;
+			if (index < fromTurn) continue;
+			if (turns.delete(index)) discarded++;
+			this.sizes.get(conversationId)?.delete(index);
 		}
 		return discarded;
 	}
@@ -160,5 +183,11 @@ export class MemoryTurnSource implements TurnSource, TurnSink {
 			.sort(([a], [b]) => a - b)
 			.slice(-limit)
 			.map(([, turn]) => turn);
+	}
+
+	async turnSizes(conversationId: string): Promise<TurnSize[]> {
+		return [...(this.sizes.get(conversationId) ?? new Map<number, number>())]
+			.sort(([a], [b]) => a - b)
+			.map(([index, tokens]) => ({ index, tokens }));
 	}
 }

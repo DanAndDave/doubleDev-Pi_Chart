@@ -44,7 +44,8 @@ export interface PartView {
 	irrelevant: number;
 	/**
 	 * Why it carried less than its candidates offered, by reason: relevance,
-	 * the count Budget, the size Budget, or the pack ceiling. A pack that
+	 * the count Budget, the size Budget, the tail's Eviction, or the pack
+	 * ceiling. A pack that
 	 * carried little for want of room reads differently from one that
 	 * carried little for want of anything relevant.
 	 */

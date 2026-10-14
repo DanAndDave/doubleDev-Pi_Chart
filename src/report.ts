@@ -63,6 +63,10 @@ const REASONS: ((part: PartView) => string | undefined)[] = [
 			? `${part.excluded?.size} over the size budget`
 			: undefined,
 	(part) =>
+		(part.excluded?.evicted ?? 0) > 0
+			? `${part.excluded?.evicted} evicted`
+			: undefined,
+	(part) =>
 		(part.excluded?.ceiling ?? 0) > 0
 			? `${part.excluded?.ceiling} for the pack ceiling`
 			: undefined,
@@ -469,8 +473,10 @@ function describeCandidate(candidate: ExcludedCandidate): string {
 			? `  beyond the ${candidate.threshold ?? "?"} threshold`
 			: candidate.reason === "ceiling"
 				? "  dropped for the pack ceiling"
-				: `  excluded by the ${candidate.budget ?? "?"} ` +
-					`${candidate.reason === "count" ? "count" : "token"} budget`;
+				: candidate.reason === "evicted"
+					? "  evicted from the tail"
+					: `  excluded by the ${candidate.budget ?? "?"} ` +
+						`${candidate.reason === "count" ? "count" : "token"} budget`;
 	return `${what}${distance}${size}${why}`;
 }
 

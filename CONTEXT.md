@@ -35,8 +35,12 @@ What replaces the middle of a payload too large to carry whole: the head and the
 _Avoid_: truncation, summary, compaction
 
 **Verbatim tail**:
-The most recent completed Turns, carried as the messages they were rather than as recollections. Its newest Turn is never dropped: when it does not fit, its oldest tool-call groups go first, behind a marker in its prompt, down to the prompt and the final reply.
+The most recent completed Turns, carried as the messages they were rather than as recollections. Its newest Turn is never dropped: when it does not fit, its oldest tool-call groups go first, behind a marker in its prompt, down to the prompt and the final reply. It gives up older Turns only by Eviction, so between Evictions it carries less than its Budget allows.
 _Avoid_: recent history, sliding window, last N turns
+
+**Eviction**:
+The verbatim tail giving up its oldest Turns in one step, down to its low-water mark — a share of its Budget — once a new Turn would carry it past that Budget. Between Evictions each new Turn is added behind a start that does not move. Turns the tail has evicted are eligible for recall again.
+_Avoid_: sliding, trimming, rolling window
 
 **Floor**:
 The part of a Context Window the Assembler cannot reach: system prompt, tool schemas, skills, and rules. Measured, budgeted around, and deliberately left intact.

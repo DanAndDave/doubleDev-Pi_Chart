@@ -12,6 +12,7 @@ import {
 	type AssembleInput,
 	type AssemblerConfig,
 	type Pack,
+	tailTokens,
 } from "./assembler.ts";
 import {
 	readExclusions,
@@ -99,6 +100,7 @@ import {
 	type Recollections,
 	type TurnRecall,
 	type TurnSink,
+	type TurnSize,
 	type TurnSource,
 	type VectorModels,
 } from "./thread-store.ts";
@@ -755,7 +757,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 
 			// The current Turn always comes from the event: the Journal has not
 			// been flushed for it yet, and reading our own write would race.
-			const { tail, tailSource } = await tailFor(
+			const { tail, tailSizes, tailSource } = await tailFor(
 				conversationId,
 				live,
 				deps.config.tailTurns,
@@ -782,6 +784,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					conceptsUnsearched: concepts.value.unsearched,
 					structure: structure.value,
 					pins: held.pins,
+					tailSizes,
 					unavailable: {
 						recalled: recalled.unavailable,
 						curated: concepts.unavailable,
@@ -1149,21 +1152,24 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * The verbatim tail, from the store when it can be reached. Falling back to
-	 * the harness's own history is a worse pack, not a broken Turn — and it is
-	 * recorded, so a session spent on fallback is visible afterwards.
+	 * The verbatim tail, from the store when it can be reached, with every
+	 * completed Turn's size for the tail's start to be replayed from
+	 * (ADR-0013). Falling back to the harness's own history is a worse pack,
+	 * not a broken Turn — and it is recorded, so a session spent on fallback
+	 * is visible afterwards. The fallback carries no sizes: the Assembler
+	 * sizes the Turns the harness still holds.
 	 *
 	 * The store lags the harness: ingest runs after `agent_end`, which the
 	 * harness does not wait for, so a quick reply opens a Turn before the one
 	 * it answers is stored. Turns the harness sent that are newer than the
-	 * store's newest are taken from the harness, or the question being
-	 * answered is missing from the window.
+	 * store's newest are taken from the harness, and sized from it, or the
+	 * question being answered is missing from the window.
 	 */
 	async function tailFor(
 		conversationId: string,
 		live: Turn[],
 		tailTurns: number,
-	): Promise<{ tail: Turn[]; tailSource: TailSource }> {
+	): Promise<{ tail: Turn[]; tailSizes?: TurnSize[]; tailSource: TailSource }> {
 		const completed = live.slice(0, -1);
 		const fallback = {
 			tail: completed,
@@ -1173,21 +1179,36 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const stored = await inTime(
 				"Thread Store",
 				deps.config.tailDeadlineMs,
-				deps.turns.recentTurns(conversationId, tailTurns),
+				Promise.all([
+					deps.turns.recentTurns(conversationId, tailTurns),
+					deps.turns.turnSizes(conversationId),
+				]),
 			);
 			// A Store that ran out of time is a Store that is not there for
 			// this Call: the harness still has the history, and the fallback
 			// is recorded exactly as an unreachable Store's is.
 			if (!stored.answered) return fallback;
-			if (stored.value.length > 0) {
-				const newest = stored.value.at(-1)?.index;
+			const [recent, sizes] = stored.value;
+			if (recent.length > 0) {
+				const newest = recent.at(-1)?.index;
 				const unstored =
 					newest === undefined
 						? []
 						: completed.filter(
-								(turn) => turn.index !== undefined && turn.index > newest,
+								(turn): turn is Turn & { index: number } =>
+									turn.index !== undefined && turn.index > newest,
 							);
-				return { tail: [...stored.value, ...unstored], tailSource: "thread-store" };
+				return {
+					tail: [...recent, ...unstored],
+					tailSizes: [
+						...sizes,
+						...unstored.map((turn) => ({
+							index: turn.index,
+							tokens: tailTokens(turn),
+						})),
+					],
+					tailSource: "thread-store",
+				};
 			}
 		} catch (error) {
 			reportSafely(`Thread Store unreachable, using harness history: ${describe(error)}`);

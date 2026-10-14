@@ -863,6 +863,7 @@ describe("the verbatim tail", () => {
 		const cm = harness({
 			turns: {
 				recentTurns: () => Promise.reject(new Error("connection refused")),
+				turnSizes: () => Promise.reject(new Error("connection refused")),
 			},
 		});
 
@@ -890,6 +891,7 @@ describe("the verbatim tail", () => {
 		const cm = harness({
 			turns: {
 				recentTurns: () => Promise.reject(new Error("connection refused")),
+				turnSizes: () => Promise.reject(new Error("connection refused")),
 			},
 		});
 
@@ -946,6 +948,42 @@ describe("the verbatim tail", () => {
 			"the second",
 		]);
 		expect(cm.recorded[0]?.pack?.parts.find((part) => part.source === "verbatim-tail")?.turnIndices).toEqual([0, 1]);
+	});
+
+	test("the tail's start is replayed from the store's sizes and the turn it has not ingested", async () => {
+		// Turns 0–2 stored, Turn 3 answered but not yet ingested. Replayed over
+		// all four, a two-Turn tail evicted at Turn 2 and holds Turns 2 and 3;
+		// replayed over only the Turns fetched for the tail, it would start
+		// later and carry Turn 3 alone.
+		const exchange = (index: number) => [
+			{ role: "user" as const, content: `prompt ${index}` },
+			{ role: "assistant" as const, content: `answer ${index}` },
+		];
+		const store = new MemoryTurnSource();
+		await store.ingest(
+			"conv-1",
+			[0, 1, 2].map((turnIndex) => ({
+				turnIndex,
+				prompt: `prompt ${turnIndex}`,
+				messages: exchange(turnIndex),
+				callCount: 1,
+				calls: [0, 0],
+			})),
+		);
+		const cm = harness({ turns: store, config: { tailTurns: 2 } });
+		const answered = [0, 1, 2, 3].flatMap(exchange);
+		const branch: BranchEntry[] = answered.map((message, at) => ({ id: `m${at}`, message }));
+
+		await cm.context(
+			{ messages: [...answered, { role: "user", content: "prompt 4" }] },
+			ctx(branch),
+		);
+		await cm.settle();
+
+		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
+		expect(
+			cm.recorded[0]?.pack?.parts.find((part) => part.source === "verbatim-tail")?.turnIndices,
+		).toEqual([2, 3]);
 	});
 
 	test("an empty store is not treated as a failure", async () => {
@@ -3535,7 +3573,10 @@ describe("a store that misses its deadline", () => {
 		const cm = harness({
 			after: stalled().after,
 			config: { tailTurns: 4 },
-			turns: { recentTurns: () => new Promise(() => {}) },
+			turns: {
+				recentTurns: () => new Promise(() => {}),
+				turnSizes: () => new Promise(() => {}),
+			},
 		});
 
 		await cm.context(
@@ -3586,7 +3627,10 @@ describe("a store that misses its deadline", () => {
 				docDeadlineMs: 5_000,
 				graphDeadlineMs: 5_000,
 			},
-			turns: { recentTurns: () => new Promise(() => {}) },
+			turns: {
+				recentTurns: () => new Promise(() => {}),
+				turnSizes: () => new Promise(() => {}),
+			},
 			recall: { similarTurns: () => new Promise(() => {}) },
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
@@ -3820,6 +3864,24 @@ describe("the relevance judge setting", () => {
 
 		expect(config.judge).toBe("off");
 		expect(config.problems.join("\n")).toContain("PICHART_JUDGE");
+	});
+});
+
+describe("the tail's low-water mark setting", () => {
+	test("defaults to the middle of the measured range, and takes a share", () => {
+		expect(loadConfig({}).tailLowWater).toBe(0.6);
+		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "1" }).tailLowWater).toBe(1);
+	});
+
+	test("a mark outside (0, 1] is the default", () => {
+		// 0 would leave only the newest Turn after every Eviction; above 1
+		// the tail would never drop below its own Budget.
+		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "0" }).tailLowWater).toBe(0.6);
+		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "1.5" }).tailLowWater).toBe(0.6);
+	});
+
+	test("is a known setting", () => {
+		expect(loadConfig({ PICHART_TAIL_LOW_WATER: "0.5" }).problems).toEqual([]);
 	});
 });
 
