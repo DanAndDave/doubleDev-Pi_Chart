@@ -15,7 +15,7 @@ On a capable model, each Briefing is now sent as a cleared turn-scoped system me
 | Prefix held, turns 1–7 | 65% | 100% | 100% | no worse than 65% | pass |
 | Cache write, turns 1–7 | 34,854 | 21,777 | 22,808 | — | 0.95× vanilla |
 
-A separate proxied run with the `thinking-binding-controls-2026-08-01` header recorded zero `prefix_binding_mismatch` drops over three Turns, where there were 53 before (`openspec/changes/keep-thinking-blocks-valid/evidence/briefings-kept.md`).
+A separate proxied run with the `thinking-binding-controls-2026-08-01` header recorded zero `prefix_binding_mismatch` drops over three Turns, where there were 53 before (`openspec/changes/archive/2026-10-13-keep-thinking-blocks-valid/evidence/briefings-kept.md`).
 
 ## Per Conversation (median over runs)
 
