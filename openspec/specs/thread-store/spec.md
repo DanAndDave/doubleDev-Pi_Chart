@@ -128,25 +128,6 @@ The Thread Store SHALL be a derived index over the Journal, never the record of 
 - **WHEN** the store is unavailable
 - **THEN** no Journal content SHALL be lost or altered
 
-### Requirement: Retrieval is scoped to one Conversation
-
-Retrieval SHALL return content from the current Conversation only. Content from other Conversations SHALL NOT appear unless a search explicitly asks for a wider scope, and no Context Pack SHALL be assembled from content outside the current Conversation.
-
-#### Scenario: Another conversation's turns stay out
-
-- **WHEN** two Conversations have been ingested and the tail is retrieved for one
-- **THEN** no Turn belonging to the other SHALL be returned
-
-#### Scenario: Turns come back in order
-
-- **WHEN** the most recent Turns are retrieved for a Conversation
-- **THEN** they SHALL be returned in Turn order, each with its messages in the order they occurred
-
-#### Scenario: Recall into a pack stays within the conversation
-
-- **WHEN** another Conversation holds a Turn more relevant to the prompt than anything in this one
-- **THEN** the Context Pack SHALL NOT carry it
-
 ### Requirement: The schema is versioned and applied forward
 
 The system SHALL own its schema and apply migrations forward automatically, so that a store created by an older version becomes usable without manual intervention. Sessions that connect to the same store at the same time SHALL apply each migration exactly once between them.
@@ -216,67 +197,6 @@ The system SHALL embed Turns that were ingested before embedding was available, 
 - **WHEN** backfill runs again after being interrupted
 - **THEN** it SHALL embed only the Turns still lacking a vector
 
-### Requirement: Retrieval ranks turns by similarity to the prompt
-
-The system SHALL return the Turns most similar in meaning to a given prompt, most similar first, limited to a requested count. Retrieval SHALL remain scoped to the current Conversation. A Turn SHALL be returned only when its similarity meets a configured minimum, so that retrieval returns what is relevant rather than merely what is nearest.
-
-Retrieval SHALL consider every Turn of the current Conversation that holds a valid vector, rather than an approximation over the wider corpus narrowed to the Conversation afterwards. A Turn of this Conversation that meets the minimum SHALL be returned whether the corpus holds ten Turns or ten million, up to the requested count. When retrieval cannot complete the search it claims — leaving a qualifying Turn unreturned — it SHALL report that shortfall, distinguishably from a Conversation in which nothing met the minimum.
-
-#### Scenario: The most relevant turn comes first
-
-- **WHEN** a Conversation holds Turns on several subjects and one is retrieved for a prompt about one of them
-- **THEN** the Turn on that subject SHALL rank above the others
-
-#### Scenario: Retrieval does not reach into another conversation
-
-- **WHEN** two Conversations hold Turns on the same subject and one retrieves
-- **THEN** no Turn belonging to the other SHALL be returned
-
-#### Scenario: Turns already carried verbatim are not retrieved again
-
-- **WHEN** retrieval runs for a Call whose verbatim tail already holds a matching Turn
-- **THEN** that Turn SHALL NOT also be returned as a recollection
-
-#### Scenario: An unembedded conversation retrieves nothing rather than failing
-
-- **WHEN** retrieval runs against a Conversation whose Turns have no vectors yet
-- **THEN** it SHALL return no Turns and SHALL NOT raise
-
-#### Scenario: A turn below the threshold is not returned
-
-- **WHEN** the nearest Turn to a prompt is still less similar than the minimum
-- **THEN** it SHALL NOT be returned, even though nothing ranks above it
-
-#### Scenario: A conversation with nothing relevant returns nothing
-
-- **WHEN** no Turn in a Conversation meets the minimum for a prompt
-- **THEN** retrieval SHALL return no Turns rather than its least-irrelevant ones
-
-#### Scenario: The threshold does not disturb ranking
-
-- **WHEN** several Turns meet the minimum
-- **THEN** they SHALL be returned in the same order they would have been without it
-
-#### Scenario: Retrieval reports what the threshold excluded
-
-- **WHEN** retrieval rejects Turns for being below the minimum
-- **THEN** it SHALL report how many it rejected, so the minimum can be judged
-
-#### Scenario: Every qualifying turn of the conversation is returned
-
-- **WHEN** Turns of other Conversations closer to the prompt outnumber this Conversation's qualifying Turns many times over
-- **THEN** each qualifying Turn of this Conversation SHALL still be returned, up to the requested count
-
-#### Scenario: A growing corpus does not change one conversation's recall
-
-- **WHEN** Turns of unrelated Conversations are added and the same recall is run again
-- **THEN** the same Turns SHALL be returned in the same order
-
-#### Scenario: A shortfall is not reported as irrelevance
-
-- **WHEN** retrieval returns fewer Turns than the count requested because it could not complete its search
-- **THEN** it SHALL report that it came back short, distinguishably from having found nothing that met the minimum
-
 ### Requirement: A stored vector is valid only for the content and the model that produced it
 
 A stored vector SHALL cease to be valid when the Turn's content changes, and when the embedding model in use is not the model that produced it. An invalid vector SHALL NOT be ranked and SHALL be treated as though the Turn had no vector, so that the path which embeds an unembedded Turn is also the path which repairs a stale one. Where the store holds vectors produced by a model other than the one now in use, the system SHALL report that condition rather than rank across both spaces.
@@ -313,7 +233,7 @@ A stored vector SHALL cease to be valid when the Turn's content changes, and whe
 
 ### Requirement: A recall query is represented as a query, not as stored content
 
-The system SHALL derive a recall query's vector in the form the embedding model expects of a query, and SHALL NOT apply that derivation to the Turns it stores, so that a change to how queries are formed never invalidates a stored vector. The relevance minimum SHALL be the minimum measured under the query derivation in use.
+The system SHALL derive a recall query's vector in the form the embedding model expects of a query, and SHALL NOT apply that derivation to the Turns it stores, so that a change to how queries are formed never invalidates a stored vector. The relevance minimum `recall_across_conversations` applies SHALL be the minimum measured under the query derivation in use.
 
 #### Scenario: A derived query keeps its turn and refuses unrelated content
 
@@ -327,7 +247,7 @@ The system SHALL derive a recall query's vector in the form the embedding model 
 
 #### Scenario: The minimum means what it was measured to mean
 
-- **WHEN** the relevance minimum is applied to a recall
+- **WHEN** the relevance minimum is applied to a search across Conversations
 - **THEN** the minimum applied SHALL be one measured against the query derivation in use, not against a bare prompt
 
 ### Requirement: Every turn records when it was ingested
@@ -543,3 +463,129 @@ The Thread Store SHALL answer, for a Conversation, the prompt of its Turn at ind
 
 - **WHEN** Turn 0 is ingested again with a different prompt, as after a branch move that diverges at the root
 - **THEN** the store SHALL answer the new prompt
+
+### Requirement: Evicted Turns are recalled when the agent asks
+
+The system SHALL offer the agent a `recall_earlier_turns(query, limit?)` tool, registered only when a Thread Store is available. The tool SHALL search only the current Conversation's Turns whose index is below the tail start recorded by the latest Call of that Conversation, so that a Turn the verbatim tail still carries is never returned as a recollection. It SHALL rank those Turns by similarity to the query, most similar first, with no distance cutoff: the agent asked, and each result says which Turn it is so the agent can weigh it.
+
+The tool SHALL return 5 results when no limit is given, and SHALL return at most 20 whatever limit is given. Each result SHALL be shown as a recollection carrying its Turn number and the actions its Turn took, and SHALL be shortened by visible Elision to `PICHART_RECALL_TOKENS`. That cap SHALL apply to each result on its own, not to the results together. What the tool returns is Turn content and SHALL NOT be recorded as a part of any Context Pack.
+
+When no Turn of the Conversation has been evicted, because no Call has recorded a tail start yet or the tail still starts at Turn 0, the result SHALL say that nothing has been evicted yet, distinguishably from a search that found nothing. The search SHALL run under the Thread Store's recall deadline. A search that misses the deadline or fails SHALL return a text result naming the Thread Store and the reason, and the Turn SHALL continue.
+
+#### Scenario: A Turn the tail evicted is found
+
+- **WHEN** the latest Call's tail starts at Turn 12 and Turn 3 matches the query
+- **THEN** Turn 3 SHALL be returned as a recollection that names Turn 3
+
+#### Scenario: A Turn the tail still carries is not returned
+
+- **WHEN** the Turn most similar to the query is at or after the tail start of the latest Call
+- **THEN** it SHALL NOT be returned
+- **AND** the most similar Turns below the tail start SHALL fill the result up to the limit
+
+#### Scenario: A distant Turn is still returned
+
+- **WHEN** the nearest evicted Turn is farther from the query than `PICHART_RECALL_MAX_DISTANCE`
+- **THEN** it SHALL still be returned
+
+#### Scenario: Five results by default
+
+- **WHEN** the tool is called without a limit and more than five evicted Turns hold valid vectors
+- **THEN** five results SHALL be returned, most similar first
+
+#### Scenario: No more than twenty results
+
+- **WHEN** the tool is called with a limit above 20
+- **THEN** at most 20 results SHALL be returned
+
+#### Scenario: A large Turn is shortened on its own
+
+- **WHEN** one recalled Turn is larger than `PICHART_RECALL_TOKENS` and the others are smaller
+- **THEN** that result SHALL be shortened to the cap with a marker naming what went, and SHALL still name the actions its Turn took
+- **AND** the other results SHALL NOT be shortened on its account
+
+#### Scenario: Nothing has been evicted yet
+
+- **WHEN** the tool is called before any Call of the Conversation has recorded a tail start
+- **THEN** the result SHALL say that no Turn has been evicted yet, rather than return an empty list
+
+#### Scenario: Another Conversation's Turn is not recalled
+
+- **WHEN** another Conversation holds a Turn more similar to the query than anything in this one
+- **THEN** that Turn SHALL NOT be returned
+
+#### Scenario: A late or failing store costs the search, not the Turn
+
+- **WHEN** the Thread Store misses its recall deadline or fails during the search
+- **THEN** the tool SHALL return a text result naming the Thread Store and the reason
+- **AND** the Turn SHALL proceed
+
+#### Scenario: No Thread Store, no tool
+
+- **WHEN** a session runs with no Thread Store available
+- **THEN** `recall_earlier_turns` SHALL NOT be registered
+
+### Requirement: Retrieval stays within one Conversation
+
+Retrieval SHALL return content from the current Conversation only. Content from other Conversations SHALL NOT appear unless a search explicitly asks for a wider scope, and neither the verbatim tail nor `recall_earlier_turns` SHALL return content from outside the current Conversation.
+
+#### Scenario: Another conversation's turns stay out
+
+- **WHEN** two Conversations have been ingested and the tail is retrieved for one
+- **THEN** no Turn belonging to the other SHALL be returned
+
+#### Scenario: Turns come back in order
+
+- **WHEN** the most recent Turns are retrieved for a Conversation
+- **THEN** they SHALL be returned in Turn order, each with its messages in the order they occurred
+
+#### Scenario: Recall stays within the conversation
+
+- **WHEN** another Conversation holds a Turn more similar to a `recall_earlier_turns` query than anything in this one
+- **THEN** the tool's result SHALL NOT carry it
+
+### Requirement: Retrieval ranks turns by similarity to the query
+
+The system SHALL return the Turns most similar in meaning to a given query, most similar first, limited to a requested count. Retrieval SHALL remain scoped to the current Conversation. Retrieval within one Conversation SHALL apply no relevance minimum: it SHALL return the nearest Turns up to the requested count, however far they are from the query, because the agent asked and each result names its Turn.
+
+Retrieval SHALL consider every Turn of the current Conversation that holds a valid vector, rather than an approximation over the wider corpus narrowed to the Conversation afterwards. A Turn of this Conversation SHALL be eligible whether the corpus holds ten Turns or ten million, up to the requested count. When retrieval cannot complete the search it claims, leaving an eligible Turn unreturned, it SHALL report that shortfall, distinguishably from a Conversation that holds fewer eligible Turns than were requested.
+
+#### Scenario: The most relevant turn comes first
+
+- **WHEN** a Conversation holds Turns on several subjects and one is retrieved for a query about one of them
+- **THEN** the Turn on that subject SHALL rank above the others
+
+#### Scenario: Retrieval does not reach into another conversation
+
+- **WHEN** two Conversations hold Turns on the same subject and one retrieves
+- **THEN** no Turn belonging to the other SHALL be returned
+
+#### Scenario: Turns already carried verbatim are not retrieved again
+
+- **WHEN** `recall_earlier_turns` runs while the latest Call's verbatim tail holds a matching Turn
+- **THEN** that Turn SHALL NOT also be returned as a recollection
+
+#### Scenario: An unembedded conversation retrieves nothing rather than failing
+
+- **WHEN** retrieval runs against a Conversation whose Turns have no vectors yet
+- **THEN** it SHALL return no Turns and SHALL NOT raise
+
+#### Scenario: The nearest turn is returned however far it is
+
+- **WHEN** the nearest Turn of the Conversation is far from the query
+- **THEN** it SHALL still be returned, ahead of every Turn farther away
+
+#### Scenario: Every eligible turn of the conversation is returned
+
+- **WHEN** Turns of other Conversations closer to the query outnumber this Conversation's Turns many times over
+- **THEN** this Conversation's Turns SHALL still be returned, nearest first, up to the requested count
+
+#### Scenario: A growing corpus does not change one conversation's recall
+
+- **WHEN** Turns of unrelated Conversations are added and the same recall is run again
+- **THEN** the same Turns SHALL be returned in the same order
+
+#### Scenario: A shortfall is not reported as an empty conversation
+
+- **WHEN** retrieval returns fewer Turns than the count requested because it could not complete its search
+- **THEN** it SHALL report that it came back short, distinguishably from a Conversation that held no more eligible Turns

@@ -5,30 +5,6 @@ A Codebase's programmatic structure, derived with graphify and read through an a
 
 ## Requirements
 
-### Requirement: A Codebase's structure is available without being asked for
-
-The Graph Store SHALL derive a Codebase's programmatic structure using graphify, obtaining graphify itself if the machine does not have it. A Codebase that already has an extraction SHALL be used as it stands. Failure to obtain or run graphify SHALL be reported and SHALL NOT affect the Turn.
-
-#### Scenario: A codebase with no extraction
-
-- **WHEN** a Codebase has no graph and graphify is available
-- **THEN** an extraction SHALL be produced for it
-
-#### Scenario: A machine without graphify
-
-- **WHEN** graphify is not installed
-- **THEN** the Graph Store SHALL install it before extracting
-
-#### Scenario: An extraction that already exists
-
-- **WHEN** a Codebase already carries a graph
-- **THEN** it SHALL be read rather than re-derived from nothing
-
-#### Scenario: Structure cannot be obtained
-
-- **WHEN** graphify cannot be installed or cannot run
-- **THEN** the reason SHALL be reported and the Turn SHALL proceed without structure
-
 ### Requirement: Only programmatic connections are carried
 
 The Graph Store SHALL carry connections that a parser established — calls, imports and dynamic imports, re-exports, inheritance and extension, implementation, mixing in, embedding, dependency and requirement, containment, membership, and resolved references — and SHALL exclude anything inferred, semantic, or drawn from documentation. A connection SHALL be carried only if the extraction states it was extracted rather than guessed.
@@ -152,17 +128,18 @@ An extraction SHALL be stopped once it has run for longer than a configured dead
 
 ### Requirement: An extraction in progress is disclosed
 
-When a structure Budget is configured and the Codebase has no graph because its extraction has not finished, the report SHALL say that an extraction is in progress and when it began, and SHALL NOT tell the operator to switch extraction on. The configuration report SHALL say whether an extraction is running for the Codebase and how the last one ended.
+When `codebase_structure` is called and the Codebase has no graph because its extraction has not finished, the result SHALL say that an extraction is in progress and when it began, and SHALL NOT tell the agent to switch extraction on. The configuration report SHALL say whether an extraction is running for the Codebase and how the last one ended.
 
 #### Scenario: The first extraction still running
 
-- **WHEN** a Call asks for structure while the Codebase's first extraction is running
-- **THEN** the Turn SHALL proceed without structure and the report SHALL say extraction is in progress, rather than that the Codebase has no graph
+- **WHEN** `codebase_structure` is called while the Codebase's first extraction is running
+- **THEN** the result SHALL say extraction is in progress, rather than that the Codebase has no graph
+- **AND** the Turn SHALL proceed
 
 #### Scenario: No graph and nothing running
 
-- **WHEN** a Call asks for structure, the Codebase has no graph, and no extraction is running
-- **THEN** the report SHALL say the Codebase has no graph, as before
+- **WHEN** `codebase_structure` is called, the Codebase has no graph, and no extraction is running
+- **THEN** the result SHALL say the Codebase has no graph
 
 #### Scenario: Status during an extraction
 
@@ -176,7 +153,7 @@ When graphify refuses to refresh a graph because it exceeds graphify's graph-fil
 #### Scenario: A refresh refused for size
 
 - **WHEN** a refresh fails because the existing graph exceeds graphify's size cap
-- **THEN** the report SHALL name the size, the cap, `GRAPHIFY_MAX_GRAPH_BYTES` and `.graphifyignore`, and structure from the existing graph SHALL still be carried
+- **THEN** the report SHALL name the size, the cap, `GRAPHIFY_MAX_GRAPH_BYTES` and `.graphifyignore`, and `codebase_structure` SHALL still answer from the existing graph
 
 #### Scenario: Refused on every Turn
 
@@ -190,9 +167,9 @@ When graphify refuses to refresh a graph because it exceeds graphify's graph-fil
 
 ### Requirement: Reading a graph does not hold up a Call
 
-A Call SHALL NOT wait for a graph to be read once one has been read in this session. When the extraction has changed since the graph in use was read, the Call SHALL be served the graph already in use, and the newer extraction SHALL be read in the background. Calls that find the same change SHALL share a single read of it. Serving the graph already in use SHALL NOT present it as current where it is not: what the Codebase has outgrown SHALL be disclosed against the age of that graph, exactly as for any other older extraction.
+A `codebase_structure` lookup SHALL NOT wait for a graph to be read once one has been read in this session. When the extraction has changed since the graph in use was read, the lookup SHALL be answered from the graph already in use, and the newer extraction SHALL be read in the background. Lookups that find the same change SHALL share a single read of it. Answering from the graph already in use SHALL NOT present it as current where it is not: what the Codebase has outgrown SHALL be disclosed against the age of that graph, exactly as for any other older extraction.
 
-A session SHALL begin reading its Codebase's graph when it starts, without waiting for the read to finish. A Call that arrives before any graph has been read SHALL wait for that read no longer than the structure deadline, and SHALL be treated as a missed deadline once it passes.
+A session SHALL begin reading its Codebase's graph when it starts, without waiting for the read to finish. A lookup that arrives before any graph has been read SHALL wait for that read no longer than the Graph Store's deadline, and once the deadline passes SHALL say that structure is not loaded yet.
 
 An extraction rewritten with the same content as the graph in use SHALL NOT be read again: the graph in use SHALL be kept, and SHALL count as being as recent as the rewrite.
 
@@ -202,28 +179,28 @@ When a newer extraction cannot be read and a graph is already in use, the graph 
 
 #### Scenario: A Call while a newer extraction is read
 
-- **WHEN** a graph has been read and the extraction changes before a Call
-- **THEN** the Call SHALL be served the graph already read without waiting for the newer one, and a later Call SHALL be served the newer graph once it has been read
+- **WHEN** a graph has been read and the extraction changes before a Call in which the agent calls `codebase_structure`
+- **THEN** the lookup SHALL be answered from the graph already read without waiting for the newer one, and a lookup in a later Call SHALL be answered from the newer graph once it has been read
 
 #### Scenario: Several Calls find the same change
 
-- **WHEN** several Calls arrive after the extraction changed and before it has been read
+- **WHEN** lookups in several Calls arrive after the extraction changed and before it has been read
 - **THEN** the extraction SHALL be read once
 
 #### Scenario: Structure served from the graph already read
 
-- **WHEN** a Call is served the graph already read while a newer extraction is being read, and a symbol's file was edited after the older graph was written
+- **WHEN** a lookup is answered from the graph already read while a newer extraction is being read, and a symbol's file was edited after the older graph was written
 - **THEN** that symbol's neighbourhood SHALL be disclosed as older than the Codebase
 
 #### Scenario: The first Call of a session
 
-- **WHEN** a session starts in a Codebase that has a graph and its first Call arrives after the graph has been read
-- **THEN** that Call SHALL carry structure without reading the graph itself
+- **WHEN** a session starts in a Codebase that has a graph and the first `codebase_structure` lookup arrives after the graph has been read
+- **THEN** that lookup SHALL be answered without reading the graph itself
 
 #### Scenario: A Call before any graph is read
 
-- **WHEN** a Call arrives while the session's first read of the graph is still running
-- **THEN** the Call SHALL wait for it no longer than the structure deadline, and once the deadline passes the Pack SHALL be assembled without structure and the omission reported as a missed deadline
+- **WHEN** a lookup arrives while the session's first read of the graph is still running
+- **THEN** it SHALL wait for that read no longer than the Graph Store's deadline, and once the deadline passes its result SHALL say that structure is not loaded yet
 
 #### Scenario: A refresh that rewrote the same graph
 
@@ -238,7 +215,7 @@ When a newer extraction cannot be read and a graph is already in use, the graph 
 #### Scenario: A newer extraction that cannot be read
 
 - **WHEN** a graph is in use and a newer extraction cannot be read
-- **THEN** Calls SHALL keep carrying structure from the graph in use, the failure SHALL be reported once, and that extraction SHALL NOT be read again until it changes
+- **THEN** lookups SHALL keep being answered from the graph in use, the failure SHALL be reported once, and that extraction SHALL NOT be read again until it changes
 
 ### Requirement: An unexpected extraction is reported, never guessed at
 
@@ -259,70 +236,121 @@ The Graph Store SHALL read graphify's output through an adapter that states what
 - **WHEN** an extraction contains a relation the adapter does not know
 - **THEN** that connection SHALL be left out rather than treated as programmatic
 
-### Requirement: The symbols in play are found by name
+### Requirement: A truncated neighbourhood keeps its most informative connections
 
-The Graph Store SHALL find the symbols a prompt refers to by matching the identifiers in it against the names in the graph, without embeddings: a symbol's name is exact, and a structural question has one correct answer.
+When a symbol has more connections than one hop of a `codebase_structure` lookup keeps for it, the Graph Store SHALL choose which to keep by what the connection says about the symbol, not by the order the extraction happens to list them. Connections describing how a symbol is used and what it depends on (what calls it, what it calls, what imports or re-exports it, what it inherits from or implements) SHALL be preferred over connections describing what it merely contains or is a member of, in both directions. Two truncations of the same neighbourhood SHALL keep the same connections.
 
-An identifier is written as code when the text itself marks it as code: a compound name (with an internal capital or an underscore), a leading `.`, a following `(`, or a capital on a name that matches something other than a member. Any other identifier is a plain word. A plain word SHALL count as naming a symbol only when nothing in the text considered is written as code, since a prompt is written in prose and prose contains words that happen to be the names of functions, types and methods alike. Among plain words, one that matches only members' names SHALL count only when no other plain word names a symbol, since ordinary verbs like "read" and "list" are far likelier prose than a reference to a method. A plain word SHALL NOT reach a symbol defined in a test or script file, since a Codebase's tests and scripts reuse the ordinary words of its domain for helpers and fixtures. A test or script file is one with a directory named `test`, `tests`, `__tests__` or `scripts` in its path, or whose name matches `*.test.*`, `*.spec.*`, `*_test.*` or `test_*`. Writing the name as code, or naming the file's path, still reaches it. A plain word naming any other file is unaffected: it still reaches that file's symbols as "The symbols in play are those the Turn is working with" describes.
+#### Scenario: A hub with more members than the cap
 
-#### Scenario: A symbol named in the prompt
+- **WHEN** a symbol's members alone outnumber the connections a lookup keeps for it
+- **THEN** what calls and imports that symbol SHALL be kept, and its members SHALL be the connections left out
 
-- **WHEN** a prompt names a symbol the graph knows
-- **THEN** that symbol SHALL be among those found
+#### Scenario: A neighbourhood that fits
 
-#### Scenario: A prompt about nothing in the Codebase
+- **WHEN** a symbol has no more connections than a lookup keeps for it
+- **THEN** every one of them SHALL be kept
 
-- **WHEN** a prompt names nothing in the graph
-- **THEN** no symbols SHALL be found
+#### Scenario: Truncation is deterministic
 
-#### Scenario: A symbol written in a different style
+- **WHEN** the same over-sized neighbourhood is truncated twice
+- **THEN** the same connections SHALL be kept, in the same order
 
-- **WHEN** a prompt names a symbol using different capitalisation or punctuation than the graph records
-- **THEN** the symbol SHALL still be found
+#### Scenario: Both directions survive ranking
 
-#### Scenario: A prose word that happens to name a method
+- **WHEN** an over-sized neighbourhood holds both inbound and outbound connections of the preferred kinds
+- **THEN** the connections kept SHALL include both directions rather than one direction's worth
 
-- **WHEN** a prompt names a symbol unambiguously and also contains an ordinary word matching a member's name
-- **THEN** the unambiguous symbol SHALL be found and the ordinary word SHALL be disregarded
+### Requirement: A Codebase's structure is derived with graphify
 
-#### Scenario: A prose word that happens to name a function
+The Graph Store SHALL derive a Codebase's programmatic structure using graphify, obtaining graphify itself if the machine does not have it. A Codebase that already has an extraction SHALL be used as it stands. Failure to obtain or run graphify SHALL be reported and SHALL NOT affect the Turn.
 
-- **WHEN** a prompt writes one symbol as code and also contains a plain word matching a function's or a type's name
-- **THEN** the symbol written as code SHALL be found and the plain word SHALL be disregarded
+#### Scenario: A codebase with no extraction
 
-#### Scenario: Plain words alone still find symbols
+- **WHEN** a Codebase has no graph and graphify is available
+- **THEN** an extraction SHALL be produced for it
 
-- **WHEN** nothing in the text considered is written as code, and a plain word in it matches a symbol the graph knows
-- **THEN** that symbol SHALL be found
+#### Scenario: A machine without graphify
 
-#### Scenario: A plain word naming a method gives way to one naming a function
+- **WHEN** graphify is not installed
+- **THEN** the Graph Store SHALL install it before extracting
 
-- **WHEN** nothing in the text considered is written as code, and it contains one plain word matching only a member's name and another matching a function's or a type's name
-- **THEN** the function or type SHALL be found and the member SHALL NOT
+#### Scenario: An extraction that already exists
 
-#### Scenario: Two symbols, differently written
+- **WHEN** a Codebase already carries a graph
+- **THEN** it SHALL be read rather than re-derived from nothing
 
-- **WHEN** a prompt writes one symbol as a compound and another as a call
-- **THEN** both SHALL be found
+#### Scenario: Structure cannot be obtained
 
-#### Scenario: A plain word naming only a test helper
+- **WHEN** graphify cannot be installed or cannot run
+- **THEN** the reason SHALL be reported and the Turn SHALL proceed without structure
 
-- **WHEN** nothing in the text considered is written as code, and a plain word in it matches only a symbol defined in a test or script file
-- **THEN** no symbol SHALL be found for it
+### Requirement: Structure is looked up when the agent asks
 
-#### Scenario: A test helper written as code
+The system SHALL offer the agent a `codebase_structure(symbol, depth?)` tool, registered only when a Graph Store is available. The tool SHALL resolve the symbol it is given by name against the names in the graph, without embeddings: a symbol's name is exact, and a structural question has one correct answer. A qualified `Class.method` name SHALL resolve to that member, a trailing `()` SHALL be ignored, and a name written with different capitalisation or punctuation than the graph records SHALL still resolve. A symbol defined in a test or script file SHALL resolve like any other, since naming it is asking for it.
 
-- **WHEN** a prompt writes as code the name of a symbol defined in a test file
-- **THEN** that symbol SHALL be found
+The tool SHALL return the connections around the resolved symbol out to `depth` hops, each connection once, every one in the form `A (file:line) --relation--> B (file:line)`. `depth` SHALL be 1 when not given and SHALL be at most 3 whatever is given. Each hop SHALL keep each symbol's most informative connections, as "A truncated neighbourhood keeps its most informative connections" defines, and a symbol whose connections were cut SHALL say how many it left out. The whole result SHALL be cut at a line boundary to `PICHART_GRAPH_TOKENS`, with a visible marker saying that it was cut. What the tool returns is Turn content and SHALL NOT be recorded as a part of any Context Pack.
 
-#### Scenario: A plain word naming a test helper still sets aside a method
+When the name resolves to nothing, the result SHALL say so and SHALL list up to five of the graph's nearest names. When no graph has been read yet, the tool SHALL wait for the session's first read no longer than the Graph Store's deadline, and once that passes SHALL say that structure is not loaded yet. A lookup that fails SHALL return a text result naming the Graph Store and the reason. In every case the Turn SHALL continue.
 
-- **WHEN** nothing in the text considered is written as code, and it contains one plain word matching only a member's name and another matching a function defined only in a test file
-- **THEN** neither the member nor the test file's function SHALL be found
+#### Scenario: A named symbol's connections are returned
 
-### Requirement: Structure older than the Codebase is disclosed as such
+- **WHEN** the tool is called with the name of a symbol the graph knows
+- **THEN** the result SHALL list that symbol's connections, each with the file and line of both ends
 
-The Graph Store SHALL state, for every neighbourhood it reports, whether the extraction it came from is older than the file the symbol lives in. Structure derived before the Codebase's current state SHALL be disclosed as older wherever it is carried, so that positions and connections the agent cannot rely on are visibly second-hand rather than presented as current. Structure SHALL NOT be withheld for being older — it SHALL be carried and disclosed, because a Turn that edits code is the Turn that most needs a starting point.
+#### Scenario: A method named with its class
+
+- **WHEN** the tool is called with `Class.method` for a method the graph records under that class
+- **THEN** that method's connections SHALL be returned
+
+#### Scenario: A name written as a call
+
+- **WHEN** the tool is called with a symbol's name followed by `()`
+- **THEN** it SHALL resolve as the bare name does
+
+#### Scenario: A name written in a different style
+
+- **WHEN** the tool is called with a symbol's name using different capitalisation or punctuation than the graph records
+- **THEN** the symbol SHALL still resolve
+
+#### Scenario: One hop by default
+
+- **WHEN** the tool is called without a depth
+- **THEN** the result SHALL hold the symbol's own connections and none of its neighbours' further connections
+
+#### Scenario: Deeper on request, up to three hops
+
+- **WHEN** the tool is called with a depth above 3
+- **THEN** the result SHALL reach three hops from the symbol and no further
+
+#### Scenario: A connection reached twice is listed once
+
+- **WHEN** two symbols within the requested depth share a connection
+- **THEN** that connection SHALL appear once in the result
+
+#### Scenario: A result too large is cut visibly
+
+- **WHEN** the connections within the requested depth exceed `PICHART_GRAPH_TOKENS`
+- **THEN** the result SHALL end at a whole line within the cap, followed by a marker saying it was cut
+
+#### Scenario: An unknown name
+
+- **WHEN** the tool is called with a name the graph does not know
+- **THEN** the result SHALL say the name was not found and SHALL list up to five of the graph's nearest names
+
+#### Scenario: A graph still loading
+
+- **WHEN** the tool is called while the session's first read of the graph has not finished and the Graph Store's deadline passes
+- **THEN** the result SHALL say that structure is not loaded yet
+- **AND** the Turn SHALL proceed
+
+#### Scenario: No Graph Store, no tool
+
+- **WHEN** a session runs with no Graph Store available
+- **THEN** `codebase_structure` SHALL NOT be registered
+
+### Requirement: Structure older than the Codebase is disclosed in every result
+
+The Graph Store SHALL state, for every neighbourhood it reports, whether the extraction it came from is older than the file the symbol lives in. Structure derived before the Codebase's current state SHALL be disclosed as older in every `codebase_structure` result that holds it, so that positions and connections the agent cannot rely on are visibly second-hand rather than presented as current. Structure SHALL NOT be withheld for being older: it SHALL be returned and disclosed, because a Turn that edits code is the Turn that most needs a starting point.
 
 Freshness that cannot be established SHALL be treated as older rather than as current.
 
@@ -336,9 +364,9 @@ Freshness that cannot be established SHALL be treated as older rather than as cu
 - **WHEN** a symbol's file has not changed since extraction
 - **THEN** that neighbourhood SHALL carry no such disclosure
 
-#### Scenario: One pack, two ages
+#### Scenario: One result, two ages
 
-- **WHEN** a Turn works with one symbol whose file was edited and one whose file was not
+- **WHEN** a lookup reaches one symbol whose file was edited and one whose file was not
 - **THEN** the disclosure SHALL apply to the edited symbol's neighbourhood alone
 
 #### Scenario: A file that can no longer be found
@@ -346,108 +374,21 @@ Freshness that cannot be established SHALL be treated as older rather than as cu
 - **WHEN** a symbol's file cannot be examined for its age
 - **THEN** its neighbourhood SHALL be reported as older than the Codebase rather than as current
 
-### Requirement: The symbols in play are those the Turn is working with
-
-The Graph Store SHALL take the symbols in play from the whole current Turn — the prompt, the agent's own text, the arguments of the tools it called, and their results — and not from the prompt's prose alone, so that a Call made deep in a tool loop derives structure from what the Turn is working with rather than from a sentence written many steps earlier. A tool's own name SHALL NOT count as naming a symbol: it names the harness's action, not anything in the Codebase.
-
-A file the Turn names SHALL resolve to the symbols that file defines, so that naming a path is a way of asking about its contents. A path naming nothing the graph knows SHALL yield no symbols rather than a guess.
-
-Symbols SHALL be preferred in this order: those the prompt writes as code; then those of a file whose path the prompt names; then those the rest of the Turn writes as code, or, when nothing in the Turn is written as code, those its plain words name, the prompt's first; then those reached only through a file the rest of the Turn names, or through a plain word naming a file. A plain word naming a file SHALL NOT reach a test or script file, as "The symbols in play are found by name" defines them; a path naming one still does. The text considered SHALL be bounded per message so that a single large tool result cannot displace what the Turn is about. The rule for plain words SHALL apply to the whole of this text, so that a plain word counts only when nothing in the Turn is written as code.
-
-#### Scenario: A tool-loop call whose prompt names nothing
-
-- **WHEN** a Turn's prompt names no symbol but the Turn has read files the graph knows
-- **THEN** the symbols those files define SHALL be among those found
-
-#### Scenario: A path in play
-
-- **WHEN** a Turn names a path to a file the graph knows
-- **THEN** the symbols that file defines SHALL be found
-
-#### Scenario: A path that matches nothing
-
-- **WHEN** a Turn names a path no symbol in the graph belongs to
-- **THEN** no symbols SHALL be found for it
-
-#### Scenario: What the prompt names comes first
-
-- **WHEN** a Turn names one symbol outright and works with a file defining many others
-- **THEN** the symbol named outright SHALL be preferred over those reached only through the file
-
-#### Scenario: A file the prompt names comes before the rest of the Turn
-
-- **WHEN** a prompt names the path of a file the graph knows, and a later message of the Turn writes as code a symbol defined elsewhere
-- **THEN** the symbols of the file the prompt names SHALL be preferred over that symbol
-
-#### Scenario: A tool's name names nothing
-
-- **WHEN** a Turn calls a tool whose name matches a symbol the graph knows, and neither the prompt, nor the call's arguments, nor its result names that symbol
-- **THEN** that symbol SHALL NOT be found
-
-#### Scenario: A tool's arguments still count
-
-- **WHEN** a Turn calls a tool with a path to a file the graph knows
-- **THEN** the symbols that file defines SHALL be among those found
-
-#### Scenario: A large tool result cannot take over the turn
-
-- **WHEN** a Turn carries a tool result far larger than the rest of the Turn
-- **THEN** the symbols found SHALL still include those the prompt and the tool arguments name
-
-#### Scenario: Prose words are still disregarded
-
-- **WHEN** a Turn's wider text contains plain words matching symbols' names, alongside something written as code
-- **THEN** the symbol written as code SHALL be found and the plain words SHALL be disregarded
-
-#### Scenario: A plain word naming a file passes over its tests
-
-- **WHEN** a Turn contains a bare word equal to the name of both a source file and a test file
-- **THEN** the source file's symbols SHALL be found and the test file's SHALL NOT
-
-#### Scenario: A path to a test file still counts
-
-- **WHEN** a Turn names the path of a test file the graph knows
-- **THEN** the symbols that file defines SHALL be found
-
-### Requirement: A truncated neighbourhood keeps its most informative connections
-
-When a symbol has more connections than the Pack carries, the Graph Store SHALL choose which to keep by what the connection says about the symbol, not by the order the extraction happens to list them. Connections describing how a symbol is used and what it depends on — what calls it, what it calls, what imports or re-exports it, what it inherits from or implements — SHALL be preferred over connections describing what it merely contains or is a member of, in both directions. Two truncations of the same neighbourhood SHALL keep the same connections.
-
-#### Scenario: A hub with more members than the cap
-
-- **WHEN** a symbol's members alone outnumber the connections a Pack carries
-- **THEN** what calls and imports that symbol SHALL be carried, and its members SHALL be the connections left out
-
-#### Scenario: A neighbourhood that fits
-
-- **WHEN** a symbol has no more connections than a Pack carries
-- **THEN** every one of them SHALL be carried
-
-#### Scenario: Truncation is deterministic
-
-- **WHEN** the same over-sized neighbourhood is truncated twice
-- **THEN** the same connections SHALL be kept, in the same order
-
-#### Scenario: Both directions survive ranking
-
-- **WHEN** an over-sized neighbourhood holds both inbound and outbound connections of the preferred kinds
-- **THEN** the connections kept SHALL include both directions rather than one direction's worth
-
-### Requirement: Structure does not depend on a Thread Store
+### Requirement: Structure is available without a Thread Store
 
 The Graph Store SHALL be available whether or not a Thread Store is configured: declining the record of what happened SHALL NOT withdraw a Codebase's structure, since structure is derived from the Codebase alone.
 
-A configured structure Budget with no graph the system can reach SHALL be reported, naming why structure is unavailable, rather than producing an empty part with no explanation. A report of what the system has configured SHALL describe structure as unavailable when no Graph Store exists to serve it, and SHALL NOT describe extraction as on.
+A `codebase_structure` lookup with no graph the system can reach SHALL say why structure is unavailable, rather than return an empty result with no explanation. A report of what the system has configured SHALL describe structure as unavailable when no Graph Store exists to serve it, and SHALL NOT describe extraction as on.
 
 #### Scenario: A session with no Thread Store
 
 - **WHEN** a Thread Store is declined and a Codebase has a graph
-- **THEN** structure SHALL still be available for the Turn
+- **THEN** `codebase_structure` SHALL still be registered and SHALL answer from that graph
 
-#### Scenario: A structure budget with nothing behind it
+#### Scenario: A lookup with nothing behind it
 
-- **WHEN** a structure Budget is configured and no graph can be reached
-- **THEN** the reason SHALL be reported once rather than the part being silently empty
+- **WHEN** `codebase_structure` is called and no graph can be reached
+- **THEN** the result SHALL name the reason rather than be silently empty
 
 #### Scenario: The configuration report matches what exists
 

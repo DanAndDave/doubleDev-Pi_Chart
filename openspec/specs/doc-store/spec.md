@@ -195,36 +195,11 @@ A search SHALL say how much of the index it could not see, so that curated knowl
 #### Scenario: What the search could not see is reported
 
 - **WHEN** a search runs while the index holds Concepts it could not rank, because every vector they hold was produced by another embedding model
-- **THEN** the search SHALL report how many, and the Call's record SHALL carry that number beside what the relevance threshold refused
-
-
-### Requirement: Retrieval respects lifecycle and trust
-
-Retrieval SHALL return Concepts relevant to a query, most relevant first, subject to a relevance minimum. A deprecated Concept SHALL NOT be returned. Among Concepts of comparable relevance, those that are current and human-reviewed SHALL be preferred over those that are stale or unverified.
-
-#### Scenario: A deprecated concept is withheld
-
-- **WHEN** a deprecated Concept is the closest match for a query
-- **THEN** it SHALL NOT be returned
-
-#### Scenario: Current and reviewed knowledge comes first
-
-- **WHEN** two Concepts are comparably relevant and one is stale or unverified while the other is current and human-reviewed
-- **THEN** the current, human-reviewed one SHALL be returned first
-
-#### Scenario: Nothing relevant returns nothing
-
-- **WHEN** no Concept meets the relevance minimum for a query
-- **THEN** retrieval SHALL return no Concepts rather than the nearest available
-
-#### Scenario: An unindexed bundle retrieves nothing rather than failing
-
-- **WHEN** retrieval runs before the bundle has been indexed
-- **THEN** it SHALL return nothing and SHALL NOT raise
+- **THEN** the search SHALL report how many, and the `search_documentation` result SHALL carry that number
 
 ### Requirement: An agent can walk the bundle during a Turn
 
-The Doc Store SHALL give an agent a way to read one Level and to open one Concept named in it, during a Turn, without any of it entering a Context Pack. Retrieval answers "what is relevant to this prompt"; walking answers "what is there", and a corpus whose shape is invisible can only be sampled.
+The Doc Store SHALL give an agent a way to read one Level and to open one Concept named in it, during a Turn, without any of it entering a Context Pack. Searching answers "what is relevant to this query"; walking answers "what is there", and a corpus whose shape is invisible can only be sampled.
 
 #### Scenario: Reading the top of a bundle
 
@@ -283,7 +258,7 @@ Concept retrieval SHALL select from a candidate set whose order is total: no two
 #### Scenario: Determinism survives a corpus larger than the candidate set
 
 - **WHEN** the bundle holds more Concepts than the candidate set admits
-- **THEN** repeated retrieval SHALL admit the same candidates, so a Concept SHALL NOT appear in one Pack and be absent from the next without the bundle or the configuration changing
+- **THEN** repeated retrieval SHALL admit the same candidates, so a Concept SHALL NOT appear in one search's result and be absent from the next without the bundle or the configuration changing
 
 ### Requirement: A Concept can be authored from inside a Conversation
 
@@ -364,8 +339,8 @@ A Concept created or revised during a Conversation SHALL be retrievable by meani
 
 #### Scenario: Authored knowledge is retrievable without a restart
 
-- **WHEN** an agent authors a Concept and, later in the same Conversation, a prompt matches its meaning
-- **THEN** the Concept SHALL be retrievable
+- **WHEN** an agent authors a Concept and, later in the same Conversation, `search_documentation` is called with a query matching its meaning
+- **THEN** the Concept SHALL be returned
 
 #### Scenario: A revision replaces what it superseded
 
@@ -389,7 +364,7 @@ A Concept created or revised during a Conversation SHALL be retrievable by meani
 
 ### Requirement: A Concept's exclusions and sources travel with it
 
-Where a Concept records what it is not, that SHALL accompany it wherever the Concept is served — to an agent walking the bundle, and into a Context Pack. A definition served without the exclusions that qualify it invites the mistake the exclusions exist to prevent. What a Concept was drawn from SHALL accompany it where the Concept is served whole, so prose carried with no provenance can still be checked against what it came from.
+Where a Concept records what it is not, that SHALL accompany it wherever the Concept is served: to an agent walking the bundle, and in a `search_documentation` result. A definition served without the exclusions that qualify it invites the mistake the exclusions exist to prevent. What a Concept was drawn from SHALL accompany it where the Concept is served whole, so prose carried with no provenance can still be checked against what it came from.
 
 #### Scenario: What a concept excludes is served with it
 
@@ -467,3 +442,87 @@ A Level's listing SHALL be reconciled against the Concepts the Level actually ho
 
 - **WHEN** an agent authors a Concept into a Level that has its own listing
 - **THEN** the listing SHALL name the new Concept afterwards
+
+### Requirement: Curated knowledge is searched when the agent asks
+
+The system SHALL offer the agent a `search_documentation(query, limit?)` tool, registered only when a Doc Store index is available. The tool SHALL return the Concepts most relevant to the query with no distance cutoff, in the order retrieval defines: a deprecated Concept SHALL NOT be returned, current and human-reviewed Concepts SHALL come before comparably relevant stale or unverified ones, and equally near candidates SHALL be ordered by Concept identity. The tool SHALL return 5 Concepts when no limit is given, and SHALL return at most 20 whatever limit is given.
+
+Each Concept returned SHALL be attributed to the Doc Store and carry its identifier, so the agent can tell curated knowledge from something it was just told. It SHALL carry what it records that it is not. It SHALL be shortened by visible Elision to `PICHART_DOC_TOKENS`, and that cap SHALL apply to each Concept on its own, not to the results together. Where a result is one part of a Concept that has several, the result SHALL identify the part, name the Concept it belongs to, and say that the rest is readable with `walk_documentation`. A Concept returned whole SHALL NOT claim that more exists. What the tool returns is Turn content and SHALL NOT be recorded as a part of any Context Pack.
+
+The search SHALL run under the Doc Store's deadline. A search that misses the deadline or fails SHALL return a text result naming the Doc Store and the reason, and the Turn SHALL continue.
+
+#### Scenario: A relevant concept is found
+
+- **WHEN** the Doc Store holds a Concept relevant to the query
+- **THEN** the tool SHALL return it, attributed to the Doc Store and carrying its identifier
+
+#### Scenario: A distant concept is still returned
+
+- **WHEN** no Concept is near the query
+- **THEN** the nearest Concepts that are not deprecated SHALL still be returned, up to the limit
+
+#### Scenario: Reviewed knowledge comes first
+
+- **WHEN** two Concepts are comparably relevant and one is stale or unverified while the other is current and human-reviewed
+- **THEN** the current, human-reviewed one SHALL be returned first
+
+#### Scenario: Five concepts by default
+
+- **WHEN** the tool is called without a limit and more than five Concepts are indexed
+- **THEN** five Concepts SHALL be returned
+
+#### Scenario: No more than twenty concepts
+
+- **WHEN** the tool is called with a limit above 20
+- **THEN** at most 20 Concepts SHALL be returned
+
+#### Scenario: A large concept is shortened on its own
+
+- **WHEN** one returned Concept is larger than `PICHART_DOC_TOKENS` and the others are smaller
+- **THEN** that Concept SHALL be shortened to the cap with a marker naming what went
+- **AND** the other Concepts SHALL NOT be shortened on its account
+
+#### Scenario: A fragment points to the rest
+
+- **WHEN** a result is one part of a Concept that has several
+- **THEN** it SHALL identify the part, name the Concept, and say the rest is readable with `walk_documentation`
+
+#### Scenario: A concept returned whole is not marked as partial
+
+- **WHEN** a result is all there is of a Concept
+- **THEN** it SHALL NOT claim that more exists
+
+#### Scenario: A late or failing index costs the search, not the Turn
+
+- **WHEN** the Doc Store misses its deadline or fails during the search
+- **THEN** the tool SHALL return a text result naming the Doc Store and the reason
+- **AND** the Turn SHALL proceed
+
+#### Scenario: No index, no tool
+
+- **WHEN** a session runs with no Doc Store index available
+- **THEN** `search_documentation` SHALL NOT be registered
+
+### Requirement: Search respects lifecycle and trust
+
+Retrieval SHALL return Concepts relevant to a query, most relevant first, with no relevance minimum: it SHALL return the nearest Concepts up to the requested count, however far they are from the query, because the agent asked and each result names its Concept. A deprecated Concept SHALL NOT be returned. Among Concepts of comparable relevance, those that are current and human-reviewed SHALL be preferred over those that are stale or unverified.
+
+#### Scenario: A deprecated concept is withheld
+
+- **WHEN** a deprecated Concept is the closest match for a query
+- **THEN** it SHALL NOT be returned
+
+#### Scenario: Current and reviewed knowledge comes first
+
+- **WHEN** two Concepts are comparably relevant and one is stale or unverified while the other is current and human-reviewed
+- **THEN** the current, human-reviewed one SHALL be returned first
+
+#### Scenario: The nearest concepts are returned however far they are
+
+- **WHEN** no Concept is near a query
+- **THEN** retrieval SHALL still return the nearest Concepts that are not deprecated, up to the requested count
+
+#### Scenario: An unindexed bundle retrieves nothing rather than failing
+
+- **WHEN** retrieval runs before the bundle has been indexed
+- **THEN** it SHALL return nothing and SHALL NOT raise
