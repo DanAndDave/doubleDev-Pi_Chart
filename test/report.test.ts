@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { RecordedPart } from "../src/accounting.ts";
 import { inspectCall, type CallView, type ConversationSummary, type PackDiff } from "../src/inspection.ts";
 import {
 	renderCall,
@@ -9,65 +10,87 @@ import {
 } from "../src/report.ts";
 import { UNBOUNDED } from "./fixtures.ts";
 
+type Part = CallView["parts"][number];
+
+/** A part as the inspector presents it, from the fields a test cares about. */
+function part(fields: Partial<Part> & Pick<Part, "source">): Part {
+	return {
+		approximateTokens: 0,
+		carried: 0,
+		turnIndices: [],
+		pinIds: [],
+		trimmed: false,
+		dropped: 0,
+		excludedCandidates: [],
+		explained: false,
+		...fields,
+	};
+}
+
 function view(overrides: Partial<CallView> = {}): CallView {
 	return {
 		turnIndex: 6,
 		callIndex: 0,
 		parts: [
-			{
-				source: "recalled",
-				approximateTokens: 112,
+			part({
+				source: "pinned",
+				placement: "system-prompt",
+				approximateTokens: 24,
 				carried: 2,
-				turnIndices: [1, 3],
-				conceptIds: [],
-				symbols: [],
-				pinIds: [],
-				budget: { count: 3, tokens: UNBOUNDED },
-				candidates: 5,
-				trimmed: false,
-				dropped: 3,
-				irrelevant: 0,
-				excludedCandidates: [],
-				explained: false,
-				unranked: false,
-			},
-			{
+				pinIds: [1, 3],
+				budget: { count: 8, tokens: 2_000 },
+				candidates: 2,
+			}),
+			part({
 				source: "verbatim-tail",
 				approximateTokens: 67,
 				carried: 2,
 				turnIndices: [4, 5],
-				conceptIds: [],
-				symbols: [],
-				pinIds: [],
-				budget: { count: 2, tokens: UNBOUNDED },
-				trimmed: false,
-				dropped: 0,
-				irrelevant: 0,
-				excludedCandidates: [],
-				explained: false,
-				unranked: false,
-			},
+				budget: { count: 8, tokens: UNBOUNDED },
+			}),
 		],
 		packTokens: 4_000,
 		floorTokens: 26_000,
 		floorShare: 26_000 / 30_000,
 		unassembled: false,
-		rejected: 0,
-		unsearched: 0,
-		conceptsUnsearched: 0,
 		compacted: false,
 		explained: false,
 		...overrides,
 	};
 }
 
+/** The line a part is reported on. */
+const lineOf = (text: string, source: string) =>
+	text.split("\n").find((line) => line.trimStart().startsWith(source));
+
 describe("rendering a call", () => {
 	test("names each part, what it carried, and its budget", () => {
 		const text = renderCall(view());
 
-		expect(text).toContain("recalled");
-		expect(text).toContain("turns 1, 3");
-		expect(text).toContain("of 3");
+		expect(lineOf(text, "verbatim-tail")).toContain("turns 4, 5");
+		expect(lineOf(text, "verbatim-tail")).toContain("(2 of 8)");
+		expect(lineOf(text, "pinned")).toContain("pins #1, #3");
+	});
+
+	test("pins sent in the system prompt are marked, and pins recorded before they moved there are not", () => {
+		const moved = renderCall(view());
+		const earlier = renderCall(
+			view({
+				parts: [
+					part({
+						source: "pinned",
+						approximateTokens: 24,
+						carried: 2,
+						pinIds: [1, 3],
+						budget: { count: 8, tokens: 2_000 },
+					}),
+				],
+			}),
+		);
+
+		expect(lineOf(moved, "pinned")).toContain("in the system prompt");
+		expect(lineOf(earlier, "pinned")).toContain("pins #1, #3");
+		expect(lineOf(earlier, "pinned")).not.toContain("system prompt");
 	});
 
 	test("reports the floor's share as a percentage", () => {
@@ -89,22 +112,12 @@ describe("rendering a call", () => {
 		const text = renderCall(
 			view({
 				parts: [
-					{
+					part({
 						source: "verbatim-tail",
 						approximateTokens: 67,
 						carried: 2,
-						turnIndices: [],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
 						budget: { count: 8, tokens: UNBOUNDED },
-						trimmed: false,
-						dropped: 0,
-						irrelevant: 0,
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
+					}),
 				],
 			}),
 		);
@@ -115,59 +128,183 @@ describe("rendering a call", () => {
 	test("an unassembled call is marked", () => {
 		expect(renderCall(view({ unassembled: true }))).toContain("unassembled");
 	});
+
+	test("the pins and the opening are marked as sent in the system prompt, and the tail is not", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					...view().parts,
+					part({
+						source: "opening",
+						placement: "system-prompt",
+						approximateTokens: 31,
+						carried: 1,
+						turnIndices: [0],
+						budget: { count: 1, tokens: 1_000 },
+						candidates: 1,
+					}),
+				],
+			}),
+		);
+
+		expect(lineOf(text, "pinned")).toContain("system prompt");
+		expect(lineOf(text, "opening")).toContain("system prompt");
+		expect(lineOf(text, "verbatim-tail")).not.toContain("system prompt");
+	});
+
+	test("pins recorded while they were sent as a message carry no system-prompt mark", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					part({
+						source: "pinned",
+						approximateTokens: 24,
+						carried: 1,
+						pinIds: [1],
+						budget: { count: 8, tokens: 2_000 },
+					}),
+				],
+			}),
+		);
+
+		expect(lineOf(text, "pinned")).toContain("pins #1");
+		expect(lineOf(text, "pinned")).not.toContain("system prompt");
+	});
+});
+
+describe("rendering where the tail came from", () => {
+	const tailLine = (text: string) =>
+		text.split("\n").find((line) => line.startsWith("  tail "));
+
+	test("a tail that used store copies says so", () => {
+		expect(tailLine(renderCall(view({ tailSource: "thread-store" })))).toContain(
+			"some tail Turns are the store's copies",
+		);
+	});
+
+	test("a tail sent without store sizes says it fell back to the harness", () => {
+		expect(tailLine(renderCall(view({ tailSource: "harness-fallback" })))).toContain(
+			"from the harness's own history, not the store",
+		);
+	});
+
+	test("a tail sent from live history adds no line", () => {
+		expect(tailLine(renderCall(view({ tailSource: "harness" })))).toBeUndefined();
+		// Nor does a Call recorded before the source was.
+		expect(tailLine(renderCall(view()))).toBeUndefined();
+	});
 });
 
 describe("rendering the opening", () => {
-	const opening = (fields: Partial<CallView["parts"][number]>): CallView["parts"][number] => ({
-		source: "opening",
-		approximateTokens: 0,
-		carried: 0,
-		turnIndices: [],
-		conceptIds: [],
-		symbols: [],
-		pinIds: [],
-		budget: { count: 1, tokens: 1_000 },
-		trimmed: false,
-		dropped: 0,
-		irrelevant: 0,
-		excludedCandidates: [],
-		explained: false,
-		unranked: true,
-		...fields,
-	});
-	const lineOf = (text: string) => text.split("\n").find((line) => line.trimStart().startsWith("opening"));
+	const opening = (fields: Partial<Part>): Part =>
+		part({
+			source: "opening",
+			placement: "system-prompt",
+			budget: { count: 1, tokens: 1_000 },
+			...fields,
+		});
 
 	test("a carried opening names Turn 0 and refuses nothing", () => {
 		const text = renderCall(
 			view({ parts: [opening({ approximateTokens: 31, carried: 1, turnIndices: [0], candidates: 1 })] }),
 		);
 
-		expect(lineOf(text)).toContain("~31 tokens");
-		expect(lineOf(text)).toContain("turns 0");
-		expect(lineOf(text)).not.toContain("refused");
-		expect(lineOf(text)).not.toContain("dropped");
+		expect(lineOf(text, "opening")).toContain("~31 tokens");
+		expect(lineOf(text, "opening")).toContain("turns 0");
+		expect(lineOf(text, "opening")).not.toContain("refused");
+		expect(lineOf(text, "opening")).not.toContain("dropped");
 	});
 
 	test("each reason it is absent reads differently", () => {
-		const causes = ["carried", "empty", "missing", "unconfigured", "failed", "disabled", "size"] as const;
-		const lines = causes.map((absent) => lineOf(renderCall(view({ parts: [opening({ absent })] }))));
+		const causes = ["empty", "missing", "unconfigured", "failed", "disabled", "size", "unhooked"] as const;
+		const lines = causes.map((absent) =>
+			lineOf(renderCall(view({ parts: [opening({ absent })] })), "opening"),
+		);
 
 		expect(new Set(lines).size).toBe(causes.length);
+	});
+
+	test("an opening the hook never reached says the system prompt was not offered", () => {
+		const text = renderCall(view({ parts: [opening({ absent: "unhooked" })] }));
+
+		expect(lineOf(text, "opening")).toContain("the harness never offered the system prompt");
+	});
+});
+
+describe("rendering pins the hook never reached", () => {
+	test("are reported absent for that reason rather than hidden", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					part({
+						source: "pinned",
+						placement: "system-prompt",
+						budget: { count: 8, tokens: 2_000 },
+						absent: "unhooked",
+					}),
+				],
+			}),
+		);
+
+		expect(lineOf(text, "pinned")).toContain("the harness never offered the system prompt");
+	});
+
+	test("a conversation holding no pins still says nothing about them", () => {
+		const text = renderCall(
+			view({
+				parts: [
+					part({
+						source: "pinned",
+						placement: "system-prompt",
+						budget: { count: 8, tokens: 2_000 },
+						absent: "none",
+					}),
+				],
+			}),
+		);
+
+		expect(text).not.toContain("pinned");
+	});
+});
+
+describe("rendering an older record", () => {
+	test("a call that carried retrieval parts still renders", () => {
+		// As an earlier version wrote it: a recalled part with relevance
+		// detail, and a curated part absent for a cause no longer recorded.
+		const older = [
+			{
+				source: "recalled",
+				approximateTokens: 120,
+				approximate: true,
+				carried: 1,
+				turnIndices: [2],
+				irrelevant: 3,
+				threshold: 0.52,
+				excludedCandidates: [{ turnIndex: 4, reason: "irrelevant", distance: 0.61, threshold: 0.52 }],
+			},
+			{ source: "curated", approximateTokens: 0, approximate: true, absent: "irrelevant" },
+		] as unknown as RecordedPart[];
+
+		const text = renderCall(inspectCall({ turnIndex: 3, callIndex: 0, parts: older }));
+
+		expect(lineOf(text, "recalled")).toContain("turns 2");
+		expect(lineOf(text, "curated")).toContain("irrelevant");
+		expect(text).not.toContain("undefined");
 	});
 });
 
 describe("rendering a diff", () => {
 	test("shows what entered and left", () => {
 		const diff: PackDiff = {
-			entered: [{ source: "recalled", turnIndex: 9 }],
-			left: [{ source: "recalled", turnIndex: 7 }],
-			unchanged: [{ source: "verbatim-tail", turnIndex: 4 }],
+			entered: [{ source: "verbatim-tail", turnIndex: 9 }],
+			left: [{ source: "verbatim-tail", turnIndex: 7 }],
+			unchanged: [{ source: "pinned", pinId: 1 }],
 		};
 
 		const text = renderDiff(diff);
 
-		expect(text).toContain("+ recalled turn 9");
-		expect(text).toContain("- recalled turn 7");
+		expect(text).toContain("+ verbatim-tail turn 9");
+		expect(text).toContain("- verbatim-tail turn 7");
 		expect(text).toContain("1 unchanged");
 	});
 
@@ -187,7 +324,7 @@ describe("rendering a summary", () => {
 		averageFloorTokens: 25_588,
 		averageFloorShare: 0.868,
 		budgetUse: [
-			{ source: "recalled", averageCarried: 2.25, averageIrrelevant: 0, budget: 3, timesTrimmed: 0 },
+			{ source: "verbatim-tail", averageCarried: 2.25, budget: 3, timesTrimmed: 0 },
 		],
 		compactions: [],
 		exposed: [],
@@ -213,69 +350,23 @@ describe("rendering a summary", () => {
 
 		expect(text).toBe("Nothing recorded for this conversation yet.");
 	});
-
-	test("counts how each call sent its briefing and how many went missing", () => {
-		const text = renderSummary({ ...summary, briefings: { kept: 5, replaced: 2, missing: 3 } });
-
-		expect(text).toContain("  briefing      5 calls kept it, 2 sent it as a user message; 3 earlier briefings missing");
-	});
-
-	test("says nothing about briefings where no call recorded them", () => {
-		expect(renderSummary(summary)).not.toContain("briefing");
-	});
 });
 
-describe("rendering relevance", () => {
-	test("a part that found little says so rather than reading as trimmed", () => {
+describe("rendering budget spend", () => {
+	test("a trimmed part from an older record still reads as trimmed", () => {
 		const text = renderCall(
 			view({
 				parts: [
-					{
-						source: "recalled",
-						approximateTokens: 40,
-						carried: 1,
-						turnIndices: [2],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
-						budget: { count: 3, tokens: UNBOUNDED },
-						candidates: 1,
-						trimmed: false,
-						dropped: 0,
-						irrelevant: 4,
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
-				],
-			}),
-		);
-
-		expect(text).toContain("not relevant enough");
-		expect(text).not.toContain("dropped");
-	});
-
-	test("a trimmed part still reads as trimmed", () => {
-		const text = renderCall(
-			view({
-				parts: [
-					{
-						source: "recalled",
+					part({
+						source: "verbatim-tail",
 						approximateTokens: 40,
 						carried: 2,
 						turnIndices: [1, 2],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
 						budget: { count: 2, tokens: UNBOUNDED },
 						candidates: 5,
 						trimmed: true,
 						dropped: 3,
-						irrelevant: 1,
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
+					}),
 				],
 			}),
 		);
@@ -284,59 +375,26 @@ describe("rendering relevance", () => {
 	});
 
 	test("a size-reduced part reads differently from a count-trimmed one", () => {
-		const overCount = renderCall(
-			view({
-				parts: [
-					{
-						source: "recalled",
-						approximateTokens: 40,
-						carried: 2,
-						turnIndices: [1, 2],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
-						budget: { count: 2, tokens: UNBOUNDED },
-						candidates: 5,
-						trimmed: true,
-						dropped: 3,
-						irrelevant: 0,
-						excluded: { count: 3 },
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
-				],
-			}),
-		);
-		const overSize = renderCall(
-			view({
-				parts: [
-					{
-						source: "recalled",
-						approximateTokens: 40,
-						carried: 2,
-						turnIndices: [1, 2],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
-						budget: { count: 4, tokens: UNBOUNDED },
-						candidates: 5,
-						trimmed: false,
-						dropped: 3,
-						irrelevant: 0,
-						excluded: { size: 3 },
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
-				],
-			}),
-		);
+		const reduced = (excluded: { count?: number; size?: number }) =>
+			renderCall(
+				view({
+					parts: [
+						part({
+							source: "opening",
+							placement: "system-prompt",
+							budget: { count: 1, tokens: 10 },
+							candidates: 1,
+							dropped: 1,
+							excluded,
+						}),
+					],
+				}),
+			);
 
-		expect(overCount).toContain("3 over the count");
-		expect(overCount).not.toContain("size budget");
-		expect(overSize).toContain("3 over the size budget");
-		expect(overSize).not.toContain("over the count");
+		expect(reduced({ count: 1 })).toContain("1 over the count");
+		expect(reduced({ count: 1 })).not.toContain("size budget");
+		expect(reduced({ size: 1 })).toContain("1 over the size budget");
+		expect(reduced({ size: 1 })).not.toContain("over the count");
 	});
 
 	test("an evicted turn is attributed to eviction", () => {
@@ -344,24 +402,16 @@ describe("rendering relevance", () => {
 			renderCall(
 				view({
 					parts: [
-						{
+						part({
 							source: "verbatim-tail",
 							approximateTokens: 40,
 							carried: 4,
 							turnIndices: [6, 7, 8, 9],
-							conceptIds: [],
-							symbols: [],
-							pinIds: [],
 							budget: { count: 8, tokens: UNBOUNDED },
 							candidates: 9,
-							trimmed: false,
 							dropped: 5,
-							irrelevant: 0,
 							excluded,
-							excludedCandidates: [],
-							explained: false,
-							unranked: true,
-						},
+						}),
 					],
 				}),
 			);
@@ -380,25 +430,16 @@ describe("rendering relevance", () => {
 				beforeCeiling: 1200,
 				reduced: true,
 				parts: [
-					{
+					part({
 						source: "verbatim-tail",
 						approximateTokens: 280,
 						carried: 1,
 						turnIndices: [4],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
 						budget: { count: 8, tokens: UNBOUNDED },
-						trimmed: false,
-						dropped: 0,
-						irrelevant: 0,
 						excluded: { ceiling: 0 },
 						withoutCeiling: 1100,
 						shortened: true,
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
+					}),
 				],
 			}),
 		);
@@ -419,24 +460,15 @@ describe("rendering relevance", () => {
 				beforeCeiling: 5290,
 				reduced: true,
 				parts: [
-					{
+					part({
 						source: "current-turn",
 						approximateTokens: 290,
 						carried: 1,
 						turnIndices: [3],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
-						trimmed: false,
-						dropped: 0,
-						irrelevant: 0,
 						excluded: { ceiling: 0 },
 						withoutCeiling: 5000,
 						shortened: true,
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
+					}),
 				],
 			}),
 		);
@@ -478,127 +510,6 @@ describe("rendering relevance", () => {
 	});
 });
 
-describe("rendering a call that recalled nothing", () => {
-	test("says how many were rejected even with no recalled part", () => {
-		const text = renderCall(
-			view({
-				parts: [
-					{
-						source: "current-turn",
-						approximateTokens: 18,
-						carried: 1,
-						turnIndices: [4],
-						conceptIds: [],
-						symbols: [],
-						pinIds: [],
-						trimmed: false,
-						dropped: 0,
-						irrelevant: 0,
-						excludedCandidates: [],
-						explained: false,
-						unranked: false,
-					},
-				],
-				rejected: 6,
-			}),
-		);
-
-		expect(text).toContain("recalled");
-		expect(text).toContain("6 not relevant enough");
-	});
-
-	test("stays quiet when nothing was rejected", () => {
-		const text = renderCall(view({ rejected: 0 }));
-
-		expect(text).not.toContain("not relevant enough");
-	});
-
-	test("a recall that came back short reads differently from an irrelevant one", () => {
-		const noRecall = [
-			{
-				source: "current-turn" as const,
-				approximateTokens: 18,
-				carried: 1,
-				turnIndices: [4],
-				conceptIds: [],
-				symbols: [],
-				pinIds: [],
-				trimmed: false,
-				dropped: 0,
-				irrelevant: 0,
-				excludedCandidates: [],
-				explained: false,
-				unranked: false,
-			},
-		];
-		const short = renderCall(
-			view({ parts: noRecall, rejected: 0, unsearched: 7 }),
-		);
-		const irrelevant = renderCall(
-			view({ parts: noRecall, rejected: 7, unsearched: 0 }),
-		);
-
-		expect(short).toContain("7 turns of this conversation");
-		expect(short).toContain("awaiting embedding");
-		expect(short).not.toContain("not relevant enough");
-		expect(irrelevant).toContain("7 not relevant enough");
-		expect(irrelevant).not.toContain("awaiting embedding");
-	});
-
-	test("stays quiet when the whole conversation was searched", () => {
-		const text = renderCall(view({ unsearched: 0 }));
-
-		expect(text).not.toContain("awaiting embedding");
-	});
-
-	test("what precedes the assembled parts is reported beside the cache", () => {
-		const led = renderCall(view({ leadingTokens: 3412 }));
-
-		// A cache figure with no prefix figure beside it cannot be acted on:
-		// this is what the Call could have read back, and a cache read far
-		// below it says the tail slid or the provider dropped the entry.
-		expect(led).toContain("prefix        ~3412 tokens the harness sent, ahead of the assembled parts");
-	});
-
-	test("a call that kept its briefing reports what it sent again and what was missing", () => {
-		const text = renderCall(view({ briefing: { mode: "kept", resent: 4, resentBytes: 5_120, missing: 1 } }));
-
-		expect(text).toContain(
-			"  briefing      sent cleared and kept; 4 earlier briefings sent again (5120 bytes), 1 missing",
-		);
-	});
-
-	test("a fallback call says its briefing went as a user message", () => {
-		const text = renderCall(view({ briefing: { mode: "replaced", resent: 0, resentBytes: 0, missing: 0 } }));
-
-		expect(text).toContain("  briefing      sent as a user message, replaced on the next call");
-	});
-
-	test("a call that assembled nothing says so, beside what it sent again", () => {
-		const text = renderCall(view({ briefing: { mode: "none", resent: 2, resentBytes: 900, missing: 0 } }));
-
-		expect(text).toContain(
-			"  briefing      none of its own; 2 earlier briefings sent again (900 bytes), 0 missing",
-		);
-	});
-
-	test("a call recorded before briefings were kept has no briefing line", () => {
-		expect(renderCall(view())).not.toContain("briefing");
-	});
-
-	test("a curated part mid-repair is named apart from a thin recall", () => {
-		const curated = renderCall(view({ unsearched: 0, conceptsUnsearched: 3 }));
-		const recall = renderCall(view({ unsearched: 7, conceptsUnsearched: 0 }));
-
-		// Both Stores embed on their own schedule, so a reader must be able
-		// to tell which one is behind.
-		expect(curated).toContain("3 concepts of the bundle");
-		expect(curated).not.toContain("turns of this conversation");
-		expect(recall).toContain("7 turns of this conversation");
-		expect(recall).not.toContain("concepts of the bundle");
-	});
-});
-
 describe("rendering a search", () => {
 	const hit = (calls: number) => ({
 		turnIndex: 3,
@@ -622,5 +533,9 @@ describe("rendering a search", () => {
 
 	test("a turn answered in one call says nothing about calls", () => {
 		expect(renderSearch([hit(1)])).not.toContain("calls");
+	});
+
+	test("a search that found nothing says so", () => {
+		expect(renderSearch([])).toBe("No conversation holds anything relevant to that.");
 	});
 });

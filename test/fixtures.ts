@@ -7,12 +7,10 @@ import type { BranchEntry } from "../src/harness.ts";
 import { readJournal } from "../src/journal.ts";
 import type { HarnessMessage, Turn } from "../src/messages.ts";
 import {
-	DEFAULT_DOC_MAX_DISTANCE,
 	DEFAULT_EXPLAIN_CANDIDATES,
 	DEFAULT_PIN_COUNT,
 	DEFAULT_PIN_TOKENS,
 	DEFAULT_TAIL_LOW_WATER,
-	DEFAULT_RECALL_MAX_DISTANCE,
 	loadConfig,
 	type Config,
 } from "../src/config.ts";
@@ -38,24 +36,14 @@ export async function fixture(name: string): Promise<HarnessMessage[]> {
 export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 	const flat: FlatBudgets = {
 		tailTurns: 0,
-		recallTurns: 0,
-		docConcepts: 0,
-		graphSymbols: 0,
 		tailTokens: UNBOUNDED,
-		recallTokens: UNBOUNDED,
-		docTokens: UNBOUNDED,
-		graphTokens: UNBOUNDED,
 		packTokens: UNBOUNDED,
-		// Off unless a test is about the Opening, like every optional part.
+		// Off unless a test is about the Opening.
 		openingTokens: 0,
 		// The real defaults: the Assembler records the Pin Budget and never
 		// applies it, so no value of it can bind a test by accident.
 		pinCount: DEFAULT_PIN_COUNT,
 		pinTokens: DEFAULT_PIN_TOKENS,
-		// The real defaults: a test about Budgets should not have to state
-		// the thresholds a part records itself as having selected against.
-		recallMaxDistance: DEFAULT_RECALL_MAX_DISTANCE,
-		docMaxDistance: DEFAULT_DOC_MAX_DISTANCE,
 		explainCandidates: DEFAULT_EXPLAIN_CANDIDATES,
 		// The real default: tests that mean "the newest N" set it to 1.
 		tailLowWater: DEFAULT_TAIL_LOW_WATER,
@@ -64,14 +52,9 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
 	return {
 		tail: { count: flat.tailTurns, tokens: flat.tailTokens },
 		tailLowWater: flat.tailLowWater,
-		recall: { count: flat.recallTurns, tokens: flat.recallTokens },
 		opening: { count: flat.openingTokens > 0 ? 1 : 0, tokens: flat.openingTokens },
-		docs: { count: flat.docConcepts, tokens: flat.docTokens },
-		graph: { count: flat.graphSymbols, tokens: flat.graphTokens },
 		packTokens: flat.packTokens,
 		pins: { count: flat.pinCount, tokens: flat.pinTokens },
-		recallMaxDistance: flat.recallMaxDistance,
-		docMaxDistance: flat.docMaxDistance,
 		explainCandidates: flat.explainCandidates,
 	};
 }
@@ -83,19 +66,11 @@ export function budgets(counts: Partial<FlatBudgets>): AssemblerConfig {
  */
 interface FlatBudgets {
 	tailTurns: number;
-	recallTurns: number;
-	docConcepts: number;
-	graphSymbols: number;
 	tailTokens: number;
-	recallTokens: number;
 	openingTokens: number;
-	docTokens: number;
-	graphTokens: number;
 	packTokens: number;
 	pinCount: number;
 	pinTokens: number;
-	recallMaxDistance: number;
-	docMaxDistance: number;
 	explainCandidates: number;
 	tailLowWater: number;
 }

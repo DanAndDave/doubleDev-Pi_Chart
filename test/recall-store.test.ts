@@ -63,10 +63,10 @@ describeStore("recall against a real store", () => {
 	test("an ingested turn becomes retrievable once embedded", async () => {
 		await store.ingest("conv-1", CONVERSATION);
 
-		expect((await store.similarTurns("conv-1", "caching", 3, PERMISSIVE)).turns).toHaveLength(0);
+		expect((await store.similarTurns("conv-1", "caching", 3)).turns).toHaveLength(0);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		expect((await store.similarTurns("conv-1", "caching", 3, PERMISSIVE)).turns.length).toBeGreaterThan(0);
+		expect((await store.similarTurns("conv-1", "caching", 3)).turns.length).toBeGreaterThan(0);
 	});
 
 	test("the turn on the matching subject ranks first", async () => {
@@ -74,7 +74,7 @@ describeStore("recall against a real store", () => {
 		while ((await store.embedPending("conv-1")) > 0);
 
 		const [closest] = (
-			await store.similarTurns("conv-1", "cache the parsed config", 3, PERMISSIVE)
+			await store.similarTurns("conv-1", "cache the parsed config", 3)
 		).turns;
 
 		expect(closest?.turnIndex).toBe(0);
@@ -84,7 +84,7 @@ describeStore("recall against a real store", () => {
 		await store.ingest("conv-1", CONVERSATION);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		const [closest] = (await store.similarTurns("conv-1", "migrations", 1, PERMISSIVE)).turns;
+		const [closest] = (await store.similarTurns("conv-1", "migrations", 1)).turns;
 
 		expect(closest?.turn.messages.map((message) => message.role)).toEqual([
 			"user",
@@ -97,7 +97,7 @@ describeStore("recall against a real store", () => {
 		await store.ingest("conv-2", [subject(0, "how should we cache parsed config", "theirs")]);
 		while ((await store.embedPending()) > 0);
 
-		const { turns: found } = await store.similarTurns("conv-2", "cache the parsed config", 10, PERMISSIVE);
+		const { turns: found } = await store.similarTurns("conv-2", "cache the parsed config", 10);
 
 		expect(found).toHaveLength(1);
 		expect(found[0]?.turn.messages[1]?.content).toBe("theirs");
@@ -116,7 +116,7 @@ describeStore("recall against a real store", () => {
 	test("a conversation with no vectors retrieves nothing rather than failing", async () => {
 		await store.ingest("conv-1", CONVERSATION);
 
-		expect((await store.similarTurns("conv-1", "anything", 5, PERMISSIVE)).turns).toEqual([]);
+		expect((await store.similarTurns("conv-1", "anything", 5)).turns).toEqual([]);
 	});
 
 	test("equally similar turns come back in a stable order", async () => {
@@ -129,8 +129,8 @@ describeStore("recall against a real store", () => {
 		]);
 		while ((await store.embedPending("conv-1")) > 0);
 
-		const { turns: first } = await store.similarTurns("conv-1", "the same words exactly", 3, PERMISSIVE);
-		const { turns: second } = await store.similarTurns("conv-1", "the same words exactly", 3, PERMISSIVE);
+		const { turns: first } = await store.similarTurns("conv-1", "the same words exactly", 3);
+		const { turns: second } = await store.similarTurns("conv-1", "the same words exactly", 3);
 
 		expect(first.map((each) => each.turnIndex)).toEqual([0, 1, 2]);
 		expect(second.map((each) => each.turnIndex)).toEqual(
@@ -166,26 +166,23 @@ describeStore("per-part detail round-trips", () => {
 		await store.truncate();
 	});
 
-	test("a recalled part's turns and budget survive a round trip", async () => {
+	test("a part's turns and budget survive a round trip", async () => {
 		const pack = assemble({
 				turns: [
-					{ index: 1, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
+					{ index: 1, prompt: "older", messages: [{ role: "user", content: "older" }] },
+					{ index: 2, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
 					{ prompt: "current", messages: [{ role: "user", content: "current" }] },
 				],
-				recalled: [
-					{ turnIndex: 7, turn: { index: 7, prompt: "older", messages: [] } },
-					{ turnIndex: 9, turn: { index: 9, prompt: "oldest", messages: [] } },
-				],
-			}, budgets({ tailTurns: 2, recallTurns: 1, docConcepts: 0, graphSymbols: 0 }));
+			}, budgets({ tailTurns: 2 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
-		const recalledPart = turn?.calls[0]?.parts.find(
-			(part) => part.source === "recalled",
+		const tailPart = turn?.calls[0]?.parts.find(
+			(part) => part.source === "verbatim-tail",
 		);
-		expect(recalledPart?.turnIndices).toEqual([7]);
-		expect(recalledPart?.budget).toEqual({ count: 1, tokens: UNBOUNDED });
-		expect(recalledPart?.candidates).toBe(2);
+		expect(tailPart?.turnIndices).toEqual([1, 2]);
+		expect(tailPart?.budget).toEqual({ count: 2, tokens: UNBOUNDED });
+		expect(tailPart?.candidates).toBe(2);
 	});
 
 	test("a call recorded without the detail still reads back", async () => {
@@ -208,25 +205,20 @@ describeStore("per-part detail round-trips", () => {
 		const pack = assemble(
 			{
 				turns: [
-					{ index: 1, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
+					{ index: 1, prompt: "older", messages: [{ role: "user", content: "older" }] },
+					{ index: 2, prompt: "recent", messages: [{ role: "user", content: "recent" }] },
 					{ prompt: "current", messages: [{ role: "user", content: "current" }] },
 				],
-				recalled: [{ turnIndex: 7, turn: { index: 7, prompt: "older", messages: [] } }],
-				rejected: 1,
-				recallMisses: [{ turnIndex: 4, distance: 0.61 }],
 			},
-			budgets({ tailTurns: 2, recallTurns: 1, recallMaxDistance: 0.52 }),
+			budgets({ tailTurns: 1, tailLowWater: 1 }),
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 
 		const [turn] = await store.readAccounting("conv-1");
-		const recalledPart = turn?.calls[0]?.parts.find(
-			(part) => part.source === "recalled",
+		const tailPart = turn?.calls[0]?.parts.find(
+			(part) => part.source === "verbatim-tail",
 		);
-		expect(recalledPart?.excludedCandidates).toEqual([
-			{ turnIndex: 4, reason: "irrelevant", distance: 0.61, threshold: 0.52 },
-		]);
-		expect(recalledPart?.threshold).toBe(0.52);
+		expect(tailPart?.excludedCandidates).toEqual([{ turnIndex: 1, reason: "evicted" }]);
 	});
 
 	test("a call recorded before the ledger reads back unexplainable", async () => {
@@ -430,109 +422,6 @@ describeStore("per-part detail round-trips", () => {
 	});
 });
 
-describeStore("the relevance threshold", () => {
-	let store: PostgresStore;
-
-	beforeAll(async () => {
-		store = PostgresStore.connect(databaseUrl ?? "", new StubEmbedder());
-		await store.migrate();
-	});
-
-	afterAll(async () => {
-		await store?.close();
-	});
-
-	beforeEach(async () => {
-		await store.truncate();
-		await store.ingest("conv-1", CONVERSATION);
-		while ((await store.embedPending("conv-1")) > 0);
-	});
-
-	test("a turn below the threshold is absent even when nothing ranks above it", async () => {
-		// Nothing can be this near: the floor, not the ranking, decides.
-		const { turns } = await store.similarTurns("conv-1", "caching", 3, 0.01);
-
-		expect(turns).toEqual([]);
-	});
-
-	test("rejections are counted from the turns that would have competed", async () => {
-		// Only the nearest `limit` are contenders, so the count describes
-		// this retrieval rather than the length of the Conversation.
-		const { rejected } = await store.similarTurns("conv-1", "caching", 2, 0.01);
-
-		expect(rejected).toBe(2);
-	});
-
-	test("a threshold that admits everything does not disturb the ranking", async () => {
-		// A probe sharing wording with one Turn, so the order is meaningful
-		// rather than a tie-break; 1.0 admits this whole corpus without being
-		// the maximum, so the comparison is against a different query.
-		const probe = "cache the parsed config";
-		const withThreshold = await store.similarTurns("conv-1", probe, 3, 1);
-		const wideOpen = await store.similarTurns("conv-1", probe, 3, 2);
-
-		expect(withThreshold.turns.map((each) => each.turnIndex)).toEqual(
-			wideOpen.turns.map((each) => each.turnIndex),
-		);
-		expect(withThreshold.turns.length).toBeGreaterThan(1);
-		expect(withThreshold.turns[0]?.turnIndex).toBe(0);
-	});
-
-	test("retrieval reports how many it refused", async () => {
-		const strict = await store.similarTurns("conv-1", "caching", 3, 0.01);
-		const permissive = await store.similarTurns("conv-1", "caching", 3, 2);
-
-		expect(strict.rejected).toBe(CONVERSATION.length);
-		expect(permissive.rejected).toBe(0);
-	});
-
-	test("the floor applies before the limit, so over-fetching stays relevant", async () => {
-		// Asking for more than exists must not drag in rejected Turns.
-		const { turns } = await store.similarTurns("conv-1", "caching", 100, 0.01);
-
-		expect(turns).toEqual([]);
-	});
-
-	test("what it refused comes back named, nearest first", async () => {
-		const { turns, rejected, misses } = await store.similarTurns(
-			"conv-1",
-			"caching",
-			3,
-			0.01,
-		);
-
-		expect(turns).toEqual([]);
-		expect(rejected).toBe(CONVERSATION.length);
-		// Named, so an absence can be explained rather than counted.
-		expect(misses.map((miss) => miss.turnIndex).sort()).toEqual([0, 1, 2]);
-		expect(misses.map((miss) => miss.distance)).toEqual(
-			[...misses.map((miss) => miss.distance)].sort((a, b) => a - b),
-		);
-		for (const miss of misses) expect(miss.distance).toBeGreaterThan(0.01);
-	});
-
-	test("the refused are drawn from the contenders, not from the conversation", async () => {
-		// Only the nearest `limit` compete, so only they can be refused:
-		// naming every distant Turn would describe the Conversation's
-		// length rather than this retrieval.
-		const { misses } = await store.similarTurns("conv-1", "caching", 2, 0.01);
-
-		expect(misses).toHaveLength(2);
-	});
-
-	test("a turn inside the threshold is not among the refused", async () => {
-		const { turns, misses } = await store.similarTurns(
-			"conv-1",
-			"cache the parsed config",
-			3,
-			1,
-		);
-
-		const carried = new Set(turns.map((each) => each.turnIndex));
-		for (const miss of misses) expect(carried.has(miss.turnIndex)).toBe(false);
-	});
-});
-
 describeStore("searching every conversation", () => {
 	let store: PostgresStore;
 
@@ -634,7 +523,7 @@ describeStore("searching every conversation", () => {
 		const query = "the definitive answer about caching";
 
 		const anywhere = await store.searchAll(query, 1, 2);
-		const scoped = await store.similarTurns("conv-2", query, 5, 2);
+		const scoped = await store.similarTurns("conv-2", query, 5);
 
 		expect(anywhere[0]?.conversationId).toBe("conv-3");
 		expect(scoped.turns.every((hit) => hit.turn.prompt !== query)).toBe(true);

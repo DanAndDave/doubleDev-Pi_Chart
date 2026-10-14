@@ -20,9 +20,6 @@ import { PostgresStore } from "../src/postgres-store.ts";
 const databaseUrl = process.env.PICHART_DATABASE_URL;
 const describeStore = databaseUrl ? describe : describe.skip;
 
-/** Wide enough to admit everything: these cases are not about relevance. */
-const PERMISSIVE = 2;
-
 /**
  * A stand-in for the asymmetry the pinned model has: a query is embedded
  * from different text than a passage, so a derivation applied to the wrong
@@ -94,7 +91,6 @@ describeStore("a stored vector's validity", () => {
 			"conv-1",
 			"forward on connect",
 			5,
-			PERMISSIVE,
 		);
 		expect(turns).toEqual([]);
 	});
@@ -114,7 +110,6 @@ describeStore("a stored vector's validity", () => {
 			"conv-1",
 			"run from the installer",
 			5,
-			PERMISSIVE,
 		);
 		expect(turns).toHaveLength(1);
 	});
@@ -143,7 +138,7 @@ describeStore("a stored vector's validity", () => {
 		// The other Conversation's Turns are untouched: recall finds none of
 		// them, and they are still waiting for the unscoped pass.
 		expect(
-			(await store.similarTurns("conv-2", "theirs", 5, PERMISSIVE)).turns,
+			(await store.similarTurns("conv-2", "theirs", 5)).turns,
 		).toEqual([]);
 		expect(await store.embedPending()).toBe(2);
 	});
@@ -167,7 +162,7 @@ describeStore("a stored vector's validity", () => {
 		await other.ingest("conv-1", [subject(0, "caching", "keep it in memory")]);
 		while ((await other.embedPending("conv-1")) > 0);
 
-		const { turns } = await store.similarTurns("conv-1", "caching", 5, PERMISSIVE);
+		const { turns } = await store.similarTurns("conv-1", "caching", 5);
 
 		expect(turns).toEqual([]);
 		await other.close();
@@ -183,7 +178,7 @@ describeStore("a stored vector's validity", () => {
 
 		expect(await store.embedPending("conv-1")).toBe(1);
 
-		const { turns } = await store.similarTurns("conv-1", "caching", 5, PERMISSIVE);
+		const { turns } = await store.similarTurns("conv-1", "caching", 5);
 		expect(turns).toHaveLength(1);
 		await other.close();
 	});
@@ -289,7 +284,7 @@ describeStore("what a turn is findable by", () => {
 
 		// A strict minimum, so this asks whether the subject is in the
 		// vector at all rather than whether it is the only Turn there.
-		const { turns } = await store.similarTurns("conv-1", "ledger sharding", 3, 0.8);
+		const { turns } = await store.similarTurns("conv-1", "ledger sharding", 3);
 
 		expect(turns.map((each) => each.turnIndex)).toEqual([0]);
 	});
@@ -328,7 +323,6 @@ describeStore("what a turn is findable by", () => {
 			"conv-1",
 			"migration lock taken twice on one connection",
 			1,
-			PERMISSIVE,
 		);
 
 		expect(turns.map((each) => each.turnIndex)).toEqual([0]);
@@ -378,7 +372,6 @@ describeStore("a conversation-scoped recall", () => {
 			"conv-1",
 			"cache the parsed config",
 			4,
-			PERMISSIVE,
 		);
 
 		expect(turns.map((each) => each.turnIndex)).toEqual([0, 1, 2, 3]);
@@ -392,17 +385,17 @@ describeStore("a conversation-scoped recall", () => {
 			),
 		);
 		while ((await store.embedPending("conv-1")) > 0);
-		const before = await store.similarTurns("conv-1", "caching", 4, PERMISSIVE);
+		const before = await store.similarTurns("conv-1", "caching", 4);
 
 		await crowd(40, 5);
-		const after = await store.similarTurns("conv-1", "caching", 4, PERMISSIVE);
+		const after = await store.similarTurns("conv-1", "caching", 4);
 
 		expect(after.turns.map((each) => each.turnIndex)).toEqual(
 			before.turns.map((each) => each.turnIndex),
 		);
 	});
 
-	test("coming back short reads differently from nothing being relevant", async () => {
+	test("a Turn not yet embedded is counted as unsearched", async () => {
 		await store.ingest("conv-1", [
 			subject(0, "caching", "keep it in memory"),
 			subject(1, "migrations", "forward on connect"),
@@ -412,14 +405,9 @@ describeStore("a conversation-scoped recall", () => {
 		// A Turn ingested and not yet embedded: the search cannot see it.
 		await store.ingest("conv-1", [subject(3, "deadlines", "per store")]);
 
-		const short = await store.similarTurns("conv-1", "caching", 4, PERMISSIVE);
-		const irrelevant = await store.similarTurns("conv-1", "caching", 4, 0.01);
+		const short = await store.similarTurns("conv-1", "caching", 4);
 
-		expect(short.turns.length).toBeLessThan(4);
+		expect(short.turns).toHaveLength(3);
 		expect(short.unsearched).toBe(1);
-		expect(short.rejected).toBe(0);
-		expect(irrelevant.turns).toEqual([]);
-		expect(irrelevant.rejected).toBe(3);
-		expect(irrelevant.unsearched).toBe(1);
 	});
 });

@@ -1,6 +1,8 @@
 # Assembled parts follow the Turn in progress
 
-Supersedes ADR-0006's order. Partly superseded by ADR-0011: the assembled parts are now one message, the Briefing, which opens with a fixed framing, carries the Pins next, then a marker, then recalled Turns, curated knowledge and structure; it is no longer replaced by the next Call, and every Briefing stays where it was sent. Below, "closing block", "opening line" and "Pins last" describe the order this ADR decided, not the current one.
+Superseded by ADR-0015: pi-chart no longer sends assembled parts as a message. The Pins and the Opening ride the system prompt, and recall, curated knowledge and structure are tools the model calls.
+
+Supersedes ADR-0006's order. Below, "closing block", "opening line" and "Pins last" describe the order this ADR decided; ADR-0011 later made the parts one Briefing, and ADR-0015 removed the Briefing.
 
 ADR-0006 led every Pack with the longest run of messages the harness itself sent, so the harness could mark that run for caching, and put the assembled parts between the run and the rest of the tail. The 2026-10-13 token benchmark (`docs/benchmarks/2026-10-13-token-usage.md`) measured what that costs: pi-chart wrote 2.5× as much cache as plain omp over turns 1–6, and cost 2.3× as much over twelve turns while sending 26% fewer prompt tokens.
 

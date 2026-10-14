@@ -13,20 +13,13 @@ import { readJournal } from "../src/journal.ts";
 
 import {
 	MemoryAccounting,
-	type BriefingFigures,
 	type AccountingStore,
 	type CallAddress,
 	type Measurement,
 	type MemoryBackendState,
 	type TailSource,
 } from "../src/accounting.ts";
-import {
-	assemble,
-	BRIEFING_FRAMING,
-	BRIEFING_MARKER,
-	OPENING_HEADER,
-	type Pack,
-} from "../src/assembler.ts";
+import { assemble, EVICTION_NOTICE, OPENING_FRAMING, type Pack } from "../src/assembler.ts";
 import {
 	DEFAULT_RETRIEVAL_DEADLINE_MS,
 	DEFAULT_TAIL_TURNS,
@@ -36,10 +29,13 @@ import piChart, {
 	register,
 	type Dependencies,
 } from "../src/extension.ts";
-import { MemoryTurnSource } from "../src/thread-store.ts";
+import { MemoryTurnSource, type TurnRecall } from "../src/thread-store.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
-import { JudgeFailure, type RelevanceJudge } from "../src/relevance-judge.ts";
+import type { ConceptHit, ConceptSearch } from "../src/doc-index.ts";
+import { approximateTokens } from "../src/tokens.ts";
 import type {
+	BeforeAgentStartHandler,
+	BeforeAgentStartResult,
 	BeforeCompactHandler,
 	BranchEntry,
 	CommandContext,
@@ -65,19 +61,37 @@ import {
 	settings,
 } from "./fixtures.ts";
 import { storeLocation } from "./store-support.ts";
-import { PIN_ENTRY } from "../src/pins.ts";
-import { BRIEFING_ENTRY, briefingMessage, hashOf } from "../src/briefings.ts";
+import { PIN_ENTRY, PINS_FRAMING } from "../src/pins.ts";
 
 interface Recorded extends CallAddress {
 	pack?: Pack;
 	unassembled?: boolean;
 	tailSource?: TailSource;
 	memoryBackend?: MemoryBackendState;
-	briefing?: BriefingFigures;
+}
+
+/** What one agent start did to the system prompt, as the harness threads it. */
+interface AgentStart {
+	/** The system prompt after every handler. */
+	systemPrompt: string[];
+	/** What pi-chart's handler returned. */
+	returned: BeforeAgentStartResult | undefined;
 }
 
 interface Harness {
 	context: ContextHandler;
+	beforeAgentStart: BeforeAgentStartHandler;
+	/**
+	 * Starts a Turn as the harness does: each handler is given what the
+	 * one before returned, a string taken as `[string]`, the `earlier`
+	 * ones (other extensions) before pi-chart's.
+	 */
+	agentStart: (
+		prompt: string,
+		context: HandlerContext,
+		systemPrompt?: string[],
+		earlier?: BeforeAgentStartHandler[],
+	) => Promise<AgentStart>;
 	sessionStart: LifecycleHandler;
 	agentEnd: LifecycleHandler;
 	sessionShutdown: LifecycleHandler;
@@ -114,6 +128,7 @@ type Overrides = Partial<Omit<Dependencies, "config">> & {
 
 function harness(overrides: Overrides = {}): Harness {
 	let context: ContextHandler | undefined;
+	let beforeAgentStart: BeforeAgentStartHandler | undefined;
 	let sessionStart: LifecycleHandler | undefined;
 	let agentEnd: LifecycleHandler | undefined;
 	let sessionShutdown: LifecycleHandler | undefined;
@@ -131,6 +146,9 @@ function harness(overrides: Overrides = {}): Harness {
 	const pi: ExtensionAPI = {
 		on(event: string, handler: unknown) {
 			if (event === "context") context = handler as ContextHandler;
+			if (event === "before_agent_start") {
+				beforeAgentStart = handler as BeforeAgentStartHandler;
+			}
 			if (event === "session_start") sessionStart = handler as LifecycleHandler;
 			if (event === "session_tree") sessionTree = handler as SessionTreeHandler;
 			if (event === "session_switch") sessionSwitch = handler as SessionSwitchHandler;
@@ -179,10 +197,10 @@ function harness(overrides: Overrides = {}): Harness {
 	}
 
 	const accounting: AccountingStore = {
-		recordPack: (_conversationId, address, pack, tailSource, memoryBackend, briefing) =>
+		recordPack: (_conversationId, address, pack, tailSource, memoryBackend) =>
 			track(
 				Promise.resolve(
-					recorded.push({ ...address, pack, tailSource, memoryBackend, briefing }),
+					recorded.push({ ...address, pack, tailSource, memoryBackend }),
 				).then(() => {}),
 			),
 		recordUnassembled: (_conversationId, address, memoryBackend) =>
@@ -210,11 +228,7 @@ function harness(overrides: Overrides = {}): Harness {
 		// defaults rather than replacing them.
 		config: settings({
 			tailTurns: DEFAULT_TAIL_TURNS,
-			recallTurns: 0,
 			recallMaxDistance: 1,
-			docConcepts: 0,
-			docMaxDistance: 0.5,
-			graphSymbols: 0,
 			graphExtract: false,
 			specsVerify: false,
 			docBundle: "/unused",
@@ -224,6 +238,7 @@ function harness(overrides: Overrides = {}): Harness {
 
 	if (
 		!context ||
+		!beforeAgentStart ||
 		!sessionStart ||
 		!agentEnd ||
 		!sessionShutdown ||
@@ -246,8 +261,21 @@ function harness(overrides: Overrides = {}): Harness {
 		editor: async () => editorAnswers.shift(),
 	};
 
+	const pichartStart = beforeAgentStart;
 	return {
 		context,
+		beforeAgentStart,
+		agentStart: async (prompt, context, systemPrompt = ["the harness's prompt"], earlier = []) => {
+			let current = systemPrompt;
+			let returned: BeforeAgentStartResult | undefined;
+			for (const handler of [...earlier, pichartStart]) {
+				const result = await handler({ prompt, systemPrompt: current }, context);
+				if (handler === pichartStart) returned = result;
+				if (result?.systemPrompt === undefined) continue;
+				current = typeof result.systemPrompt === "string" ? [result.systemPrompt] : result.systemPrompt;
+			}
+			return { systemPrompt: current, returned };
+		},
 		sessionStart,
 		sessionShutdown,
 		sessionTree,
@@ -455,6 +483,187 @@ describe("context handler", () => {
 		await cm.settle();
 
 		expect(cm.recorded[0]).toMatchObject({ turnIndex: 1, callIndex: 0 });
+	});
+});
+
+describe("the system prompt a Turn starts with", () => {
+	const prompt = { messages: [{ role: "user", content: "hello" }] };
+	const part = (cm: Harness, call: number, source: "pinned" | "opening") =>
+		cm.recorded[call]?.pack?.parts.find((each) => each.source === source);
+	const pin = `${PINS_FRAMING}\n\n[pinned by the user: #1, 1 of 1]\nuse tabs`;
+
+	test("appends one block to the harness's entries, dropping and reordering none", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		const started = await cm.agentStart("hello", session, ["base", "tools"]);
+
+		expect(started.systemPrompt).toEqual(["base", "tools", pin]);
+		expect(started.returned).toEqual({ systemPrompt: ["base", "tools", pin] });
+	});
+
+	test("a system prompt an earlier handler returned is kept, a string as one entry", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		const started = await cm.agentStart("hello", session, ["base"], [
+			async () => ({ systemPrompt: "from another extension" }),
+		]);
+
+		expect(started.systemPrompt).toEqual(["from another extension", pin]);
+	});
+
+	test("nothing to add leaves the system prompt alone", async () => {
+		const cm = harness();
+
+		const started = await cm.agentStart("hello", cm.session(), ["base"]);
+
+		expect(started.returned).toBeUndefined();
+		expect(started.systemPrompt).toEqual(["base"]);
+	});
+
+	test("every Call of a Turn records the Pins and the Opening the Turn started with", async () => {
+		const cm = harness({
+			opening: { openingPrompt: async () => "the codeword is maple" },
+			recall: { similarTurns: async () => ({ turns: [], unsearched: 0 }) },
+		});
+		const session = cm.session(answered(100, "the codeword is maple"));
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		const started = await cm.agentStart("hello", session);
+		await cm.context(prompt, session);
+		await cm.context(prompt, session);
+		await cm.settle();
+
+		expect(started.systemPrompt.at(-1)).toBe(
+			[pin, `${OPENING_FRAMING}\nthe codeword is maple`, EVICTION_NOTICE].join("\n\n"),
+		);
+		for (const source of ["pinned", "opening"] as const) {
+			expect(part(cm, 0, source)).toMatchObject({ placement: "system-prompt", carried: 1 });
+			expect(part(cm, 1, source)).toEqual(part(cm, 0, source));
+		}
+		expect(part(cm, 0, "pinned")?.pinIds).toEqual([1]);
+	});
+
+	test("a Pin added mid-Turn is sent from the next Turn, and recorded only once sent", async () => {
+		const cm = harness();
+		const session = cm.session();
+
+		const first = await cm.agentStart("hello", session);
+		await cm.context(prompt, session);
+		await cm.commands.pins?.handler("add use tabs", session);
+		await cm.context(prompt, session);
+		const next = await cm.agentStart("hello", session);
+		await cm.context(prompt, session);
+		await cm.settle();
+
+		expect(first.returned).toBeUndefined();
+		expect(part(cm, 1, "pinned")).toMatchObject({ carried: 0, pinIds: [] });
+		expect(next.systemPrompt.at(-1)).toBe(pin);
+		expect(part(cm, 2, "pinned")).toMatchObject({ carried: 1, pinIds: [1] });
+	});
+
+	test("the first Turn's own prompt is the Opening, and later Turns send the same bytes", async () => {
+		let stored: string | undefined;
+		const cm = harness({ opening: { openingPrompt: async () => stored } });
+		const framed = `${OPENING_FRAMING}\nthe codeword is maple`;
+
+		const first = await cm.agentStart("the codeword is maple", ctx());
+		// Ingested by now, and joined differently from the prompt sent.
+		stored = "the codeword is maple ";
+		const second = await cm.agentStart("next", ctx(answered(100, "the codeword is maple")));
+
+		expect(first.systemPrompt.at(-1)).toBe(framed);
+		expect(second.systemPrompt.at(-1)).toBe(framed);
+	});
+
+	test("a resumed process reads the Opening from the store, not the prompt it resumes with", async () => {
+		const cm = harness({ opening: { openingPrompt: async () => "stored turn 0" } });
+
+		const started = await cm.agentStart("next", ctx(answered(100, "stored turn 0")));
+
+		expect(started.systemPrompt.at(-1)).toBe(`${OPENING_FRAMING}\nstored turn 0`);
+	});
+
+	test("an Opening the store cannot give is absent, asked again next Turn, and the Pins still go", async () => {
+		let failing = true;
+		const cm = harness({
+			opening: {
+				openingPrompt: async () => {
+					if (failing) throw new Error("ECONNREFUSED");
+					return "stored turn 0";
+				},
+			},
+		});
+		const session = cm.session(answered(100, "stored turn 0"));
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		const failed = await cm.agentStart("next", session);
+		await cm.context(prompt, session);
+		failing = false;
+		const retried = await cm.agentStart("next", session);
+		await cm.settle();
+
+		expect(failed.systemPrompt.at(-1)).toBe(pin);
+		expect(part(cm, 0, "opening")?.absent).toBe("failed");
+		expect(cm.reported.join("\n")).toContain("ECONNREFUSED");
+		expect(retried.systemPrompt.at(-1)).toBe(`${pin}\n\n${OPENING_FRAMING}\nstored turn 0`);
+	});
+
+	test("a Turn the harness never started records the Pins and the Opening unhooked, and is assembled", async () => {
+		const cm = harness({ opening: { openingPrompt: async () => "stored turn 0" } });
+		const session = cm.session();
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		const result = await cm.context(prompt, session);
+		await cm.settle();
+
+		expect(result?.messages).toEqual(prompt.messages);
+		expect(part(cm, 0, "pinned")?.absent).toBe("unhooked");
+		expect(part(cm, 0, "opening")?.absent).toBe("unhooked");
+	});
+
+	test("a hook that fails records the Pins and the Opening failed, not unhooked", async () => {
+		const cm = harness({ opening: { openingPrompt: async () => "stored turn 0" } });
+		const session = cm.session();
+		await cm.commands.pins?.handler("add use tabs", session);
+		const unreadable = {
+			...session,
+			sessionManager: {
+				...session.sessionManager,
+				getEntries: () => {
+					throw new Error("journal unreadable");
+				},
+			},
+		};
+
+		const started = await cm.agentStart("hello", unreadable);
+		await cm.context(prompt, session);
+		await cm.settle();
+
+		expect(started.returned).toBeUndefined();
+		expect(part(cm, 0, "pinned")?.absent).toBe("failed");
+		expect(part(cm, 0, "opening")?.absent).toBe("failed");
+		expect(cm.reported.join("\n")).toContain("journal unreadable");
+	});
+
+	test("a Turn the hook skipped records unhooked, not the Turn before it, and its Pins read as not sent", async () => {
+		const cm = harness();
+		const session = cm.session();
+		await cm.commands.pins?.handler("add use tabs", session);
+
+		await cm.agentStart("hello", session);
+		await cm.context(prompt, session);
+		await cm.agentEnd({}, session);
+		await cm.context(prompt, session);
+		await cm.settle();
+
+		expect(part(cm, 0, "pinned")?.carried).toBe(1);
+		expect(part(cm, 1, "pinned")?.absent).toBe("unhooked");
+		const status = cm.statuses.filter((each) => each.key === "pi-chart.pins").at(-1)?.text;
+		expect(status).toMatch(/^pinned: 1 \(~\d+ tok\) — not sent$/);
 	});
 });
 
@@ -800,69 +1009,78 @@ describe("the verbatim tail", () => {
 		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
 	});
 
-	test("a pack carries the tail, then the turn in progress, then the retrieval", async () => {
+	test("a tail Turn the live history holds is sent as the live messages, not the store's copy", async () => {
 		const store = new MemoryTurnSource();
 		await store.ingest("conv-1", [
 			{
 				turnIndex: 0,
-				prompt: "earlier",
+				// Joined differently from what the harness holds, as a
+				// stored copy may be.
+				prompt: "earlier ",
 				messages: [
-					{ role: "user", content: "earlier" },
-					{ role: "assistant", content: "answered" },
+					{ role: "user", content: "earlier " },
+					{ role: "assistant", content: [{ type: "text", text: "answered" }] },
 				],
 				callCount: 1,
 				calls: [0, 0],
 			},
 		]);
-		const cm = harness({
-			turns: store,
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({
-					hits: [
-						{
-							conceptId: "decisions/caching",
-							text: "We cache.",
-							trust: "unverified" as const,
-							sectionIndex: 0,
-							sectionCount: 1,
-							stale: false,
-							distance: 0.2,
-						},
-					],
-					rejected: 0,
-					misses: [],
-					unsearched: 0,
-				}),
-			},
-			config: { docConcepts: 2, docMaxDistance: 0.5, docBundle: "/unused" },
-		});
+		const cm = harness({ turns: store });
 		const messages = [
 			{ role: "user", content: "earlier" },
 			{ role: "assistant", content: "answered" },
 			{ role: "user", content: "current" },
 		];
 
-		const result = await cm.context({ messages }, ctx());
+		const result = await cm.context({ messages }, ctx(answered(100, "earlier")));
 		await cm.settle();
 
-		// The tail first, read from the store rather than the array, then
-		// the Turn in progress, then the Briefing behind it.
-		expect(result?.messages.slice(0, 3).map((message) => message.content)).toEqual([
-			"earlier",
-			"answered",
+		// The very objects the harness sent, so every Call of a Turn sends
+		// the prefix the one before it did and the cache holds — and
+		// nothing after the Turn in progress.
+		expect(result?.messages).toHaveLength(3);
+		result?.messages.forEach((message, at) => expect(message).toBe(messages[at] as HarnessMessage));
+		expect(cm.recorded[0]?.tailSource).toBe("harness");
+	});
+
+	test("a Turn a compaction cut from the live history comes from the store", async () => {
+		const store = new MemoryTurnSource();
+		await store.ingest(
+			"conv-1",
+			[0, 1].map((turnIndex) => ({
+				turnIndex,
+				prompt: `stored ${turnIndex}`,
+				messages: [
+					{ role: "user" as const, content: `stored ${turnIndex}` },
+					{ role: "assistant" as const, content: `stored answer ${turnIndex}` },
+				],
+				callCount: 1,
+				calls: [0, 0],
+			})),
+		);
+		const cm = harness({ turns: store });
+		// Turn 0 is gone from what the harness holds; Turn 1 is still there.
+		const messages = [
+			{ role: "user", content: "live 1" },
+			{ role: "assistant", content: "live answer 1" },
+			{ role: "user", content: "current" },
+		];
+
+		const result = await cm.context(
+			{ messages },
+			ctx([...answered(100, "stored 0"), ...answered(110, "live 1")]),
+		);
+		await cm.settle();
+
+		expect(result?.messages.map((message) => message.content)).toEqual([
+			"stored 0",
+			"stored answer 0",
+			"live 1",
+			"live answer 1",
 			"current",
 		]);
+		expect(result?.messages[2]).toBe(messages[0]);
 		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
-		const briefing = String(result?.messages[3]?.content);
-		expect(result?.messages).toHaveLength(4);
-		expect(briefing).toStartWith(BRIEFING_FRAMING);
-		expect(briefing.slice(briefing.indexOf(BRIEFING_MARKER))).toContain("curated knowledge");
-		// The harness places its cache breakpoint on the last message it
-		// recognises as its own, so the Turn in progress has to go back as
-		// the very objects it sent, not copies.
-		expect(result?.messages[2]).toBe(messages[2]);
 	});
 
 	test("falls back to the harness's own history when the store rejects", async () => {
@@ -986,7 +1204,8 @@ describe("the verbatim tail", () => {
 		);
 		await cm.settle();
 
-		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
+		// Every tail Turn is one the harness still holds.
+		expect(cm.recorded[0]?.tailSource).toBe("harness");
 		expect(
 			cm.recorded[0]?.pack?.parts.find((part) => part.source === "verbatim-tail")?.turnIndices,
 		).toEqual([2, 3]);
@@ -1003,105 +1222,152 @@ describe("the verbatim tail", () => {
 	});
 });
 
-describe("recall wiring", () => {
-	const conversation = [{ role: "user", content: "what did we decide" }];
+describe("recalling this conversation's earlier turns", () => {
+	/** Four completed Turns then the prompt in progress, Turn 4. */
+	const exchange = (index: number, said = `answer ${index}`): HarnessMessage[] => [
+		{ role: "user", content: `prompt ${index}` },
+		{ role: "assistant", content: said },
+	];
+	const history: HarnessMessage[] = [
+		...[0, 1, 2, 3].flatMap((index) => exchange(index)),
+		{ role: "user", content: "prompt 4" },
+	];
+	const branch: BranchEntry[] = history
+		.slice(0, -1)
+		.map((message, at) => ({ id: `m${at}`, message }));
 
-	test("a pack draws recall from the store, attributed as its own part", async () => {
-		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false },
-			recall: {
-				similarTurns: async () => ({
-					turns: [
-						{
-							turnIndex: 3,
+	/**
+	 * A Store ranking every Turn by a fixed distance and remembering what
+	 * it was asked. Turn 3, which the tail still carries, is the nearest of
+	 * all.
+	 */
+	function ranked(said: Record<number, string> = {}) {
+		const asked: { limit: number }[] = [];
+		const distances: [number, number][] = [
+			[3, 0.05],
+			[0, 0.2],
+			[2, 0.4],
+			[1, 1.6],
+		];
+		const recall: TurnRecall = {
+			similarTurns: async (_conversationId, _query, limit) => {
+				asked.push({ limit });
+				return {
+					turns: distances
+						.slice(0, limit)
+						.map(([turnIndex]) => ({
+							turnIndex,
 							turn: {
-								prompt: "we decided to cache",
-								messages: [{ role: "user", content: "we decided to cache" }],
+								index: turnIndex,
+								prompt: `prompt ${turnIndex}`,
+								messages: exchange(turnIndex, said[turnIndex]),
 							},
-						},
-					],
-					rejected: 0, misses: [], unsearched: 0,
-				}),
-			},
-		});
-
-		await cm.context({ messages: conversation }, ctx());
-		await cm.settle();
-
-		const sources = cm.recorded[0]?.pack?.parts.map((part) => part.source);
-		expect(sources).toContain("recalled");
-		expect(sources).toContain("current-turn");
-	});
-
-	test("a retrieval failure costs the recollections, not the turn", async () => {
-		const cm = harness({
-			config: { tailTurns: 8, recallTurns: 2, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false },
-			recall: {
-				similarTurns: () => Promise.reject(new Error("index offline")),
-			},
-		});
-
-		const result = await cm.context({ messages: conversation }, ctx());
-		await cm.settle();
-
-		expect(result?.messages).toHaveLength(1);
-		expect(cm.reported.join()).toContain("index offline");
-		// Nothing to explain from, and nothing invented to explain with.
-		const recalled = cm.recorded[0]?.pack?.parts.find(
-			(part) => part.source === "recalled",
-		);
-		expect(recalled?.excludedCandidates).toEqual([]);
-		expect(recalled?.absent).toBe("failed");
-	});
-
-	test("what the curated part refused reaches the accounting", async () => {
-		const cm = harness({
-			config: { docConcepts: 2, docMaxDistance: 0.4 },
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({
-					hits: [],
-					rejected: 2,
+						})),
 					unsearched: 0,
-					misses: [
-						{ conceptId: "decisions/caching", distance: 0.55 },
-						{ conceptId: "decisions/retention", distance: 0.62 },
-					],
-				}),
+				};
 			},
-		});
+		};
+		return { recall, asked };
+	}
 
-		await cm.context({ messages: conversation }, ctx());
-		await cm.settle();
-
-		const curated = cm.recorded[0]?.pack?.parts.find(
-			(part) => part.source === "curated",
+	/** A tail of one, so Turns 0 to 2 have left it once a Call has run. */
+	const config = { tailTurns: 1, recallMaxDistance: 0.5 };
+	async function recallEarlier(cm: Harness, limit?: number): Promise<ToolResult | undefined> {
+		return cm.tools.recall_earlier_turns?.execute(
+			"1",
+			{ query: "what was decided", ...(limit === undefined ? {} : { limit }) },
+			undefined,
+			undefined,
+			ctx(branch),
 		);
-		expect(curated?.irrelevant).toBe(2);
-		expect(curated?.threshold).toBe(0.4);
-		expect(curated?.absent).toBe("irrelevant");
-		expect(curated?.excludedCandidates?.map((each) => each.conceptId)).toEqual([
-			"decisions/caching",
-			"decisions/retention",
-		]);
+	}
+	const text = (result: ToolResult | undefined) =>
+		result?.content.map((block) => block.text).join("\n") ?? "";
+
+	test("is offered only with a store to recall from", () => {
+		expect(harness().tools.recall_earlier_turns).toBeUndefined();
+		expect(harness({ recall: ranked().recall }).tools.recall_earlier_turns).toBeDefined();
 	});
 
-	test("no recall is requested when its budget is zero", async () => {
-		let asked = false;
-		const cm = harness({
-			recall: {
-				similarTurns: async () => {
-					asked = true;
-					return { turns: [], rejected: 0, misses: [], unsearched: 0 };
-				},
-			},
+	test("before anything has left the window, says so", async () => {
+		const { recall, asked } = ranked();
+		const unstarted = harness({ config, recall });
+		// The default tail still carries Turn 0.
+		const whole = harness({ recall });
+
+		const before = await recallEarlier(unstarted);
+		await whole.context({ messages: history }, ctx(branch));
+		const kept = await recallEarlier(whole);
+
+		for (const result of [before, kept]) {
+			expect(text(result)).toStartWith("Nothing has left the window yet");
+		}
+		expect(asked).toEqual([]);
+	});
+
+	test("returns only Turns the tail evicted, nearest first, however far", async () => {
+		const { recall, asked } = ranked();
+		const cm = harness({ config, recall });
+
+		await cm.context({ messages: history }, ctx(branch));
+		const result = await recallEarlier(cm);
+
+		// Turn 3 is nearer than any, and still in view; Turn 1 is past the
+		// distance the cross-conversation search holds to, and still asked for.
+		expect(result?.details).toEqual({ results: 3, turnIndices: [0, 2, 1] });
+		expect(text(result)).not.toContain("[recalled from turn 3");
+		expect(text(result).indexOf("[recalled from turn 0")).toBeLessThan(
+			text(result).indexOf("[recalled from turn 2"),
+		);
+		// Over-fetched by the Turns the tail and the Turn in progress hold.
+		expect(asked).toEqual([{ limit: 7 }]);
+	});
+
+	test("five Turns unless asked for more, and never more than twenty", async () => {
+		const { recall, asked } = ranked();
+		const cm = harness({ config, recall });
+
+		await cm.context({ messages: history }, ctx(branch));
+		await recallEarlier(cm);
+		await recallEarlier(cm, 50);
+
+		expect(asked.map((each) => each.limit)).toEqual([7, 22]);
+	});
+
+	test("each Turn comes back held to the recall cap, with a marker", async () => {
+		const { recall } = ranked({ 0: "we settled it: ".repeat(200) });
+		const cm = harness({ config: { ...config, recallTokens: 60 }, recall });
+
+		await cm.context({ messages: history }, ctx(branch));
+		const answer = text(await recallEarlier(cm, 1));
+
+		expect(answer).toStartWith("[recalled from turn 0 of this conversation]");
+		expect(answer).toContain("pi-chart elided");
+		expect(approximateTokens([{ role: "user", content: answer }])).toBeLessThanOrEqual(60);
+	});
+
+	test("a store that fails or stays silent is named, and the turn goes on", async () => {
+		const failing = harness({
+			config,
+			recall: { similarTurns: () => Promise.reject(new Error("index offline")) },
+		});
+		const silent = harness({
+			config: { ...config, recallDeadlineMs: 2_500 },
+			after: async () => {},
+			recall: { similarTurns: () => Promise.withResolvers<never>().promise },
 		});
 
-		await cm.context({ messages: conversation }, ctx());
-		await cm.settle();
+		await failing.context({ messages: history }, ctx(branch));
+		await silent.context({ messages: history }, ctx(branch));
+		const failed = await recallEarlier(failing);
+		const late = await recallEarlier(silent);
+		const next = await failing.context({ messages: history }, ctx(branch));
 
-		expect(asked).toBe(false);
+		expect(text(failed)).toBe("The Thread Store could not be searched: index offline");
+		expect(failed?.details?.failed).toBe(true);
+		expect(failing.reported.join("\n")).toContain("index offline");
+		expect(text(late)).toContain("The Thread Store did not answer within 2500ms");
+		expect(next?.messages.at(-1)?.content).toBe("prompt 4");
 	});
 });
 
@@ -1164,53 +1430,45 @@ describe("an embedding model that changed under the corpus", () => {
 describe("the pack command", () => {
 	const prompt = [{ role: "user", content: "current" }];
 
-	test("changing a budget applies to the next call", async () => {
-		const config = { tailTurns: 8, recallTurns: 0, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false };
-		const cm = harness({
-			config,
-			recall: {
-				similarTurns: async () => ({
-					turns: [
-						{
-							turnIndex: 3,
-							turn: {
-								index: 3,
-								prompt: "older decision",
-								messages: [{ role: "user", content: "older decision" }],
-							},
-						},
-					],
-					rejected: 0, misses: [], unsearched: 0,
-				}),
-			},
-		});
+	test("an Opening budget changed mid-Turn applies from the next Turn", async () => {
+		const cm = harness({ opening: { openingPrompt: async () => "turn zero" } });
+		const session = ctx(answered(100, "turn zero"));
+		const opening = (call: number) =>
+			cm.recorded[call]?.pack?.parts.find((part) => part.source === "opening");
 
-		// Recall is off, so the first pack carries none.
-		await cm.context({ messages: prompt }, ctx());
-		await cm.settle();
-		expect(
-			cm.recorded[0]?.pack?.parts.find((part) => part.source === "recalled")
-				?.carried,
-		).toBe(0);
-
-		await cm.commands.pack?.handler("budget recall 2", {});
-		await cm.context({ messages: prompt }, ctx());
+		const before = await cm.agentStart("current", session);
+		await cm.context({ messages: prompt }, session);
+		await cm.commands.pack?.handler("budget opening-tokens 0", {});
+		// The same Turn: its system prompt went out with the Opening in it.
+		await cm.context({ messages: prompt }, session);
+		const after = await cm.agentStart("current", session);
+		await cm.context({ messages: prompt }, session);
 		await cm.settle();
 
-		expect(
-			cm.recorded[1]?.pack?.parts.find((part) => part.source === "recalled")
-				?.carried,
-		).toBe(1);
+		expect(before.systemPrompt.at(-1)).toContain("turn zero");
+		expect([opening(0)?.carried, opening(1)?.carried]).toEqual([1, 1]);
+		expect(after.returned).toBeUndefined();
+		expect(opening(2)?.absent).toBe("disabled");
 	});
 
 	test("an invalid budget is reported and nothing changes", async () => {
-		const config = { tailTurns: 8, recallTurns: 4, recallMaxDistance: 1, docConcepts: 0, docMaxDistance: 0.5, docBundle: "/unused", graphSymbols: 0, graphExtract: false, specsVerify: false };
+		const config = { tailTurns: 4 };
 		const cm = harness({ config });
 
-		await cm.commands.pack?.handler("budget recall plenty", {});
+		await cm.commands.pack?.handler("budget tail plenty", {});
 
 		expect(cm.shown.join()).toContain("not a count");
-		expect(config.recallTurns).toBe(4);
+	});
+
+	test("a budget for per-Call retrieval is refused, naming the ones there are", async () => {
+		const cm = harness();
+
+		await cm.commands.pack?.handler("budget recall 3", {});
+
+		const said = cm.shown.join();
+		expect(said).toContain('unknown budget "recall"');
+		expect(said).toContain("recall-tokens");
+		expect(said).toContain("opening-tokens");
 	});
 
 	test("with nothing recorded the command says so rather than failing", async () => {
@@ -1295,32 +1553,6 @@ describe("the pack command", () => {
 		expect(named).toContain("+ current-turn turn 1");
 		expect(named).toContain("- current-turn turn 0");
 		expect(latest).toBe("No change between these packs.");
-	});
-
-	test("why names the turn recall refused, with its distance", async () => {
-		const refusing = {
-			config: { recallTurns: 2, recallMaxDistance: 0.52 },
-			recall: {
-				similarTurns: async () => ({
-					turns: [],
-					rejected: 1,
-					misses: [{ turnIndex: 4, distance: 0.61 }],
-					unsearched: 0,
-				}),
-			},
-		};
-
-		// A bare number is the subject, not an address: "why 4" is the
-		// commonest question this command exists to answer.
-		for (const asked of ["why turn 4", "why 4"]) {
-			const cm = await recordedConversation(refusing);
-			await cm.commands.pack?.handler(asked, {});
-
-			const answer = cm.shown.at(-1) ?? "";
-			expect(answer).toContain("turn 4");
-			expect(answer).toContain("distance 0.61");
-			expect(answer).toContain("beyond the 0.52 threshold");
-		}
 	});
 
 	test("why can be asked of a call that is not the latest", async () => {
@@ -1612,348 +1844,29 @@ describe("searching across conversations", () => {
 		expect(result?.details?.failed).toBe(true);
 		expect(cm.reported.join()).toContain("store unreachable");
 	});
-});
 
-describe("a judged search", () => {
-	/** A hit whose Turn says `text`, `rank` places from the nearest. */
-	function turnHit(rank: number, text: string) {
-		return {
-			turnIndex: rank,
-			turn: { index: rank, prompt: text, messages: [{ role: "user", content: text }] },
-			conversationId: `conversation-${rank}`,
-			calls: 1,
-		};
-	}
-
-	/** A session whose host resolves `key` for TypeSafe, or nothing. */
-	function keyed(key: string | undefined) {
-		return ctx([], {
-			modelRegistry: {
-				getApiKeyForProvider: async (provider: string) =>
-					provider === "typesafe" ? key : undefined,
+	test("still holds results to the recall distance, and returns them as found", async () => {
+		const asked: number[] = [];
+		const cm = harness({
+			config: { recallMaxDistance: 0.37 },
+			search: {
+				searchAll: async (_query, _limit, maxDistance) => {
+					asked.push(maxDistance);
+					return [hit];
+				},
 			},
 		});
-	}
 
-	/**
-	 * A judge scoring each passage from a table, recording what it was
-	 * asked and which keys it was built with.
-	 */
-	function scripted(verdicts: Record<string, number | Error>) {
-		const asked: string[] = [];
-		const keys: string[] = [];
-		const judgeWith = (key: string): RelevanceJudge => {
-			keys.push(key);
-			return {
-				judge: async (_query, passage) => {
-					asked.push(passage);
-					const verdict = verdicts[passage] ?? 0;
-					if (verdict instanceof Error) throw verdict;
-					return verdict;
-				},
-			};
-		};
-		return { asked, keys, judgeWith };
-	}
-
-	const text = (result: ToolResult | undefined) =>
-		result?.content.map((block) => block.text).join("\n") ?? "";
-
-	async function search(cm: Harness, limit?: number) {
-		return cm.tools.recall_across_conversations?.execute("1", {
+		const result = await cm.tools.recall_across_conversations?.execute("1", {
 			query: "retries",
-			...(limit === undefined ? {} : { limit }),
 		});
-	}
 
-	const hits = ["alpha", "bravo", "charlie", "delta", "echo"].map((word, rank) =>
-		turnHit(rank, word),
-	);
-
-	test("a Turn the judge refuses is not returned, and the refusal is counted", async () => {
-		const judge = scripted({ alpha: 0.9, bravo: 0.1, charlie: 0.8 });
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 3) },
-			judgeWith: judge.judgeWith,
+		expect(asked).toEqual([0.37]);
+		expect(result?.content[0]?.text).toContain("exponential backoff");
+		expect(result?.details).toEqual({
+			results: 1,
+			conversations: ["other-conversation"],
 		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		const result = await search(cm);
-
-		expect(text(result)).toContain("alpha");
-		expect(text(result)).not.toContain("bravo");
-		expect(text(result)).toContain("charlie");
-		expect(text(result)).toContain("refused 1");
-		expect(result?.details).toMatchObject({ judged: true, refused: 1, results: 2 });
-	});
-
-	test("refused Turns are replaced from further down, in distance order", async () => {
-		const judge = scripted({ alpha: 0.2, bravo: 0.7, charlie: 0.1, delta: 0.6, echo: 0.9 });
-		let fetched = 0;
-		const cm = harness({
-			search: {
-				searchAll: async (_query, limit) => {
-					fetched = limit;
-					return hits.slice(0, limit);
-				},
-			},
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		const result = await search(cm, 2);
-
-		// Two asked for, two refused among the nearest: the answer is filled
-		// from past them rather than shrunk, nearest first, and stops at two.
-		expect(fetched).toBe(20);
-		const shown = text(result);
-		expect(shown.indexOf("bravo")).toBeGreaterThan(-1);
-		expect(shown.indexOf("delta")).toBeGreaterThan(shown.indexOf("bravo"));
-		expect(shown).not.toContain("echo");
-		expect(shown).not.toContain("alpha");
-		expect(result?.details).toMatchObject({ results: 2 });
-	});
-
-	test("everything refused is an empty answer that says the judge refused it", async () => {
-		const judge = scripted({});
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 3) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		const result = await search(cm);
-
-		expect(text(result)).not.toContain("alpha");
-		expect(text(result)).toContain("refused 3");
-		expect(result?.details).toMatchObject({ results: 0, refused: 3 });
-	});
-
-	test("without a key the judge is never built and the result is distance alone", async () => {
-		const judge = scripted({});
-		const cm = harness({
-			search: { searchAll: async (_query, limit) => hits.slice(0, limit) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed(undefined));
-
-		const result = await search(cm, 2);
-
-		expect(judge.keys).toEqual([]);
-		expect(text(result)).toContain("alpha");
-		expect(text(result)).toContain("bravo");
-		expect(text(result)).not.toContain("judge");
-		expect(result?.details).toMatchObject({ judged: false, results: 2 });
-		expect(cm.reported.join("\n")).not.toContain("typesafe.ai");
-	});
-
-	test("a host that throws resolving the key is no key", async () => {
-		const judge = scripted({});
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 1) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart(
-			{},
-			ctx([], {
-				modelRegistry: {
-					getApiKeyForProvider: async () => {
-						throw new Error("no auth storage");
-					},
-				},
-			}),
-		);
-
-		const result = await search(cm);
-
-		expect(judge.keys).toEqual([]);
-		expect(text(result)).toContain("alpha");
-	});
-
-	test("switched off by setting, a key present is never used", async () => {
-		const judge = scripted({});
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 2) },
-			judgeWith: judge.judgeWith,
-			config: { judge: "off" },
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		const result = await search(cm);
-
-		expect(judge.asked).toEqual([]);
-		expect(text(result)).toContain("alpha");
-		expect(text(result)).toContain("bravo");
-		expect(cm.reported.join("\n")).not.toContain("typesafe.ai");
-	});
-
-	test("a judge that cannot answer leaves the distance result, and says why", async () => {
-		const judge = scripted({ alpha: 0.9, bravo: new JudgeFailure("the judge answered 429") });
-		const cm = harness({
-			search: { searchAll: async (_query, limit) => hits.slice(0, limit) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		const first = await search(cm, 2);
-		const second = await search(cm, 2);
-
-		// Not half-judged: every Turn distance admitted, up to the limit.
-		expect(text(first)).toContain("alpha");
-		expect(text(first)).toContain("bravo");
-		expect(text(first)).not.toContain("charlie");
-		expect(text(first)).toContain("not judged");
-		expect(text(first)).toContain("429");
-		expect(first?.details).toMatchObject({ judged: false, results: 2 });
-		expect(first?.details?.unjudged).toContain("429");
-		// A passing failure: the next search asks again.
-		expect(text(second)).toContain("not judged");
-		expect(judge.asked.filter((passage) => passage === "bravo")).toHaveLength(2);
-	});
-
-	test("a rejected key is said once, and the session stops asking", async () => {
-		const judge = scripted({
-			alpha: new JudgeFailure("the TypeSafe key was rejected (401)", true),
-		});
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 1) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-bad"));
-
-		const first = await search(cm);
-		const second = await search(cm);
-
-		expect(text(first)).toContain("not judged");
-		expect(text(first)).toContain("alpha");
-		expect(text(second)).toContain("alpha");
-		expect(judge.asked).toEqual(["alpha"]);
-		const rejections = cm.reported.filter((line) => line.includes("rejected"));
-		expect(rejections).toHaveLength(1);
-		expect(rejections[0]).toContain("/login typesafe");
-		expect(rejections[0]).toContain("PICHART_JUDGE=off");
-	});
-
-	test("the first judged search discloses what is sent and where, once", async () => {
-		const judge = scripted({ alpha: 0.9 });
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 1) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		await search(cm);
-		await search(cm);
-
-		const disclosures = cm.reported.filter((line) => line.includes("api.typesafe.ai"));
-		expect(disclosures).toHaveLength(1);
-		expect(disclosures[0]).toContain("1200 characters");
-		expect(disclosures[0]).toContain("PICHART_JUDGE=off");
-		expect(disclosures[0]).toContain("pi-chart judge off");
-	});
-
-	test("switching judging off for the session stops it, and only for the session", async () => {
-		const judge = scripted({ alpha: 0.9 });
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 1) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		await cm.commands["pi-chart"]?.handler("judge off", {});
-		const result = await search(cm);
-
-		expect(judge.asked).toEqual([]);
-		expect(text(result)).toContain("alpha");
-		expect(cm.shown.join("\n")).toContain("off");
-
-		await cm.commands["pi-chart"]?.handler("judge auto", {});
-		await search(cm);
-		expect(judge.asked).toEqual(["alpha"]);
-	});
-
-	test("an unknown judge switch is refused, and changes nothing", async () => {
-		const judge = scripted({ alpha: 0.9 });
-		const cm = harness({
-			search: { searchAll: async () => hits.slice(0, 1) },
-			judgeWith: judge.judgeWith,
-		});
-		await cm.sessionStart({}, keyed("sk-test"));
-
-		await cm.commands["pi-chart"]?.handler("judge maybe", {});
-		await search(cm);
-
-		expect(cm.shown.join("\n")).toContain("unchanged");
-		expect(judge.asked).toEqual(["alpha"]);
-	});
-});
-
-describe("the relevance judge in the installation check", () => {
-	const install = () =>
-		new Installation({
-			reachable: async () => true,
-			bun: async () => "/usr/bin/bun",
-			exists: async () => false,
-		});
-	const judgeWith = (): RelevanceJudge => ({
-		judge: async () => {
-			throw new JudgeFailure("the TypeSafe key was rejected (401)", true);
-		},
-	});
-	const keyed = (key: string | undefined) =>
-		ctx([], { modelRegistry: { getApiKeyForProvider: async () => key } });
-
-	async function judgeLine(cm: Harness): Promise<string> {
-		cm.shown.length = 0;
-		await cm.commands["pi-chart"]?.handler("", {});
-		// The check's line and the fix under it: the state and how to change it.
-		const lines = cm.shown.join("\n").split("\n");
-		const at = lines.findIndex((line) => line.includes("relevance judge"));
-		return at === -1 ? "" : `${lines[at]} ${lines[at + 1] ?? ""}`;
-	}
-
-	test("says whether the judge is on, off, keyless or rejected, and how to change it", async () => {
-		const on = harness({ install: install(), judgeWith });
-		await on.sessionStart({}, keyed("sk-test"));
-		expect(await judgeLine(on)).toMatch(/ok .*on.*jev-1\.13\.0/);
-
-		const off = harness({ install: install(), judgeWith, config: { judge: "off" } });
-		await off.sessionStart({}, keyed("sk-test"));
-		expect(await judgeLine(off)).toMatch(/ok .*off.*PICHART_JUDGE/);
-
-		const keyless = harness({ install: install(), judgeWith });
-		await keyless.sessionStart({}, keyed(undefined));
-		expect(await judgeLine(keyless)).toMatch(/ok .*no key.*TYPESAFE_API_KEY/);
-
-		const rejected = harness({
-			install: install(),
-			judgeWith,
-			search: { searchAll: async () => [] },
-		});
-		await rejected.sessionStart({}, keyed("sk-bad"));
-		// Nothing to judge is nothing sent: the key is only found wanting when used.
-		expect(await judgeLine(rejected)).toMatch(/ok .*on/);
-	});
-
-	test("a key rejected in use is a fault", async () => {
-		const cm = harness({
-			install: install(),
-			judgeWith,
-			search: {
-				searchAll: async () => [
-					{
-						turnIndex: 0,
-						turn: { index: 0, prompt: "x", messages: [{ role: "user", content: "x" }] },
-						conversationId: "c",
-						calls: 1,
-					},
-				],
-			},
-		});
-		await cm.sessionStart({}, keyed("sk-bad"));
-		await cm.tools.recall_across_conversations?.execute("1", { query: "q" });
-
-		expect(await judgeLine(cm)).toMatch(/not .*rejected/);
 	});
 });
 
@@ -1968,70 +1881,94 @@ describe("the doc store in a session", () => {
 		sectionCount: 1,
 	};
 
-	test("concepts reach the pack", async () => {
-		const cm = harness({
-			config: {
-				tailTurns: DEFAULT_TAIL_TURNS,
-				recallTurns: 0,
-				recallMaxDistance: 1,
-				docConcepts: 2,
-				docMaxDistance: 0.5,
-				graphSymbols: 0,
-				graphExtract: false,
-			specsVerify: false,
-				docBundle: "/unused",
+	/** A Doc Store answering `hits`, remembering what it was asked. */
+	function answering(hits: ConceptHit[], unsearched = 0) {
+		const asked: { limit: number }[] = [];
+		const docs: ConceptSearch = {
+			indexConcepts: async () => ({ embedded: 0, contested: [] }),
+			indexConcept: async () => ({ embedded: 0, contested: [] }),
+			searchConcepts: async (_query, limit) => {
+				asked.push({ limit });
+				return { hits, unsearched };
 			},
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({
-					hits: [hit],
-					rejected: 0,
-					misses: [],
-					unsearched: 0,
-				}),
-			},
+		};
+		return { docs, asked };
+	}
+	async function search(cm: Harness, limit?: number): Promise<ToolResult | undefined> {
+		return cm.tools.search_documentation?.execute("1", {
+			query: "how do we handle config?",
+			...(limit === undefined ? {} : { limit }),
 		});
+	}
+	const text = (result: ToolResult | undefined) =>
+		result?.content.map((block) => block.text).join("\n") ?? "";
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "how do we handle config?" }] },
-			ctx(),
-		);
+	test("search_documentation is offered only with a doc store", async () => {
+		expect(harness().tools.search_documentation).toBeUndefined();
+		expect(harness({ docs: answering([]).docs }).tools.search_documentation).toBeDefined();
+	});
 
-		expect(JSON.stringify(result?.messages)).toContain(
-			"[curated knowledge: decisions/caching]",
+	test("concepts come back in the store's order, marked, and each held to its cap", async () => {
+		const reviewed: ConceptHit = {
+			conceptId: "decisions/retention",
+			text: `Retention\n\n${"We keep thirty days of turns. ".repeat(60)}`,
+			trust: "human-reviewed",
+			stale: true,
+			distance: 0.9,
+			sectionIndex: 0,
+			sectionCount: 3,
+			exclusions: [{ term: "backups", why: "kept elsewhere", instead: "ops/backups" }],
+		};
+		// Nearer, but unverified: the Store ranks trust before distance.
+		const unverified: ConceptHit = { ...hit, trust: "unverified", distance: 0.1 };
+		const { docs } = answering([reviewed, unverified]);
+		const cm = harness({ docs, config: { docTokens: 80 } });
+
+		const result = await search(cm);
+		const answer = text(result);
+
+		expect(answer.indexOf("decisions/retention")).toBeLessThan(
+			answer.indexOf("decisions/caching"),
 		);
+		expect(answer).toContain("[curated knowledge: decisions/retention — part 1 of 3 (stale)]");
+		expect(answer).toContain("Not: backups — kept elsewhere Use instead: ops/backups");
+		expect(answer).toContain("(the rest of decisions/retention is readable with walk_documentation)");
+		expect(answer).toContain("pi-chart elided");
+		const [first, second] = answer.split("\n\n[curated knowledge:");
+		expect(approximateTokens([{ role: "user", content: first ?? "" }])).toBeLessThanOrEqual(80);
+		expect(second).toContain("We cache parsed configuration.");
+		expect(result?.details).toMatchObject({
+			results: 2,
+			conceptIds: ["decisions/retention", "decisions/caching"],
+		});
+	});
+
+	test("no distance cutoff stands between the model and a concept", async () => {
+		const { docs } = answering([{ ...hit, distance: 1.7 }]);
+		const cm = harness({ docs, config: { recallMaxDistance: 0.3 } });
+
+		const answer = text(await search(cm));
+
+		expect(answer).toContain("[curated knowledge: decisions/caching]");
+	});
+
+	test("five concepts unless asked for more, and never more than twenty", async () => {
+		const { docs, asked } = answering([]);
+		const cm = harness({ docs });
+
+		await search(cm);
+		await search(cm, 50);
+		await search(cm, 0);
+
+		expect(asked.map((each) => each.limit)).toEqual([5, 20, 5]);
 	});
 
 	test("an index mid-swap says so once, and still serves what it can", async () => {
-		const cm = harness({
-			config: {
-				tailTurns: DEFAULT_TAIL_TURNS,
-				recallTurns: 0,
-				recallMaxDistance: 1,
-				docConcepts: 2,
-				docMaxDistance: 0.5,
-				graphSymbols: 0,
-				graphExtract: false,
-				specsVerify: false,
-				docBundle: "/unused",
-			},
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({
-					hits: [hit],
-					rejected: 0,
-					misses: [],
-					unsearched: 4,
-				}),
-			},
-		});
-		const prompt = [{ role: "user" as const, content: "how do we handle config?" }];
+		const { docs } = answering([hit], 4);
+		const cm = harness({ docs });
 
-		const first = await cm.context({ messages: prompt }, ctx());
-		await cm.context({ messages: prompt }, ctx());
-		await cm.settle();
+		const first = await search(cm);
+		await search(cm);
 
 		// A condition that lasts until the background pass catches up, not
 		// an event: said once, and never at the cost of the Concepts that
@@ -2039,25 +1976,25 @@ describe("the doc store in a session", () => {
 		const said = cm.reported.filter((line) => line.includes("another embedding model"));
 		expect(said).toHaveLength(1);
 		expect(said[0]).toContain("4 concepts");
-		expect(JSON.stringify(first?.messages)).toContain("curated knowledge");
-		// Every Call's own record carries it, not just the Conversation that
-		// happened to be running when the swap was noticed.
-		expect(cm.recorded.map((call) => call.pack?.conceptsUnsearched)).toEqual([4, 4]);
+		expect(text(first)).toContain("curated knowledge");
+		// The model is told too, on every result: a thin answer is an
+		// index in transition, not a corpus with nothing relevant in it.
+		expect(text(first)).toContain(
+			"4 concepts could not be searched: their vectors are from another embedding model.",
+		);
 	});
 
-	test("a doc store failure costs the concepts, not the turn", async () => {
+	test("a search with no hits still says how many concepts it could not see", async () => {
+		const { docs } = answering([], 1);
+		const cm = harness({ docs });
+
+		expect(text(await search(cm))).toContain(
+			"1 concept could not be searched: its vectors are from another embedding model.",
+		);
+	});
+
+	test("a doc store failure is the tool's answer, naming the store", async () => {
 		const cm = harness({
-			config: {
-				tailTurns: DEFAULT_TAIL_TURNS,
-				recallTurns: 0,
-				recallMaxDistance: 1,
-				docConcepts: 2,
-				docMaxDistance: 0.5,
-				graphSymbols: 0,
-				graphExtract: false,
-			specsVerify: false,
-				docBundle: "/unused",
-			},
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				indexConcept: async () => ({ embedded: 0, contested: [] }),
@@ -2067,13 +2004,11 @@ describe("the doc store in a session", () => {
 			},
 		});
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "how do we handle config?" }] },
-			ctx(),
-		);
+		const result = await search(cm);
 
-		expect(result?.messages).toHaveLength(1);
-		expect(cm.reported.join("\n")).toContain("Doc Store unavailable");
+		expect(text(result)).toBe("The Doc Store could not be searched: index offline");
+		expect(result?.details?.failed).toBe(true);
+		expect(cm.reported.join("\n")).toContain("index offline");
 	});
 
 	test("the bundle is indexed at session start, off the request path", async () => {
@@ -2087,7 +2022,7 @@ describe("the doc store in a session", () => {
 					indexed++;
 					return { embedded: 1, contested: [] };
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
+				searchConcepts: async () => ({ hits: [], unsearched: 0 }),
 			},
 			bundle: async () => [],
 		});
@@ -2111,7 +2046,7 @@ describe("the doc store in a session", () => {
 			docs: {
 				indexConcepts: async () => ({ embedded: 0, contested: [] }),
 				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
+				searchConcepts: async () => ({ hits: [], unsearched: 0 }),
 			},
 			bundle: async () => {
 				throw new Error("no bundle there");
@@ -2135,7 +2070,7 @@ describe("a bundle that is not there", () => {
 					indexed = concepts.length;
 					return { embedded: 0, contested: [] };
 				},
-				searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
+				searchConcepts: async () => ({ hits: [], unsearched: 0 }),
 			},
 			// What the real reader returns for a path that is not there.
 			bundle: async () => undefined,
@@ -2276,56 +2211,68 @@ describe("the graph store in a session", () => {
 				"544_123_456 bytes, exceeds 536_870_912-byte cap",
 		);
 
-	const config = (graphSymbols: number, graphExtract = false) => ({
+	const config = (graphExtract = false) => ({
 		tailTurns: DEFAULT_TAIL_TURNS,
-		recallTurns: 0,
 		recallMaxDistance: 1,
-		docConcepts: 0,
-		docMaxDistance: 0.5,
 		docBundle: "/unused",
-		graphSymbols,
 		graphExtract,
 		specsVerify: false,
 	});
+	/** What `codebase_structure` answered about `symbol`, as text. */
+	async function structure(cm: Harness, symbol = "assemble"): Promise<string> {
+		const result = await cm.tools.codebase_structure?.execute("1", { symbol });
+		return result?.content.map((block) => block.text).join("\n") ?? "";
+	}
 
-	test("structure about a named symbol reaches the pack", async () => {
+	test("codebase_structure answers what a named symbol connects to", async () => {
 		const { store } = graphStore({ graph: graphJson });
-		const cm = harness({ config: config(2), graph: store });
+		const cm = harness({ config: config(), graph: store });
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
+		const answer = await structure(cm);
 
-		expect(JSON.stringify(result?.messages)).toContain(
-			"[codebase structure: assemble() (src/assembler.ts:L92)]",
-		);
-		expect(JSON.stringify(result?.messages)).toContain("src/extension.ts:L520");
+		expect(harness().tools.codebase_structure).toBeUndefined();
+		expect(answer).toContain("[codebase structure: assemble() (src/assembler.ts:L92)]");
+		expect(answer).toContain("src/extension.ts:L520");
 	});
 
-	test("a codebase with no graph contributes nothing", async () => {
+	test("a name the graph does not know is answered with the names nearest it", async () => {
+		const { store } = graphStore({ graph: graphJson });
+		const cm = harness({ config: config(), graph: store });
+
+		const answer = await structure(cm, "assembel");
+
+		expect(answer).toStartWith('No symbol named "assembel" in the codebase graph. Nearest names:');
+		expect(answer).toContain("- assemble()");
+	});
+
+	test("a codebase with no graph says so to the model, and to the user once", async () => {
 		const { store } = graphStore();
-		const cm = harness({ config: config(2), graph: store });
+		const cm = harness({ config: config(), graph: store });
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
+		const first = await structure(cm);
+		const second = await structure(cm);
+		await cm.settle();
 
-		expect(result?.messages).toHaveLength(1);
+		for (const answer of [first, second]) {
+			expect(answer).toContain("This codebase has no structure graph");
+		}
+		// A condition, not a per-question event — and not silence, which
+		// reads as a Codebase with no structure worth having.
+		expect(cm.reported.filter((each) => each.includes("codebase has no graph"))).toHaveLength(1);
 	});
 
-	test("a graph store failure costs the structure, not the turn", async () => {
+	test("a graph store failure is the tool's answer, not the turn's", async () => {
 		const { store } = graphStore({ graph: graphJson, fails: true });
-		const cm = harness({ config: config(2), graph: store });
+		const cm = harness({ config: config(), graph: store });
 
+		const answer = await structure(cm);
 		const result = await cm.context(
 			{ messages: [{ role: "user", content: "who calls assemble?" }] },
 			ctx(),
 		);
 
+		expect(answer).toContain("graph unreadable");
 		expect(result?.messages).toHaveLength(1);
-		expect(cm.reported.join("\n")).toContain("Graph Store unavailable");
 	});
 
 	/** A Graph Store whose reads are counted and whose extraction can change. */
@@ -2346,60 +2293,43 @@ describe("the graph store in a session", () => {
 		return { store, loads, clock };
 	}
 
-	test("the graph is read at session start, so the first call does not read it", async () => {
+	test("the graph is read at session start, so the first question does not read it", async () => {
 		const { store, loads } = counted([graphJson]);
-		const cm = harness({ config: config(2), graph: store, codebase: "/work/project" });
+		const cm = harness({ config: config(), graph: store, codebase: "/work/project" });
 
 		await cm.sessionStart({}, ctx());
 		await cm.settle();
 		expect(loads).toEqual([1]);
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
-
-		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
+		expect(await structure(cm)).toContain("[codebase structure:");
 		expect(loads).toEqual([1]);
 	});
 
-	test("no graph is read at session start when no structure is wanted", async () => {
-		const { store, loads } = counted([graphJson]);
-		const cm = harness({ config: config(0), graph: store, codebase: "/work/project" });
-
-		await cm.sessionStart({}, ctx());
-		await cm.settle();
-
-		expect(loads).toEqual([]);
-	});
-
-	test("a newer graph that cannot be read is said once, and structure is still carried", async () => {
+	test("a newer graph that cannot be read is said once, and structure is still answered", async () => {
 		const { store, loads, clock } = counted([graphJson, "{ not json"]);
-		const cm = harness({ config: config(2), graph: store, codebase: "/work/project" });
-		const prompt = { messages: [{ role: "user", content: "who calls assemble?" }] };
+		const cm = harness({ config: config(), graph: store, codebase: "/work/project" });
 
-		await cm.context(prompt, ctx());
+		await structure(cm);
 		clock.at = 2;
 		// Starts the newer read, served from the graph already read.
-		await cm.context(prompt, ctx());
+		await structure(cm);
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(loads).toEqual([1, 2]);
 
-		const first = await cm.context(prompt, ctx());
-		const second = await cm.context(prompt, ctx());
+		const first = await structure(cm);
+		const second = await structure(cm);
 
-		expect(JSON.stringify(first?.messages)).toContain("[codebase structure:");
-		expect(JSON.stringify(second?.messages)).toContain("[codebase structure:");
+		expect(first).toContain("[codebase structure:");
+		expect(second).toContain("[codebase structure:");
 		const said = cm.reported.filter((each) => each.includes("could not read the newer graph"));
 		expect(said).toHaveLength(1);
 		expect(said[0]).toContain("not JSON");
-		expect(cm.reported.join("\n")).not.toContain("Graph Store unavailable");
 	});
 
 	test("the codebase is extracted at session start, off the request path", async () => {
 		const { store, refreshed } = graphStore({ graph: graphJson });
 		const cm = harness({
-			config: config(2, true),
+			config: config(true),
 			graph: store,
 			codebase: "/work/project",
 		});
@@ -2414,7 +2344,7 @@ describe("the graph store in a session", () => {
 		// Its session ended before the run did, so nobody else saw it.
 		const { store, state } = graphStore();
 		state.outcome = failedRun("earlier");
-		const cm = harness({ config: config(2, true), graph: store });
+		const cm = harness({ config: config(true), graph: store });
 
 		await cm.sessionStart({}, ctx());
 		await cm.settle();
@@ -2438,7 +2368,7 @@ describe("the graph store in a session", () => {
 			launch: async () => launched.resolve(),
 			exited: () => ended.promise,
 		});
-		const cm = harness({ config: config(2, true), graph: store });
+		const cm = harness({ config: config(true), graph: store });
 
 		await cm.agentEnd({}, ctx());
 		await launched.promise;
@@ -2454,30 +2384,29 @@ describe("the graph store in a session", () => {
 		expect(said).toHaveLength(1);
 	});
 
-	test("a graph past graphify's size cap is said once, and its structure still carried", async () => {
+	test("a graph past graphify's size cap is said once, and its structure still answered", async () => {
 		const { store, state } = graphStore({ graph: graphJson });
-		const cm = harness({ config: config(2, true), graph: store });
-		const prompt = [{ role: "user", content: "who calls assemble?" }];
+		const cm = harness({ config: config(true), graph: store });
 
-		const packs: string[] = [];
+		const answers: string[] = [];
 		for (const turn of ["one", "two", "three"]) {
 			// Every refresh is refused again, each its own run.
 			state.outcome = sizeCapped(turn);
 			await cm.agentEnd({}, ctx());
 			await cm.settle();
-			packs.push(JSON.stringify((await cm.context({ messages: prompt }, ctx()))?.messages));
+			answers.push(await structure(cm));
 		}
 
 		const said = cm.reported.filter((each) => each.includes("GRAPHIFY_MAX_GRAPH_BYTES"));
 		expect(said).toHaveLength(1);
 		expect(said[0]).toContain("544 MB");
 		expect(said[0]).toContain(".graphifyignore");
-		for (const pack of packs) expect(pack).toContain("[codebase structure:");
+		for (const answer of answers) expect(answer).toContain("[codebase structure:");
 	});
 
 	test("extraction is declined when it is switched off", async () => {
 		const { store, refreshed } = graphStore({ graph: graphJson });
-		const cm = harness({ config: config(2, false), graph: store });
+		const cm = harness({ config: config(false), graph: store });
 
 		await cm.sessionStart({}, ctx());
 		await cm.settle();
@@ -2489,11 +2418,11 @@ describe("the graph store in a session", () => {
 
 	test("the codebase is extracted again after a turn finishes", async () => {
 		// A graph refreshed only at session start is frozen the moment the
-		// agent edits anything, and every later Call carries positions
-		// from before the edit.
+		// agent edits anything, and every later question is answered with
+		// positions from before the edit.
 		const { store, refreshed } = graphStore({ graph: graphJson });
 		const cm = harness({
-			config: config(2, true),
+			config: config(true),
 			graph: store,
 			codebase: "/work/project",
 		});
@@ -2508,7 +2437,7 @@ describe("the graph store in a session", () => {
 		// carries on without them.
 		const { promise: never } = Promise.withResolvers<unknown>();
 		const { store, refreshed } = graphStore({ graph: graphJson, exited: () => never });
-		const cm = harness({ config: config(2, true), graph: store });
+		const cm = harness({ config: config(true), graph: store });
 
 		await cm.agentEnd({}, ctx());
 		await cm.sessionShutdown({}, ctx());
@@ -2530,7 +2459,7 @@ describe("the graph store in a session", () => {
 			},
 		});
 		const cm = harness({
-			config: { ...config(2, true), retainDays: 30 },
+			config: { ...config(true), retainDays: 30 },
 			graph: store,
 			// The step shutdown takes after the launch it waits for.
 			retire: async () => {
@@ -2553,7 +2482,7 @@ describe("the graph store in a session", () => {
 	test("a turn is not delayed by the refresh that follows it", async () => {
 		const { promise: never } = Promise.withResolvers<void>();
 		const { store } = graphStore({ graph: graphJson, launch: () => never });
-		const cm = harness({ config: config(2, true), graph: store });
+		const cm = harness({ config: config(true), graph: store });
 
 		// Returns while the launch is still pending: `agent_end` is
 		// notification-only, and nothing the user waits on may grow.
@@ -2569,48 +2498,16 @@ describe("the graph store in a session", () => {
 	test("a failed refresh leaves the previous graph readable", async () => {
 		const { store, state } = graphStore({ graph: graphJson });
 		state.outcome = failedRun("r1");
-		const cm = harness({ config: config(2, true), graph: store });
+		const cm = harness({ config: config(true), graph: store });
 
 		await cm.agentEnd({}, ctx());
 		await cm.settle();
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
 
 		expect(cm.reported.join("\n")).toContain("tree-sitter exploded");
-		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
+		expect(await structure(cm)).toContain("[codebase structure:");
 	});
 
-	test("structure reaches a call whose prompt named nothing", async () => {
-		const { store } = graphStore({ graph: graphJson });
-		const cm = harness({ config: config(2), graph: store });
-
-		const result = await cm.context(
-			{
-				messages: [
-					{ role: "user", content: "keep going" },
-					{
-						role: "assistant",
-						content: [
-							{
-								type: "toolCall",
-								id: "t1",
-								name: "read",
-								arguments: { path: "src/assembler.ts" },
-							},
-						],
-					},
-					{ role: "toolResult", content: "…", toolCallId: "t1" },
-				],
-			},
-			ctx(),
-		);
-
-		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
-	});
-
-	test("structure from an edited file is marked in the pack", async () => {
+	test("structure from an edited file is marked in the answer", async () => {
 		// The extraction is older than the file the symbol lives in.
 		const store = new GraphStore({
 			home: "/home/test/.pi-chart/graphify",
@@ -2620,21 +2517,14 @@ describe("the graph store in a session", () => {
 			makeDirectory: async () => {},
 			run: async () => ({ ok: true, output: "" }),
 		});
-		const cm = harness({ config: config(2), graph: store });
+		const cm = harness({ config: config(), graph: store });
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
-
-		expect(JSON.stringify(result?.messages)).toContain(
-			"(older than the codebase)",
-		);
+		expect(await structure(cm)).toContain("(older than the codebase)");
 	});
 
 	test("structure served while a newer graph is read is marked against the graph it came from", async () => {
 		// Read at 10; the file is edited at 15; the extraction changes at 20
-		// and its read never finishes, so the Call is served the graph from 10.
+		// and its read never finishes, so the question is answered from 10.
 		const graphAt = { at: 10 };
 		let loads = 0;
 		const store = new GraphStore({
@@ -2643,21 +2533,20 @@ describe("the graph store in a session", () => {
 			changedAt: async (path) => (path.endsWith("graph.json") ? graphAt.at : 15),
 			load: async (_path, skip) => {
 				loads += 1;
-				if (loads > 1) return new Promise<never>(() => {});
+				if (loads > 1) return Promise.withResolvers<never>().promise;
 				return readExtraction(graphJson, skip);
 			},
 			makeDirectory: async () => {},
 			run: async () => ({ ok: true, output: "" }),
 		});
-		const cm = harness({ config: config(2), graph: store });
-		const prompt = { messages: [{ role: "user", content: "who calls assemble?" }] };
+		const cm = harness({ config: config(), graph: store });
 
-		await cm.context(prompt, ctx());
+		await structure(cm);
 		graphAt.at = 20;
-		const result = await cm.context(prompt, ctx());
+		const answer = await structure(cm);
 
 		expect(loads).toBe(2);
-		expect(JSON.stringify(result?.messages)).toContain("(older than the codebase)");
+		expect(answer).toContain("(older than the codebase)");
 	});
 
 	test("structure from an untouched file is not marked", async () => {
@@ -2669,52 +2558,28 @@ describe("the graph store in a session", () => {
 			makeDirectory: async () => {},
 			run: async () => ({ ok: true, output: "" }),
 		});
-		const cm = harness({ config: config(2), graph: store });
+		const cm = harness({ config: config(), graph: store });
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
+		const answer = await structure(cm);
 
-		expect(JSON.stringify(result?.messages)).toContain("[codebase structure:");
-		expect(JSON.stringify(result?.messages)).not.toContain(
-			"older than the codebase",
-		);
-	});
-
-	test("a structure budget with no graph behind it says so, once", async () => {
-		const { store } = graphStore();
-		const cm = harness({ config: config(2), graph: store });
-		const prompt = [{ role: "user", content: "who calls assemble?" }];
-
-		await cm.context({ messages: prompt }, ctx());
-		await cm.context({ messages: prompt }, ctx());
-		await cm.settle();
-
-		const said = cm.reported.filter((each) =>
-			each.includes("codebase has no graph"),
-		);
-		// A condition, not a per-Call event — and not silence, which reads
-		// as a Codebase with no structure worth carrying.
-		expect(said).toHaveLength(1);
+		expect(answer).toContain("[codebase structure:");
+		expect(answer).not.toContain("older than the codebase");
 	});
 
 	test("a codebase whose first extraction is running says so, not that it has none", async () => {
 		const { store, state } = graphStore();
 		state.running = { since: new Date(2026, 9, 2, 14, 5).getTime() };
-		const cm = harness({ config: config(2, true), graph: store });
+		const cm = harness({ config: config(true), graph: store });
 
-		const result = await cm.context(
-			{ messages: [{ role: "user", content: "who calls assemble?" }] },
-			ctx(),
-		);
+		const answer = await structure(cm);
 		await cm.settle();
 
-		expect(result?.messages).toHaveLength(1);
+		// Extraction is already on: telling the model or the operator to
+		// switch it on sends them after a setting that is not the problem.
+		expect(answer).toContain("first extraction is still running (started 14:05)");
+		expect(answer).not.toContain("PICHART_GRAPH=on");
 		const said = cm.reported.join("\n");
 		expect(said).toContain("first extraction is still running (started 14:05)");
-		// Extraction is already on: telling the operator to switch it on
-		// sends them after a setting that is not the problem.
 		expect(said).not.toContain("PICHART_GRAPH=on");
 	});
 
@@ -2735,7 +2600,7 @@ describe("the graph store in a session", () => {
 		test("says an extraction is running, and since when", async () => {
 			const { store, state } = graphStore();
 			state.running = { since: new Date(2026, 9, 2, 9, 30).getTime() };
-			const cm = harness({ config: config(2, true), graph: store, install: install() });
+			const cm = harness({ config: config(true), graph: store, install: install() });
 
 			expect(await graphLine(cm)).toContain("extracting since 09:30");
 		});
@@ -2743,12 +2608,12 @@ describe("the graph store in a session", () => {
 		test("says how the last extraction ended", async () => {
 			const { store, state } = graphStore();
 			state.outcome = sizeCapped("r1");
-			const failed = harness({ config: config(2, true), graph: store, install: install() });
+			const failed = harness({ config: config(true), graph: store, install: install() });
 			expect(await graphLine(failed)).toContain("last run failed: size-cap");
 
 			const ok = graphStore();
 			ok.state.outcome = { ...failedRun("r2"), exitCode: 0, endedAt: new Date(2026, 9, 2, 8, 0).getTime() };
-			const fine = harness({ config: config(2, true), graph: ok.store, install: install() });
+			const fine = harness({ config: config(true), graph: ok.store, install: install() });
 			expect(await graphLine(fine)).toContain("last run: ok at 08:00");
 		});
 	});
@@ -2892,12 +2757,8 @@ describe("the spec store in a session", () => {
 
 	const config = (specsVerify: boolean) => ({
 		tailTurns: DEFAULT_TAIL_TURNS,
-		recallTurns: 0,
 		recallMaxDistance: 1,
-		docConcepts: 0,
-		docMaxDistance: 0.5,
 		docBundle: "/unused",
-		graphSymbols: 0,
 		graphExtract: false,
 		specsVerify,
 	});
@@ -3336,43 +3197,8 @@ describe("walking the documentation bundle", () => {
 	});
 
 	test("walking leaves the context pack untouched", async () => {
-		// With the Doc Store wired too, so the curated part is populated
-		// and a walked Concept leaking into it would be visible.
 		const store = new DocStore(BUNDLE);
-		const cm = harness({
-			walk: store,
-			config: {
-				tailTurns: DEFAULT_TAIL_TURNS,
-				recallTurns: 0,
-				recallMaxDistance: 1,
-				docConcepts: 2,
-				docMaxDistance: 0.5,
-				docBundle: BUNDLE,
-				graphSymbols: 0,
-				graphExtract: false,
-				specsVerify: false,
-			},
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: async () => ({
-					hits: [
-						{
-							conceptId: "metrics/gross-margin",
-							text: "Gross margin is revenue less cost.",
-							trust: "unverified" as const,
-							stale: false,
-							distance: 0.2,
-							sectionIndex: 0,
-							sectionCount: 1,
-						},
-					],
-					rejected: 0,
-					misses: [],
-					unsearched: 0,
-				}),
-			},
-		});
+		const cm = harness({ walk: store, config: { docBundle: BUNDLE } });
 		const messages = [{ role: "user" as const, content: "what is documented?" }];
 
 		const before = await cm.context({ messages }, ctx());
@@ -3381,7 +3207,6 @@ describe("walking the documentation bundle", () => {
 
 		// The agent choosing to look at something must not change what
 		// assembly carries.
-		expect(JSON.stringify(before?.messages)).toContain("curated knowledge");
 		expect(after?.messages).toEqual(before?.messages);
 	});
 });
@@ -3493,86 +3318,54 @@ describe("a store that misses its deadline", () => {
 		};
 	}
 
-	test("a silent store costs its part, not the turn", async () => {
+	/** A Store call taken and never answered. */
+	const silent = <T>() => Promise.withResolvers<T>().promise;
+	/** A Doc Store whose search does what `searchConcepts` says. */
+	const docsWith = (searchConcepts: ConceptSearch["searchConcepts"]): ConceptSearch => ({
+		indexConcepts: async () => ({ embedded: 0, contested: [] }),
+		indexConcept: async () => ({ embedded: 0, contested: [] }),
+		searchConcepts,
+	});
+	const search = (cm: Harness) =>
+		cm.tools.search_documentation?.execute("1", { query: "what did we decide" });
+
+	test("a silent store costs the tool its answer, not the turn", async () => {
 		const clock = stalled();
 		const cm = harness({
 			after: clock.after,
 			// Not the default, so what bounded the wait is unambiguous.
-			config: { recallTurns: 2, recallDeadlineMs: 2_500 },
-			recall: {
-				// Never settles: the Store took the request and went quiet.
-				similarTurns: () => new Promise(() => {}),
-			},
+			config: { docDeadlineMs: 2_500 },
+			// Never settles: the Store took the request and went quiet.
+			docs: docsWith(silent),
 		});
 
-		const result = await cm.context({ messages: prompt }, ctx());
-		await cm.settle();
+		const result = await search(cm);
 
-		expect(result?.messages).toBeDefined();
-		// Bounded by recall's own deadline, and no other Store's.
-		expect(clock.waited).toContain(2_500);
+		// Bounded by the Doc Store's own deadline, and no other Store's.
+		expect(clock.waited).toEqual([2_500]);
 		expect(clock.waited).not.toContain(DEFAULT_RETRIEVAL_DEADLINE_MS);
+		expect(result?.content[0]?.text).toContain("Doc Store did not answer within 2500ms");
+		expect(result?.details?.failed).toBe(true);
 		expect(cm.reported.join("\n")).toContain("did not answer within 2500ms");
-		// What the pack did not carry, the accounting does not claim — and
-		// it attributes the absence to the Store rather than to relevance.
-		const recalled = cm.recorded[0]?.pack?.parts.find(
-			(part) => part.source === "recalled",
-		);
-		expect(recalled?.carried).toBe(0);
-		expect(recalled?.absent).toBe("failed");
 	});
 
 	test("a missed deadline reads differently from a refused connection", async () => {
 		const missed = harness({
 			after: stalled().after,
-			config: { recallTurns: 2 },
-			recall: { similarTurns: () => new Promise(() => {}) },
+			docs: docsWith(silent),
 		});
 		const refused = harness({
-			config: { recallTurns: 2 },
-			recall: {
-				similarTurns: async () => {
-					throw new Error("ECONNREFUSED");
-				},
-			},
+			docs: docsWith(async () => {
+				throw new Error("ECONNREFUSED");
+			}),
 		});
 
-		await missed.context({ messages: prompt }, ctx());
-		await refused.context({ messages: prompt }, ctx());
+		await search(missed);
+		await search(refused);
 
 		expect(missed.reported.join("\n")).toContain("did not answer within");
-		expect(refused.reported.join("\n")).toContain("Recall unavailable");
+		expect(refused.reported.join("\n")).toContain("ECONNREFUSED");
 		expect(refused.reported.join("\n")).not.toContain("did not answer within");
-	});
-
-	test("one slow store does not cost the others", async () => {
-		const store = new MemoryTurnSource();
-		await store.ingest("conv-1", [
-			{
-				turnIndex: 0,
-				prompt: "an earlier turn",
-				messages: [{ role: "user", content: "an earlier turn" }],
-				callCount: 1,
-				calls: [0],
-			},
-		]);
-		const cm = harness({
-			after: stalled().after,
-			turns: store,
-			config: { tailTurns: 4, docConcepts: 2 },
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: () => new Promise(() => {}),
-			},
-		});
-
-		const result = await cm.context({ messages: prompt }, ctx());
-
-		// The Doc Store went quiet; the tail the Thread Store served is
-		// still in the pack.
-		expect(JSON.stringify(result?.messages)).toContain("an earlier turn");
-		expect(JSON.stringify(result?.messages)).not.toContain("curated knowledge");
 	});
 
 	test("a tail that misses its deadline falls back to the harness's history", async () => {
@@ -3601,61 +3394,52 @@ describe("a store that misses its deadline", () => {
 	});
 
 	test("a deadline nothing exceeds changes nothing", async () => {
-		const answering = {
-			indexConcepts: async () => ({ embedded: 0, contested: [] }),
-			indexConcept: async () => ({ embedded: 0, contested: [] }),
-			searchConcepts: async () => ({ hits: [], rejected: 0, misses: [], unsearched: 0 }),
-		};
-		const bounded = harness({ config: { docConcepts: 2 }, docs: answering });
-		const unbounded = harness({
-			config: { docConcepts: 2, docDeadlineMs: 0 },
-			docs: answering,
-		});
+		const answering = docsWith(async () => ({
+			hits: [],
+			rejected: 0,
+			misses: [],
+			unsearched: 0,
+		}));
+		const bounded = harness({ docs: answering });
+		const unbounded = harness({ config: { docDeadlineMs: 0 }, docs: answering });
 
-		const withDeadline = await bounded.context({ messages: prompt }, ctx());
-		const without = await unbounded.context({ messages: prompt }, ctx());
+		const withDeadline = await search(bounded);
+		const without = await search(unbounded);
 
-		expect(withDeadline?.messages).toEqual(without?.messages);
+		expect(withDeadline).toEqual(without);
 		expect(bounded.reported).toEqual([]);
 	});
 
-	test("every store failing still supplies a pack, waiting only its deadlines", async () => {
+	test("a call waits on the tail's deadline alone, whatever else is stalled", async () => {
 		const clock = stalled();
 		const cm = harness({
 			after: clock.after,
 			config: {
 				tailTurns: 4,
-				recallTurns: 2,
-				docConcepts: 2,
-				graphSymbols: 2,
 				tailDeadlineMs: 1_500,
 				recallDeadlineMs: 5_000,
 				docDeadlineMs: 5_000,
 				graphDeadlineMs: 5_000,
 			},
 			turns: {
-				recentTurns: () => new Promise(() => {}),
-				turnSizes: () => new Promise(() => {}),
+				recentTurns: silent,
+				turnSizes: silent,
 			},
-			recall: { similarTurns: () => new Promise(() => {}) },
-			docs: {
-				indexConcepts: async () => ({ embedded: 0, contested: [] }),
-				indexConcept: async () => ({ embedded: 0, contested: [] }),
-				searchConcepts: () => new Promise(() => {}),
-			},
-			// Only the two methods assembly reaches for; the Store itself
+			recall: { similarTurns: silent },
+			docs: docsWith(silent),
+			// Only the two methods a session reaches for; the Store itself
 			// needs a machine with graphify on it.
 			graph: {
-				graph: () => new Promise(() => {}),
+				graph: silent,
 				refresh: async () => undefined,
 			} as unknown as GraphStore,
 		});
 
 		const result = await cm.context({ messages: prompt }, ctx());
 
+		// Retrieval is the model's to ask for now: no Call reaches for it.
 		expect(result?.messages?.length).toBeGreaterThan(0);
-		// Nothing waited longer than the largest deadline configured.
-		expect(Math.max(...clock.waited)).toBe(5_000);
+		expect(clock.waited).toEqual([1_500]);
 	});
 });
 
@@ -3678,15 +3462,22 @@ describe("the opening beside the tail", () => {
 	/** A tail of one, so Turn 0 has left it, and the default Opening Budget. */
 	const config = { tailTurns: 1 };
 	const stalled = { after: async () => {} };
-
-	test("a stored Opening reaches the pack once the tail has evicted Turn 0", async () => {
-		const cm = harness({ config, opening: { openingPrompt: async () => turn0Prompt } });
-
+	/** The Turn in progress starting, then its first Call. */
+	async function turn(cm: Harness) {
+		const started = await cm.agentStart("what was the codeword?", ctx(branch));
 		const result = await cm.context({ messages: history }, ctx(branch));
 		await cm.settle();
+		return { started, result };
+	}
 
-		expect(JSON.stringify(result?.messages)).toContain(OPENING_HEADER);
-		expect(opening(cm)?.carried).toBe(1);
+	test("a stored Opening rides the system prompt, framed, and is recorded there", async () => {
+		const cm = harness({ config, opening: { openingPrompt: async () => turn0Prompt } });
+
+		const { started, result } = await turn(cm);
+
+		expect(started.systemPrompt.at(-1)).toBe(`${OPENING_FRAMING}\n${turn0Prompt}`);
+		expect(JSON.stringify(result?.messages)).not.toContain(turn0Prompt);
+		expect(opening(cm)).toMatchObject({ carried: 1, placement: "system-prompt" });
 	});
 
 	test("an opening that misses the tail's deadline costs only the opening", async () => {
@@ -3711,13 +3502,12 @@ describe("the opening beside the tail", () => {
 			opening: { openingPrompt: () => new Promise(() => {}) },
 		});
 
-		const result = await cm.context({ messages: history }, ctx(branch));
-		await cm.settle();
+		const { result } = await turn(cm);
 
 		expect(cm.reported.join("\n")).toContain("did not answer within 1500ms");
 		expect(opening(cm)?.absent).toBe("failed");
 		// The tail's own query answered within the same deadline.
-		expect(cm.recorded[0]?.tailSource).toBe("thread-store");
+		expect(cm.recorded[0]?.tailSource).toBe("harness");
 		expect(JSON.stringify(result?.messages)).toContain("done 3");
 	});
 
@@ -3731,8 +3521,7 @@ describe("the opening beside the tail", () => {
 			},
 		});
 
-		await cm.context({ messages: history }, ctx(branch));
-		await cm.settle();
+		await turn(cm);
 
 		expect(cm.reported.join("\n")).toContain("Opening unavailable");
 		expect(opening(cm)?.absent).toBe("failed");
@@ -3741,11 +3530,10 @@ describe("the opening beside the tail", () => {
 	test("with no store the opening is unconfigured, never rebuilt from the harness", async () => {
 		const cm = harness({ config });
 
-		const result = await cm.context({ messages: history }, ctx(branch));
-		await cm.settle();
+		const { started } = await turn(cm);
 
+		expect(started.returned).toBeUndefined();
 		expect(opening(cm)?.absent).toBe("unconfigured");
-		expect(JSON.stringify(result?.messages)).not.toContain(OPENING_HEADER);
 	});
 
 	test("a budget of nothing asks the store nothing", async () => {
@@ -3760,8 +3548,7 @@ describe("the opening beside the tail", () => {
 			},
 		});
 
-		await cm.context({ messages: history }, ctx(branch));
-		await cm.settle();
+		await turn(cm);
 
 		expect(asked).toBe(0);
 		expect(opening(cm)?.absent).toBe("disabled");
@@ -3965,23 +3752,6 @@ describe("retention at the end of a session", () => {
 	});
 });
 
-describe("the relevance judge setting", () => {
-	test("judging is on unless switched off", () => {
-		expect(loadConfig({}).judge).toBe("auto");
-		expect(loadConfig({ PICHART_JUDGE: "auto" }).judge).toBe("auto");
-		expect(loadConfig({ PICHART_JUDGE: "off" }).judge).toBe("off");
-	});
-
-	test("an unrecognised value leaves judging off, and says so", () => {
-		// Off rather than on: a typo in a switch someone reached for is more
-		// likely an attempt to stop sending text than to start.
-		const config = loadConfig({ PICHART_JUDGE: "no" });
-
-		expect(config.judge).toBe("off");
-		expect(config.problems.join("\n")).toContain("PICHART_JUDGE");
-	});
-});
-
 describe("the tail's low-water mark setting", () => {
 	test("defaults to the middle of the measured range, and takes a share", () => {
 		expect(loadConfig({}).tailLowWater).toBe(0.6);
@@ -4024,6 +3794,21 @@ describe("a setting written for the old name", () => {
 		expect(said).not.toContain("PICHART_TAIL_TURN.");
 		expect(said).toContain("named PICHART_*");
 	});
+
+	for (const name of [
+		"PICHART_RECALL_TURNS",
+		"PICHART_DOC_CONCEPTS",
+		"PICHART_GRAPH_SYMBOLS",
+		"PICHART_DOC_MAX_DISTANCE",
+		"PICHART_JUDGE",
+	]) {
+		test(`${name}, retired with per-Call retrieval, is said to do nothing`, () => {
+			const said = loadConfig({ [name]: "2" }).problems;
+
+			expect(said).toHaveLength(1);
+			expect(said[0]).toStartWith(`${name} is not read: `);
+		});
+	}
 
 	test("says nothing when nothing was left behind", () => {
 		expect(loadConfig({ PICHART_TAIL_TURNS: "2" }).problems).toEqual([]);
@@ -4247,23 +4032,23 @@ describe("pins", () => {
 	/** What a Call's Pack sent, as text. */
 	const sent = (result: { messages: { content?: unknown }[] } | undefined) =>
 		result?.messages.map((message) => message.content);
-	/** The Briefing a Call carries when the Pins are all it holds. */
-	const briefing = (...pinned: string[]) =>
-		[BRIEFING_FRAMING, ...pinned, BRIEFING_MARKER].join("\n\n");
+	/** What the next Turn appends to the system prompt: the one block, or nothing. */
+	const pinsSent = async (cm: Harness, session: HandlerContext) =>
+		(await cm.agentStart("hello", session)).systemPrompt.slice(1);
+	/** The block a Turn carries when the Pins are all it holds. */
+	const pinned = (...rendered: string[]) => [[PINS_FRAMING, ...rendered].join("\n\n")];
 	const lastStatus = (cm: Harness) =>
 		cm.statuses.filter((each) => each.key === "pi-chart.pins").at(-1)?.text;
 
-	test("a pinned text reaches the next call's pack, after the prompt", async () => {
+	test("a pinned text reaches the next Turn's system prompt", async () => {
 		const cm = harness();
 		const session = cm.session();
 
 		await cm.commands.pins?.handler("add use tabs", session);
-		const result = await cm.context(prompt, session);
+		const appended = await pinsSent(cm, session);
+		await cm.context(prompt, session);
 
-		expect(sent(result)).toEqual([
-			"hello",
-			briefing("[pinned by the user: #1, 1 of 1]\nuse tabs"),
-		]);
+		expect(appended).toEqual(pinned("[pinned by the user: #1, 1 of 1]\nuse tabs"));
 		expect(cm.notified.at(-1)).toContain("#1");
 		expect(lastStatus(cm)).toMatch(/^pinned: 1 \(~\d+ tok\)$/);
 	});
@@ -4329,12 +4114,11 @@ describe("pins", () => {
 		await cm.commands.pins?.handler("add second", session);
 		await cm.commands.pins?.handler("rm #2", session);
 		await cm.commands.pins?.handler("add third", session);
-		const result = await cm.context(prompt, session);
+		const appended = await pinsSent(cm, session);
 
-		expect(sent(result)).toEqual([
-			"hello",
-			briefing("[pinned by the user: #1, 1 of 2]\nfirst", "[pinned by the user: #3, 2 of 2]\nthird"),
-		]);
+		expect(appended).toEqual(
+			pinned("[pinned by the user: #1, 1 of 2]\nfirst", "[pinned by the user: #3, 2 of 2]\nthird"),
+		);
 	});
 
 	test("an unknown id is refused naming the ids held", async () => {
@@ -4356,9 +4140,10 @@ describe("pins", () => {
 		await cm.commands.pins?.handler("add second", session);
 
 		await cm.commands.pins?.handler("rm all", session);
-		const result = await cm.context(prompt, session);
+		const appended = await pinsSent(cm, session);
+		await cm.context(prompt, session);
 
-		expect(sent(result)).toEqual(["hello"]);
+		expect(appended).toEqual([]);
 		expect(lastStatus(cm)).toBeUndefined();
 	});
 
@@ -4382,9 +4167,10 @@ describe("pins", () => {
 		await cm.commands.pins?.handler("add later", session);
 
 		await cm.sessionTree({ oldLeafId: "entry-0" }, session);
-		const result = await cm.context(prompt, session);
+		const appended = await pinsSent(cm, session);
+		await cm.context(prompt, session);
 
-		expect(sent(result)).toEqual(["hello", briefing("[pinned by the user: #1, 1 of 1]\nlater")]);
+		expect(appended).toEqual(pinned("[pinned by the user: #1, 1 of 1]\nlater"));
 		expect(lastStatus(cm)).toMatch(/^pinned: 1 /);
 	});
 
@@ -4398,17 +4184,16 @@ describe("pins", () => {
 		cm.journal.splice(1);
 
 		await cm.sessionBranch({ reason: "branch" }, session);
-		const result = await cm.context(prompt, session);
+		const appended = await pinsSent(cm, session);
 
 		expect(cm.journal.at(-1)?.customType).toBe(PIN_ENTRY);
 		expect(cm.journal.at(-1)?.data).toMatchObject({ op: "snapshot", nextId: 3 });
-		expect(sent(result)).toEqual([
-			"hello",
-			briefing(
+		expect(appended).toEqual(
+			pinned(
 				"[pinned by the user: #1, 1 of 2]\non the path",
 				"[pinned by the user: #2, 2 of 2]\nafter the leaf moved",
 			),
-		]);
+		);
 	});
 
 	test("a fork that copied every entry writes nothing", async () => {
@@ -4429,10 +4214,11 @@ describe("pins", () => {
 		cm.journal.splice(0);
 
 		await cm.sessionSwitch({ reason: "new" }, session);
-		const result = await cm.context(prompt, session);
+		const appended = await pinsSent(cm, session);
+		await cm.context(prompt, session);
 
 		expect(cm.journal).toEqual([]);
-		expect(sent(result)).toEqual(["hello"]);
+		expect(appended).toEqual([]);
 		expect(lastStatus(cm)).toBeUndefined();
 	});
 
@@ -4446,6 +4232,7 @@ describe("pins", () => {
 		});
 		const session = cm.session();
 		await cm.commands.pins?.handler("add use tabs", session);
+		await cm.agentStart("hello", session);
 
 		await cm.context(prompt, session);
 		const unsent = lastStatus(cm);
@@ -4469,267 +4256,3 @@ describe("pins", () => {
 	});
 });
 
-describe("briefings", () => {
-	const capable = {
-		model: { compat: { supportsMidConversationSystem: true, supportsTurnScopedSystem: true } },
-	};
-	const incapable = { model: { compat: { supportsMidConversationSystem: true } } };
-	const pinned = "[pinned by the user: #1, 1 of 1]\nuse tabs";
-	/** The Briefing every Call below sends: the Pin is all it holds. */
-	const text = [BRIEFING_FRAMING, pinned, BRIEFING_MARKER].join("\n\n");
-	const hash = hashOf(text);
-
-	const p1: HarnessMessage = { role: "user", content: "first", timestamp: 1_000 };
-	const c1: HarnessMessage = {
-		role: "assistant",
-		content: [{ type: "toolCall", id: "call-1", name: "read" }],
-		timestamp: 1_001,
-	};
-	const r1: HarnessMessage = {
-		role: "toolResult",
-		toolCallId: "call-1",
-		content: "file contents",
-		timestamp: 1_002,
-	};
-	const a1: HarnessMessage = { role: "assistant", content: "done", timestamp: 1_003 };
-	const p2: HarnessMessage = { role: "user", content: "second", timestamp: 2_000 };
-
-	/**
-	 * Writes a message as the harness flushes it: under the entry given, or
-	 * under the last entry written, as on a linear branch.
-	 */
-	function flush(cm: Harness, id: string, message: HarnessMessage, parentId?: string): void {
-		cm.journal.push({
-			id,
-			parentId: parentId ?? cm.journal.at(-1)?.id ?? null,
-			type: "message",
-			message,
-		});
-	}
-
-	/** Every Briefing entry the Journal holds, in the order written. */
-	const stored = (cm: Harness) =>
-		cm.journal.filter((entry) => entry.customType === BRIEFING_ENTRY).map((entry) => entry.data);
-
-	/** A linear session holding one Pin, on the model given. */
-	async function started(model: Partial<HandlerContext> = capable) {
-		const cm = harness();
-		const session = { ...cm.session(cm.journal), ...model };
-		await cm.commands.pins?.handler("add use tabs", session);
-		return { cm, session };
-	}
-
-	/** Turn 1 on a capable model: the prompt, a tool call, its result, and the answer. */
-	async function firstTurn(cm: Harness, session: HandlerContext) {
-		await cm.context({ messages: [p1] }, session);
-		flush(cm, "u1", p1);
-		flush(cm, "c1", c1);
-		flush(cm, "t1", r1);
-		const second = await cm.context({ messages: [p1, c1, r1] }, session);
-		flush(cm, "a1", a1);
-		return second;
-	}
-
-	test("a capable model's Briefing goes out cleared, last, and stored before its prompt", async () => {
-		const { cm, session } = await started();
-
-		const result = await cm.context({ messages: [p1] }, session);
-		await cm.settle();
-
-		expect(result?.messages).toEqual([p1, briefingMessage(text, 1_000)]);
-		expect(result?.messages.at(-1)).toMatchObject({
-			role: "developer",
-			providerPayload: { type: "anthropicMessage", clearAt: "next_user_message" },
-		});
-		expect(stored(cm)).toEqual([{ v: 1, precedes: true, at: 1_000, hash, text }]);
-		expect(cm.recorded[0]?.briefing).toEqual({
-			mode: "kept",
-			resent: 0,
-			resentBytes: 0,
-			missing: 0,
-		});
-	});
-
-	test("a later Call stores its Briefing as following its message, by hash", async () => {
-		const { cm, session } = await started();
-
-		const result = await firstTurn(cm, session);
-
-		expect(result?.messages).toEqual([
-			p1,
-			briefingMessage(text, 1_000),
-			c1,
-			r1,
-			briefingMessage(text, 1_002),
-		]);
-		expect(stored(cm).at(-1)).toEqual({ v: 1, follows: "t1", hash });
-	});
-
-	test("the next Turn sends every earlier Briefing again, in place, and reads only its own", async () => {
-		const { cm, session } = await started();
-		await firstTurn(cm, session);
-
-		const result = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
-		await cm.settle();
-		const messages = result?.messages ?? [];
-
-		expect(messages).toEqual([
-			p1,
-			briefingMessage(text, 1_000),
-			c1,
-			r1,
-			briefingMessage(text, 1_002),
-			a1,
-			p2,
-			briefingMessage(text, 2_000),
-		]);
-		// Every earlier Briefing is cleared by the prompt after it; only the
-		// current one follows the last user message.
-		const lastPrompt = messages.lastIndexOf(p2);
-		const developers = messages.flatMap((each, at) => (each.role === "developer" ? [at] : []));
-		expect(developers.filter((at) => at > lastPrompt)).toEqual([messages.length - 1]);
-		expect(cm.recorded.at(-1)?.briefing).toEqual({
-			mode: "kept",
-			resent: 2,
-			resentBytes: 2 * Buffer.byteLength(text),
-			missing: 0,
-		});
-	});
-
-	test("a Briefing whose text is lost is counted missing and nothing takes its place", async () => {
-		const { cm, session } = await started();
-		await firstTurn(cm, session);
-		// The text was written once, on the first Call's entry; that copy is lost.
-		for (const entry of cm.journal) {
-			if (entry.customType !== BRIEFING_ENTRY) continue;
-			const { text: _lost, ...kept } = entry.data as Record<string, unknown>;
-			entry.data = kept;
-		}
-
-		const result = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
-		await cm.settle();
-
-		expect(result?.messages).toEqual([p1, c1, r1, a1, p2, briefingMessage(text, 2_000)]);
-		expect(cm.recorded.at(-1)?.briefing).toMatchObject({ resent: 0, missing: 2 });
-	});
-
-	test("a model without turn-scoped system messages gets one user Briefing and stores nothing", async () => {
-		const { cm, session } = await started(incapable);
-
-		const result = await cm.context({ messages: [p1] }, session);
-		await cm.settle();
-
-		expect(result?.messages).toEqual([p1, { role: "user", content: text }]);
-		expect(stored(cm)).toEqual([]);
-		expect(cm.recorded[0]?.briefing).toEqual({
-			mode: "replaced",
-			resent: 0,
-			resentBytes: 0,
-			missing: 0,
-		});
-	});
-
-	test("switching back to a capable model sends the stored Briefings again", async () => {
-		const { cm, session } = await started();
-		await firstTurn(cm, session);
-		const other = { ...session, ...incapable };
-
-		const fallback = await cm.context({ messages: [p1, c1, r1, a1, p2] }, other);
-		expect(fallback?.messages).toEqual([p1, c1, r1, a1, p2, { role: "user", content: text }]);
-		expect(stored(cm)).toHaveLength(2);
-
-		const back = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
-
-		expect(back?.messages).toEqual([
-			p1,
-			briefingMessage(text, 1_000),
-			c1,
-			r1,
-			briefingMessage(text, 1_002),
-			a1,
-			p2,
-			briefingMessage(text, 2_000),
-		]);
-	});
-
-	test("after /tree, a Briefing off the active branch is not sent", async () => {
-		const { cm, session } = await started();
-		await firstTurn(cm, session);
-		// Back to the tool call, which is run again with another result.
-		const rerun: HarnessMessage = { ...r1, content: "other contents", timestamp: 1_500 };
-		flush(cm, "t1b", rerun, "c1");
-		const branch = cm.journal.filter((entry) =>
-			["entry-0", "entry-1", "u1", "c1", "t1b"].includes(entry.id ?? ""),
-		);
-		const moved = { ...cm.session(branch), ...capable };
-		await cm.sessionTree({ oldLeafId: "a1" }, moved);
-
-		const result = await cm.context({ messages: [p1, c1, rerun] }, moved);
-
-		expect(result?.messages).toEqual([
-			p1,
-			briefingMessage(text, 1_000),
-			c1,
-			rerun,
-			briefingMessage(text, 1_500),
-		]);
-	});
-
-	test("a Briefing whose message left the tail is not sent and not missing", async () => {
-		const cm = harness({ config: { tailTurns: 0 } });
-		const session = { ...cm.session(cm.journal), ...capable };
-		await cm.commands.pins?.handler("add use tabs", session);
-		await firstTurn(cm, session);
-
-		const result = await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
-		await cm.settle();
-
-		expect(result?.messages).toEqual([p2, briefingMessage(text, 2_000)]);
-		expect(cm.recorded.at(-1)?.briefing).toMatchObject({ resent: 0, missing: 0 });
-	});
-
-	test("a Call that assembled nothing records no Briefing of its own", async () => {
-		const cm = harness();
-		const session = { ...cm.session(cm.journal), ...capable };
-
-		const result = await cm.context({ messages: [p1] }, session);
-		await cm.settle();
-
-		expect(result?.messages).toEqual([p1]);
-		expect(stored(cm)).toEqual([]);
-		expect(cm.recorded[0]?.briefing).toEqual({ mode: "none", resent: 0, resentBytes: 0, missing: 0 });
-	});
-
-	for (const reason of ["branch", "fork", "btw"]) {
-		test(`a ${reason} carries only the Briefings on its path, with their text`, async () => {
-			const { cm, session } = await started();
-			await firstTurn(cm, session);
-			await cm.context({ messages: [p1, c1, r1, a1, p2] }, session);
-			flush(cm, "u2", p2);
-			await cm.agentEnd({}, session);
-			// The new file holds the root-to-leaf path to the tool result:
-			// the first Call's entry is an ancestor of its prompt, the second
-			// Call's lies after the leaf, and the second Turn is off the path.
-			const path = cm.journal.slice(0, cm.journal.findIndex((entry) => entry.id === "t1") + 1);
-			cm.journal.splice(0, cm.journal.length, ...path);
-
-			await cm.sessionBranch({ reason }, session);
-			const p3: HarnessMessage = { role: "user", content: "third", timestamp: 3_000 };
-			const result = await cm.context({ messages: [p1, c1, r1, p3] }, session);
-
-			expect(stored(cm).slice(1)).toEqual([
-				{ v: 1, follows: "t1", hash, text },
-				{ v: 1, precedes: true, at: 3_000, hash },
-			]);
-			expect(result?.messages).toEqual([
-				p1,
-				briefingMessage(text, 1_000),
-				c1,
-				r1,
-				briefingMessage(text, 1_002),
-				p3,
-				briefingMessage(text, 3_000),
-			]);
-		});
-	}
-});

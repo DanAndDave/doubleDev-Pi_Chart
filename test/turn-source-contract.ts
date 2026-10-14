@@ -119,11 +119,11 @@ export function turnSourceContract(name: string, fresh: ContractSubject): void {
 	test(`${name}: emptying and re-ingesting rebuilds the identical pack`, async () => {
 		const store = await fresh();
 		await store.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
-		const before = assemble({ turns: await store.recentTurns("conv-1", 2) }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
+		const before = assemble({ turns: await store.recentTurns("conv-1", 2) }, budgets({ tailTurns: 2 }));
 
 		const rebuilt = await fresh();
 		await rebuilt.ingest("conv-1", await readJournal(JOURNAL_FIXTURE));
-		const after = assemble({ turns: await rebuilt.recentTurns("conv-1", 2) }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
+		const after = assemble({ turns: await rebuilt.recentTurns("conv-1", 2) }, budgets({ tailTurns: 2 }));
 
 		expect(after).toEqual(before);
 	});

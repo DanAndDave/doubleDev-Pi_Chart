@@ -32,7 +32,11 @@
  * an explicit query, so they reach no other Conversation's packs by default.
  *
  * Not counted: anything charged outside the provider's `usage` — the local
- * embedder, and the TypeSafe relevance judge (`PICHART_JUDGE`).
+ * embedder.
+ *
+ * `--arm pi-chart` (or `vanilla`) runs one arm alone, for sweeping a
+ * setting; the comparison table needs both, so only the raw figures are
+ * written.
  */
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -48,11 +52,12 @@ const BUILD_NUMBER = "7341";
 const PROBE = `What codeword did I give you at the start of this conversation, and what build number did I give you later? Reply with just the codeword and the build number, using UNKNOWN for either you do not know. Do not use any tools.`;
 
 /**
- * Read-only work over pi-chart's own source: each turn reads something new,
- * so an accumulating window grows, and there are more turns than the
- * default tail carries (`PICHART_TAIL_TURNS=8`), so the probe cannot be
- * answered from the tail: the codeword from the Opening, the build number
- * from recall.
+ * Read-only work over pi-chart's own source, 40 turns: each turn reads
+ * something new, so an accumulating window grows. The build number at
+ * turn 3 leaves the default tail (`PICHART_TAIL_TURNS=8`,
+ * `PICHART_TAIL_TOKENS=25000`) about ten turns later and stays out of it
+ * for the remaining thirty, so the probe cannot be answered from the tail:
+ * the codeword from the Opening, the build number from recall.
  */
 const DEFAULT_WORKLOAD = [
 	`Remember this codeword for later: ${CODEWORD}. Then read src/pins.ts and say in two sentences what a Pin entry holds.`,
@@ -66,6 +71,34 @@ const DEFAULT_WORKLOAD = [
 	"Read src/journal.ts. How is a Conversation's active branch found?",
 	"Read src/turns.ts and src/thread-store.ts. How does a Turn get into the Thread Store?",
 	"Read src/accounting.ts. What does a recorded part carry?",
+	"Read src/concept.ts. What fields does a Concept's front matter carry?",
+	"Read src/doc-store.ts. How does a Doc Store find a Concept by its path?",
+	"Read src/doc-index.ts. When is a Concept embedded again?",
+	"Read src/embed-text.ts. What text is embedded for a Turn?",
+	"Read src/embedder.ts. How does the embedder run off the main thread?",
+	"Read src/graph.ts. What does a prepared graph index?",
+	"Read src/graph-load.ts and src/graph-load-worker.ts. Why is the graph loaded in a worker?",
+	"Read src/graph-store.ts. When does it run graphify again?",
+	"Read src/install.ts. What does installing the extension write?",
+	"Read src/messages.ts. How is a tool call rendered as text?",
+	"Read src/process.ts. What does it wrap, and why?",
+	"Read src/spec-store.ts. What does it read from openspec/?",
+	"Read src/sql.ts. How are statements built safely?",
+	"Read src/bun-runtime.ts. What runtime differences does it cover?",
+	"Read src/harness.ts. List the events an extension can subscribe to.",
+	"Read src/postgres-store.ts. Which tables does it create?",
+	"Read src/inspection.ts. What subcommands does /pack accept?",
+	"Read src/config.ts. How are retired setting names reported?",
+	"Read test/elision.test.ts. What edge cases does it cover?",
+	"Read test/journal.test.ts. How are fixture Journals built?",
+	"Read test/sections.test.ts. Name two cases it covers.",
+	"Read test/turns.test.ts. What does it check about Turn boundaries?",
+	"Read test/concept.test.ts. Which malformed Concepts does it reject?",
+	"Read docs/agents/workflow.md. What are the phases of the workflow?",
+	"Read docs/agents/issue-tracker.md. Where do issues live?",
+	"Read package.json. What scripts and dependencies does it declare?",
+	"Read scripts/measure-pack-cache.ts. What does it measure?",
+	"Read test/capture-extension.ts. What does it capture, and where does it write it?",
 	PROBE,
 ];
 
@@ -479,13 +512,17 @@ if (reportFrom) {
 	const timeoutMs = positive("--turn-timeout", 600) * 1000;
 
 	// Interleave the arms so drift over the session (provider load, cache
-	// state) falls on both alike.
+	const only = flag("--arm");
+	if (only !== undefined && !ARMS.includes(only as Arm)) {
+		throw new Error(`--arm is "${only}"; expected ${ARMS.join(" or ")}`);
+	}
+	const arms = only === undefined ? ARMS : [only as Arm];
 	const jobs = Array.from({ length: runs }, (_, index) =>
-		ARMS.map((arm) => () => runOne(arm, index, workload, options, timeoutMs, !workloadFile)),
+		arms.map((arm) => () => runOne(arm, index, workload, options, timeoutMs, !workloadFile)),
 	).flat();
 	log(`${jobs.length} Conversations × ${turns} turns, ${positive("--parallel", 2)} at a time`);
 	const saved: Saved = { options, runs: await pool(jobs, positive("--parallel", 2)) };
 	await Bun.write(out, JSON.stringify(saved, null, "\t"));
 	log(`raw figures: ${out}`);
-	report(saved);
+	if (!only) report(saved);
 }

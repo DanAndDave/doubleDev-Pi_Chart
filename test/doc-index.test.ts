@@ -77,22 +77,20 @@ describeStore("the concept index", () => {
 		await store.truncate();
 	});
 
-	test("an indexed concept is findable, and an unrelated one is not", async () => {
+	test("an indexed concept is found ahead of an unrelated one", async () => {
 		await store.indexConcepts([CACHING, BANNER]);
 
-		// The threshold the product ships with: a wider one would return the
-		// whole corpus and prove only that rows exist.
-		const found = (await store.searchConcepts("parsed configuration memory", 5, 0.5))
+		const found = (await store.searchConcepts("parsed configuration memory", 5))
 			.hits;
 
-		expect(found.map((hit) => hit.conceptId)).toEqual(["decisions/caching"]);
+		expect(found[0]?.conceptId).toBe("decisions/caching");
 	});
 
 	test("a query matching one section retrieves its concept", async () => {
 		await store.indexConcepts([CACHING]);
 
 		// "Deployment" is the second section; the first is about caching.
-		const found = (await store.searchConcepts("rolling restarts drain", 5, 2)).hits;
+		const found = (await store.searchConcepts("rolling restarts drain", 5)).hits;
 
 		expect(found[0]?.conceptId).toBe("decisions/caching");
 		expect(found[0]?.text).toContain("Rolling restarts");
@@ -101,7 +99,7 @@ describeStore("the concept index", () => {
 	test("a concept appears once however many sections match", async () => {
 		await store.indexConcepts([CACHING]);
 
-		const found = (await store.searchConcepts("configuration", 10, 2)).hits;
+		const found = (await store.searchConcepts("configuration", 10)).hits;
 
 		const caching = found.filter((hit) => hit.conceptId === "decisions/caching");
 		expect(caching).toHaveLength(1);
@@ -109,12 +107,12 @@ describeStore("the concept index", () => {
 
 	test("emptying the index and indexing again finds the same concepts", async () => {
 		await store.indexConcepts([CACHING, BANNER]);
-		const before = (await store.searchConcepts("parsed configuration", 5, 2)).hits;
+		const before = (await store.searchConcepts("parsed configuration", 5)).hits;
 		expect(before.length).toBeGreaterThan(0);
 
 		await store.truncate();
 		await store.indexConcepts([CACHING, BANNER]);
-		const after = (await store.searchConcepts("parsed configuration", 5, 2)).hits;
+		const after = (await store.searchConcepts("parsed configuration", 5)).hits;
 
 		expect(after.map((hit) => hit.conceptId)).toEqual(
 			before.map((hit) => hit.conceptId),
@@ -126,7 +124,7 @@ describeStore("the concept index", () => {
 
 		await store.indexConcepts([CACHING, broken]);
 
-		const found = (await store.searchConcepts("parsed configuration", 5, 2)).hits;
+		const found = (await store.searchConcepts("parsed configuration", 5)).hits;
 		expect(found.map((hit) => hit.conceptId)).not.toContain("decisions/broken");
 		expect(found.map((hit) => hit.conceptId)).toContain("decisions/caching");
 	});
@@ -148,7 +146,7 @@ describeStore("the concept index", () => {
 
 		expect((await store.indexConcepts([edited])).embedded).toBeGreaterThan(0);
 
-		const found = (await store.searchConcepts("reload every request", 5, 2)).hits;
+		const found = (await store.searchConcepts("reload every request", 5)).hits;
 		expect(found[0]?.text).toContain("reload configuration on every request");
 	});
 
@@ -157,7 +155,7 @@ describeStore("the concept index", () => {
 
 		await store.indexConcepts([CACHING]);
 
-		const found = (await store.searchConcepts("muted green banner", 5, 2)).hits;
+		const found = (await store.searchConcepts("muted green banner", 5)).hits;
 		expect(found.map((hit) => hit.conceptId)).not.toContain("standards/banner");
 	});
 
@@ -167,7 +165,7 @@ describeStore("the concept index", () => {
 
 		await store.indexConcepts([emptied]);
 
-		const found = (await store.searchConcepts("parsed configuration", 5, 2)).hits;
+		const found = (await store.searchConcepts("parsed configuration", 5)).hits;
 		expect(found.map((hit) => hit.conceptId)).not.toContain("decisions/caching");
 	});
 
@@ -180,7 +178,7 @@ describeStore("the concept index", () => {
 		const { embedded } = await store.indexConcepts([CACHING]);
 
 		expect(embedded).toBeGreaterThan(0);
-		const found = (await store.searchConcepts("parsed configuration memory", 5, 0.5))
+		const found = (await store.searchConcepts("parsed configuration memory", 5))
 			.hits;
 		expect(found.map((hit) => hit.conceptId)).toContain("decisions/caching");
 	});
@@ -230,11 +228,15 @@ describeStore("the concept index", () => {
 		// The section is retrievable before the edit, so its absence after
 		// can only be the deletion.
 		const query = "rolling restarts drain connections";
-		expect((await store.searchConcepts(query, 5, 0.6)).hits).not.toEqual([]);
+		const carriesRemoved = async () =>
+			(await store.searchConcepts(query, 5)).hits.some((hit) =>
+				hit.text.includes("Rolling restarts"),
+			);
+		expect(await carriesRemoved()).toBe(true);
 
 		await store.indexConcepts([shortened]);
 
-		expect((await store.searchConcepts(query, 5, 0.6)).hits).toEqual([]);
+		expect(await carriesRemoved()).toBe(false);
 	});
 });
 
@@ -282,15 +284,15 @@ describeStore("bringing one concept's index in line", () => {
 		);
 
 		const survives = async (query: string) =>
-			(await store.searchConcepts(query, 5, 0.6)).hits.map(
+			(await store.searchConcepts(query, 5)).hits.map(
 				(hit) => hit.conceptId,
 			);
-		expect(await survives("parsed configuration memory")).toEqual([
+		expect(await survives("parsed configuration memory")).toContain(
 			"decisions/caching",
-		]);
-		expect(await survives("rolling restarts drain connections")).toEqual([
+		);
+		expect(await survives("rolling restarts drain connections")).toContain(
 			"decisions/caching",
-		]);
+		);
 	});
 
 	test("a scoped pass embeds the sections that moved and nothing else", async () => {
@@ -327,12 +329,13 @@ describeStore("bringing one concept's index in line", () => {
 		);
 
 		expect(
-			(await store.searchConcepts("configuration read from disk", 5, 0.6)).hits,
+			(await store.searchConcepts("configuration read from disk", 5)).hits,
 		).not.toEqual([]);
 		expect(
-			(await store.searchConcepts("rolling restarts drain connections", 5, 0.6))
-				.hits,
-		).toEqual([]);
+			(
+				await store.searchConcepts("rolling restarts drain connections", 5)
+			).hits.some((hit) => hit.text.includes("Rolling restarts")),
+		).toBe(false);
 	});
 
 	test("a concept revised into unreadability leaves retrieval", async () => {
@@ -343,11 +346,13 @@ describeStore("bringing one concept's index in line", () => {
 		);
 
 		expect(
-			(await store.searchConcepts("parsed configuration memory", 5, 0.6)).hits,
-		).toEqual([]);
+			(await store.searchConcepts("parsed configuration memory", 5)).hits.map(
+				(hit) => hit.conceptId,
+			),
+		).not.toContain("decisions/caching");
 		// And the corpus around it is untouched.
 		expect(
-			(await store.searchConcepts("muted green banner", 5, 0.6)).hits,
+			(await store.searchConcepts("muted green banner", 5)).hits,
 		).not.toEqual([]);
 	});
 
@@ -361,7 +366,7 @@ describeStore("bringing one concept's index in line", () => {
 			),
 		);
 
-		const [hit] = (await store.searchConcepts("revenue less full cost", 5, 0.6))
+		const [hit] = (await store.searchConcepts("revenue less full cost", 5))
 			.hits;
 
 		expect(hit?.exclusions?.[0]?.term).toBe("revenue minus product cost only");
@@ -373,7 +378,7 @@ describeStore("bringing one concept's index in line", () => {
 		await store.indexConcepts([CACHING]);
 
 		const [hit] = (
-			await store.searchConcepts("rolling restarts drain connections", 5, 0.6)
+			await store.searchConcepts("rolling restarts drain connections", 5)
 		).hits;
 
 		// Two sections; the second matched. A pack heads a fragment with
@@ -400,7 +405,7 @@ describeStore("bringing one concept's index in line", () => {
 		// Nothing restarted, no whole-bundle pass: the Conversation that
 		// wrote it can retrieve it.
 		const found = (
-			await store.searchConcepts("head and tail survive with a marker", 5, 0.6)
+			await store.searchConcepts("head and tail survive with a marker", 5)
 		).hits;
 		expect(found.map((hit) => hit.conceptId)).toContain("decisions/elision");
 	});
@@ -436,16 +441,14 @@ describeStore("a concept vector and the model that made it", () => {
 
 		const query = "parsed configuration memory";
 		expect(
-			(await store.searchConcepts(query, 5, 0.6)).hits.map((hit) => hit.conceptId),
-		).toEqual(["decisions/caching"]);
-		const underSwap = await swapped.searchConcepts(query, 5, 0.6);
+			(await store.searchConcepts(query, 5)).hits[0]?.conceptId,
+		).toBe("decisions/caching");
+		const underSwap = await swapped.searchConcepts(query, 5);
 
 		// The stub is deterministic, so this is the same query against the
 		// same rows: what changes is who made the vectors they hold.
 		expect(underSwap.hits).toEqual([]);
-		// Not refused for distance — never searched at all, and said so.
-		expect(underSwap.misses).toEqual([]);
-		expect(underSwap.rejected).toBe(0);
+		// Never searched at all, and said so.
 		expect(underSwap.unsearched).toBe(2);
 	});
 
@@ -456,8 +459,8 @@ describeStore("a concept vector and the model that made it", () => {
 
 		// Every section, though not one word of the bundle moved.
 		expect(embedded).toBe(3);
-		const found = await swapped.searchConcepts("parsed configuration memory", 5, 0.6);
-		expect(found.hits.map((hit) => hit.conceptId)).toEqual(["decisions/caching"]);
+		const found = await swapped.searchConcepts("parsed configuration memory", 5);
+		expect(found.hits[0]?.conceptId).toBe("decisions/caching");
 		expect(found.unsearched).toBe(0);
 	});
 
@@ -469,11 +472,13 @@ describeStore("a concept vector and the model that made it", () => {
 		expect(embedded).toBe(2);
 		// The Concept it was not given keeps the vectors it had, so it is
 		// still unsearchable under the new model rather than silently ranked.
-		expect((await swapped.searchConcepts("muted green banner", 5, 0.6)).hits).toEqual(
-			[],
-		);
 		expect(
-			(await swapped.searchConcepts("parsed configuration memory", 5, 0.6)).hits,
+			(await swapped.searchConcepts("muted green banner", 5)).hits.map(
+				(hit) => hit.conceptId,
+			),
+		).not.toContain("standards/banner");
+		expect(
+			(await swapped.searchConcepts("parsed configuration memory", 5)).hits,
 		).not.toEqual([]);
 	});
 
@@ -485,7 +490,7 @@ describeStore("a concept vector and the model that made it", () => {
 			UPDATE concept_sections SET embedding_model = 'stub-two'
 			WHERE section_index = 1`;
 
-		const found = await store.searchConcepts("parsed configuration memory", 5, 0.6);
+		const found = await store.searchConcepts("parsed configuration memory", 5);
 
 		// The search can rank this Concept, so reporting it as one the
 		// search could not see would contradict the hit beside it.
@@ -498,11 +503,11 @@ describeStore("a concept vector and the model that made it", () => {
 		// A row as an earlier version wrote it: a vector with no model.
 		await store["sql"]`UPDATE concept_sections SET embedding_model = NULL`;
 
-		expect((await store.searchConcepts("parsed configuration memory", 5, 0.6)).hits)
+		expect((await store.searchConcepts("parsed configuration memory", 5)).hits)
 			.toEqual([]);
 		expect((await store.indexConcepts([CACHING])).embedded).toBe(2);
 		expect(
-			(await store.searchConcepts("parsed configuration memory", 5, 0.6)).hits,
+			(await store.searchConcepts("parsed configuration memory", 5)).hits,
 		).not.toEqual([]);
 	});
 });
@@ -575,7 +580,6 @@ describeStore("lifecycle and trust in retrieval", () => {
 			await store.searchConcepts(
 				"We keep parsed configuration in memory rather than re-reading it.",
 				5,
-				2,
 			)
 		).hits;
 
@@ -602,7 +606,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 		);
 		await store.indexConcepts([outdated, current]);
 
-		const found = (await store.searchConcepts(BODY, 5, 2)).hits;
+		const found = (await store.searchConcepts(BODY, 5)).hits;
 
 		expect(found[0]?.conceptId).toBe("decisions/z-retries");
 		expect(found[0]?.stale).toBe(false);
@@ -624,7 +628,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 		);
 		await store.indexConcepts([unverified, reviewed]);
 
-		const found = (await store.searchConcepts(BODY, 5, 2)).hits;
+		const found = (await store.searchConcepts(BODY, 5)).hits;
 
 		expect(found[0]?.conceptId).toBe("decisions/z-retries");
 		expect(found[0]?.trust).toBe("human-reviewed");
@@ -651,7 +655,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 		await store.indexConcepts([stale, current]);
 
 		const found = (
-			await store.searchConcepts(`Retries\n\n${LONG} Jitter is uniform.`, 5, 2)
+			await store.searchConcepts(`Retries\n\n${LONG} Jitter is uniform.`, 5)
 		).hits;
 
 		expect(found[0]?.conceptId).toBe("decisions/z-retries");
@@ -674,7 +678,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 		);
 		await store.indexConcepts([offTopic, onTopic]);
 
-		const found = (await store.searchConcepts(BODY, 5, 2)).hits;
+		const found = (await store.searchConcepts(BODY, 5)).hits;
 
 		expect(found[0]?.conceptId).toBe("decisions/z-retries");
 	});
@@ -691,7 +695,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 			{ conceptId: "decisions/furthest", distance: 0.5, stale: false },
 		]);
 
-		const found = (await store.searchConcepts(PROBE, 3, 2)).hits;
+		const found = (await store.searchConcepts(PROBE, 3)).hits;
 
 		expect(found.map((hit) => hit.conceptId)).toEqual([
 			"decisions/nearest",
@@ -708,7 +712,7 @@ describeStore("lifecycle and trust in retrieval", () => {
 			{ conceptId: "decisions/current", distance: 0.22, stale: false },
 		]);
 
-		const found = (await store.searchConcepts(PROBE, 2, 2)).hits;
+		const found = (await store.searchConcepts(PROBE, 2)).hits;
 
 		expect(found.map((hit) => hit.conceptId)).toEqual([
 			"decisions/current",
@@ -716,20 +720,12 @@ describeStore("lifecycle and trust in retrieval", () => {
 		]);
 	});
 
-	test("nothing relevant returns nothing", async () => {
-		await store.indexConcepts([CACHING]);
-
-		expect((await store.searchConcepts("parsed configuration", 5, 0.01)).hits).toEqual(
-			[],
-		);
-	});
-
 	test("an unindexed bundle returns nothing rather than raising", async () => {
-		expect((await store.searchConcepts("anything at all", 5, 2)).hits).toEqual([]);
+		expect((await store.searchConcepts("anything at all", 5)).hits).toEqual([]);
 	});
 });
 
-describeStore("what the concept index refused", () => {
+describeStore("what a concept search reports", () => {
 	let store: PostgresStore;
 	let sql: Sql;
 
@@ -752,79 +748,9 @@ describeStore("what the concept index refused", () => {
 	test("a hit carries the distance it was found at", async () => {
 		await place(sql, [{ conceptId: "decisions/near", distance: 0.2, stale: false }]);
 
-		const { hits } = await store.searchConcepts(PROBE, 2, 0.5);
+		const { hits } = await store.searchConcepts(PROBE, 2);
 
 		expect(hits[0]?.distance).toBeCloseTo(0.2, 3);
-	});
-
-	test("a tight threshold returns no hits, a count, and the near misses", async () => {
-		await place(sql, [
-			{ conceptId: "decisions/far", distance: 0.6, stale: false },
-			{ conceptId: "decisions/nearer", distance: 0.45, stale: false },
-		]);
-
-		const { hits, rejected, misses } = await store.searchConcepts(PROBE, 2, 0.3);
-
-		expect(hits).toEqual([]);
-		expect(rejected).toBe(2);
-		// Nearest first, so the one to loosen the threshold for leads.
-		expect(misses.map((miss) => miss.conceptId)).toEqual([
-			"decisions/nearer",
-			"decisions/far",
-		]);
-		expect(misses[0]?.distance).toBeCloseTo(0.45, 3);
-	});
-
-	test("a concept that was carried is not also reported as refused", async () => {
-		await place(sql, [
-			{ conceptId: "decisions/near", distance: 0.2, stale: false },
-			{ conceptId: "decisions/far", distance: 0.6, stale: false },
-		]);
-
-		const { hits, misses } = await store.searchConcepts(PROBE, 2, 0.5);
-
-		expect(hits.map((hit) => hit.conceptId)).toEqual(["decisions/near"]);
-		expect(misses.map((miss) => miss.conceptId)).toEqual(["decisions/far"]);
-	});
-
-	test("a deprecated concept is not reported as a near miss", async () => {
-		const superseded = concept(
-			"decisions/old-caching",
-			"id-old",
-			"We keep parsed configuration in memory rather than re-reading it.",
-			"type: Decision\ntitle: Caching\nstatus: deprecated",
-		);
-		await store.indexConcepts([superseded]);
-
-		// Lifecycle withheld it, not distance: reporting it as refused
-		// would invite loosening a threshold that never kept it out.
-		const { rejected, misses } = await store.searchConcepts(
-			"We keep parsed configuration in memory rather than re-reading it.",
-			5,
-			0.01,
-		);
-
-		expect(rejected).toBe(0);
-		expect(misses).toEqual([]);
-	});
-
-	test("the refused come from the candidate window, not the whole bundle", async () => {
-		// Thirty sections, a candidate window of ten: the near misses are
-		// what the one nearest-neighbour query already looked at, so the
-		// furthest are not reported at all.
-		await place(
-			sql,
-			Array.from({ length: 30 }, (_, index) => ({
-				conceptId: `decisions/c${index}`,
-				distance: 0.3 + index * 0.01,
-				stale: false,
-			})),
-		);
-
-		const { misses } = await store.searchConcepts(PROBE, 1, 0.1);
-
-		expect(misses).toHaveLength(10);
-		expect(misses.map((miss) => miss.conceptId)).not.toContain("decisions/c29");
 	});
 });
 
@@ -885,13 +811,10 @@ describeModel("retrieval under the real model", () => {
 					await store.searchConcepts(
 						"how is the payments table partitioned across servers",
 						2,
-						0.5,
 					)
 				).hits;
 
-				expect(found.map((hit) => hit.conceptId)).toEqual([
-					"decisions/sharding",
-				]);
+				expect(found[0]?.conceptId).toBe("decisions/sharding");
 			} finally {
 				await store.close();
 				await embedder.close();
@@ -938,7 +861,6 @@ describeModel("retrieval under the real model", () => {
 					await store.searchConcepts(
 						"what do we throw away first when the past piles up",
 						2,
-						0.5,
 					)
 				).hits;
 
@@ -977,7 +899,7 @@ describeModel("retrieval under the real model", () => {
 				// what must survive is that the section's own text still
 				// decides which part comes back.
 				const [hit] = (
-					await store.searchConcepts("when does the sweep run", 2, 0.6)
+					await store.searchConcepts("when does the sweep run", 2)
 				).hits;
 
 				expect(hit?.sectionIndex).toBe(1);
@@ -1029,14 +951,14 @@ describeStore("a candidate set nothing can reorder", () => {
 	test("the same query selects the same concepts, twice and after a rebuild", async () => {
 		await store.indexConcepts(TIED);
 
-		const first = (await store.searchConcepts("caching parsed configuration", 4, 2))
+		const first = (await store.searchConcepts("caching parsed configuration", 4))
 			.hits;
-		const again = (await store.searchConcepts("caching parsed configuration", 4, 2))
+		const again = (await store.searchConcepts("caching parsed configuration", 4))
 			.hits;
 		// The index is discarded and rebuilt from unchanged Concepts, which
 		// is what reshuffles an approximate graph.
 		await sql`REINDEX INDEX concept_sections_embedding_idx`;
-		const rebuilt = (await store.searchConcepts("caching parsed configuration", 4, 2))
+		const rebuilt = (await store.searchConcepts("caching parsed configuration", 4))
 			.hits;
 
 		const ids = (hits: { conceptId: string }[]) => hits.map((hit) => hit.conceptId);

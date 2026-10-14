@@ -1,11 +1,12 @@
 // What a recalled Turn looks like when it reaches the model, and what the
-// verbatim tail refuses to replay. The `assemble()` boundary sees both and
-// needs no container, no model and no harness.
+// verbatim tail refuses to replay. `asRecollection()` and the `assemble()`
+// boundary see both and need no container, no model and no harness.
 
 import { describe, expect, test } from "bun:test";
 
-import { assemble, type Pack } from "../src/assembler.ts";
+import { asRecollection, assemble } from "../src/assembler.ts";
 import { messageText, type HarnessMessage, type Turn } from "../src/messages.ts";
+import { approximateTokens } from "../src/tokens.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import {
 	budgets,
@@ -18,12 +19,6 @@ const CURRENT: Turn = {
 	prompt: "what did we do with leaf.txt",
 	messages: [{ role: "user", content: "what did we do with leaf.txt" }],
 };
-
-function recollectionOf(pack: Pack): string {
-	const part = pack.parts.find((each) => each.source === "recalled");
-	expect(part?.messages).toHaveLength(1);
-	return messageText(part?.messages[0] ?? { role: "user" });
-}
 
 /** The ids of every tool call a pack part still carries. */
 function callIds(messages: HarnessMessage[]): string[] {
@@ -40,12 +35,8 @@ function callIds(messages: HarnessMessage[]): string[] {
 
 describe("a recollection carries the actions its turn took", () => {
 	test("a recalled turn shows what it asked for, with its arguments", async () => {
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 1, turn: await toolTurn() }] },
-			budgets({ recallTurns: 1 }),
-		);
+		const text = messageText(asRecollection({ turnIndex: 1, turn: await toolTurn() }));
 
-		const text = recollectionOf(pack);
 		expect(text).toContain('write({"path":"leaf.txt"');
 		expect(text).toContain('read({"path":"leaf.txt"');
 		expect(text).toContain("Successfully wrote 6 bytes");
@@ -62,12 +53,9 @@ describe("a recollection carries the actions its turn took", () => {
 			],
 		};
 
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 2, turn }] },
-			budgets({ recallTurns: 1 }),
-		);
+		const text = messageText(asRecollection({ turnIndex: 2, turn }));
 
-		expect(recollectionOf(pack)).toContain('read({"path":"config.ts"})');
+		expect(text).toContain('read({"path":"config.ts"})');
 	});
 
 	test("an unanswered action is recorded as made and unanswered", () => {
@@ -80,12 +68,8 @@ describe("a recollection carries the actions its turn took", () => {
 			],
 		};
 
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 3, turn }] },
-			budgets({ recallTurns: 1 }),
-		);
+		const text = messageText(asRecollection({ turnIndex: 3, turn }));
 
-		const text = recollectionOf(pack);
 		expect(text).toContain('bash({"command":"migrate"})');
 		expect(text).toMatch(/no result/i);
 	});
@@ -104,16 +88,11 @@ describe("a recollection carries the actions its turn took", () => {
 			],
 		};
 
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 4, turn }] },
-			budgets({ recallTurns: 1, recallTokens: 800 }),
-		);
-		const part = pack.parts.find((each) => each.source === "recalled");
-		const text = recollectionOf(pack);
+		const message = asRecollection({ turnIndex: 4, turn }, 800);
+		const text = messageText(message);
 
-		expect(part?.carried).toBe(1);
-		expect(part?.shortened).toBe(true);
-		expect(part?.approximateTokens).toBeLessThanOrEqual(800);
+		expect(message.piChartShortened).toBe(true);
+		expect(approximateTokens([message])).toBeLessThanOrEqual(800);
 		expect(text).toContain('read({"path":"first.ts"})');
 		expect(text).toContain('read({"path":"second.ts"})');
 		expect(text).toContain("both files define the same symbol");
@@ -141,20 +120,16 @@ describe("a recollection carries the actions its turn took", () => {
 			],
 		};
 
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 5, turn }] },
-			budgets({ recallTurns: 1, recallTokens: 500 }),
-		);
-		const part = pack.parts.find((each) => each.source === "recalled");
-		const text = recollectionOf(pack);
+		const message = asRecollection({ turnIndex: 5, turn }, 500);
+		const text = messageText(message);
 
-		expect(part?.approximateTokens).toBeLessThanOrEqual(500);
+		expect(approximateTokens([message])).toBeLessThanOrEqual(500);
 		expect(text).toContain(needle);
 		expect(text).toContain('grep({"pattern":"BEGIN"})');
 		expect(text).toMatch(/elided/);
 	});
 
-	test("an action too large for the budget is shortened, not dropped", () => {
+	test("an action too large for the allowance is shortened, not dropped", () => {
 		// A call's arguments are unbounded — a `write` carries the file it
 		// wrote. Keeping actions whole cannot mean keeping arguments whole,
 		// or the Turn that did the biggest thing is the one recall loses.
@@ -169,28 +144,17 @@ describe("a recollection carries the actions its turn took", () => {
 			],
 		};
 
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 6, turn }] },
-			budgets({ recallTurns: 1, recallTokens: 300 }),
-		);
-		const part = pack.parts.find((each) => each.source === "recalled");
+		const message = asRecollection({ turnIndex: 6, turn }, 300);
 
-		expect(part?.carried).toBe(1);
-		expect(part?.approximateTokens).toBeLessThanOrEqual(300);
-		expect(recollectionOf(pack)).toContain("write(");
+		expect(approximateTokens([message])).toBeLessThanOrEqual(300);
+		expect(messageText(message)).toContain("write(");
 	});
 
 	test("a recollection stays one attributed message carrying its position", async () => {
-		const pack = assemble(
-			{ turns: [CURRENT], recalled: [{ turnIndex: 7, turn: await toolTurn() }] },
-			budgets({ recallTurns: 1 }),
-		);
-		const part = pack.parts.find((each) => each.source === "recalled");
-		const [message] = part?.messages ?? [];
+		const message = asRecollection({ turnIndex: 7, turn: await toolTurn() });
 
-		expect(part?.messages).toHaveLength(1);
-		expect(message?.role).toBe("user");
-		expect(messageText(message ?? { role: "user" })).toContain(
+		expect(message.role).toBe("user");
+		expect(messageText(message)).toContain(
 			"[recalled from turn 7 of this conversation]",
 		);
 	});

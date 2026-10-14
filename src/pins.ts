@@ -78,28 +78,42 @@ export function sameState(left: PinState, right: PinState): boolean {
 }
 
 /**
+ * The Pins' framing in the system prompt: what follows is the user's own
+ * standing instruction, not something a tool returned or the prompt being
+ * answered.
+ */
+export const PINS_FRAMING =
+	"The user pinned the following as standing instructions for this conversation.";
+
+/**
  * One Pin as the model receives it: attributed to the user and identified,
- * so a standing instruction reads apart from retrieved background and from
+ * so a standing instruction reads apart from what a tool returned and from
  * the prompt being answered. `position` counts from one.
  */
-export function renderPin(pin: Pin, position: number, total: number): HarnessMessage {
-	return {
-		role: "user",
-		content: `[pinned by the user: #${pin.id}, ${position} of ${total}]\n${pin.text}`,
-	};
+export function renderPin(pin: Pin, position: number, total: number): string {
+	return `[pinned by the user: #${pin.id}, ${position} of ${total}]\n${pin.text}`;
 }
 
-/** Every Pin, rendered in the order added: the Pack's `pinned` part. */
-export function renderPins(pins: readonly Pin[]): HarnessMessage[] {
-	return pins.map((pin, index) => renderPin(pin, index + 1, pins.length));
+/**
+ * Every Pin under its framing, in the order added: the Pack's `pinned` part
+ * as the system prompt carries it. `""` when there are none, so no framing
+ * is sent without a Pin.
+ */
+export function renderPinned(pins: readonly Pin[]): string {
+	if (pins.length === 0) return "";
+	return [
+		PINS_FRAMING,
+		...pins.map((pin, index) => renderPin(pin, index + 1, pins.length)),
+	].join("\n\n");
 }
 
 /**
  * What the Pins cost, measured as the Pack measures them — rendered,
- * header included — so `/pins` and `/pack` give one figure.
+ * framing included — so `/pins` and `/pack` give one figure.
  */
 export function pinTokens(pins: readonly Pin[]): number {
-	return approximateTokens(renderPins(pins));
+	if (pins.length === 0) return 0;
+	return approximateTokens([{ role: "user", content: renderPinned(pins) }]);
 }
 
 export type Admission =

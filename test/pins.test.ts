@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import type { BranchEntry } from "../src/harness.ts";
-import { admit, PIN_ENTRY, pinTokens, renderPin, replayPins } from "../src/pins.ts";
+import {
+	admit,
+	PIN_ENTRY,
+	pinTokens,
+	renderPin,
+	renderPinned,
+	replayPins,
+} from "../src/pins.ts";
 
 function pinEntry(data: unknown): BranchEntry {
 	return { type: "custom", customType: PIN_ENTRY, data };
@@ -75,12 +82,33 @@ describe("replaying a conversation's pins", () => {
 
 describe("rendering a pin", () => {
 	test("is attributed to the user, by id and position, with the text whole", () => {
-		const message = renderPin({ id: 3, text: "line one\nline two" }, 2, 4);
+		expect(renderPin({ id: 3, text: "line one\nline two" }, 2, 4)).toBe(
+			"[pinned by the user: #3, 2 of 4]\nline one\nline two",
+		);
+	});
+});
 
-		expect(message).toEqual({
-			role: "user",
-			content: "[pinned by the user: #3, 2 of 4]\nline one\nline two",
-		});
+describe("rendering the pins for the system prompt", () => {
+	test("the standing-instruction framing comes first, then each pin attributed in order", () => {
+		const text = renderPinned([
+			{ id: 2, text: "use tabs" },
+			{ id: 5, text: "never push to main" },
+		]);
+
+		expect(text).toBe(
+			"The user pinned the following as standing instructions for this conversation.\n\n" +
+				"[pinned by the user: #2, 1 of 2]\nuse tabs\n\n" +
+				"[pinned by the user: #5, 2 of 2]\nnever push to main",
+		);
+	});
+
+	test("no pins render nothing, not even the framing", () => {
+		expect(renderPinned([])).toBe("");
+	});
+
+	test("what the pins cost is what their rendering costs", () => {
+		expect(pinTokens([])).toBe(0);
+		expect(pinTokens([{ id: 1, text: "x".repeat(400) }])).toBeGreaterThan(100);
 	});
 });
 

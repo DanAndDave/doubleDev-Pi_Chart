@@ -63,14 +63,11 @@ async function withModel<T>(
 
 function report(label: string, found: Awaited<ReturnType<PostgresStore["searchConcepts"]>>): void {
 	console.log(
-		`${label}\n  ${found.hits.length} hits, ${found.rejected} rejected, ` +
+		`${label}\n  ${found.hits.length} hits, ` +
 			`${found.unsearched} unsearched`,
 	);
 	for (const hit of found.hits) {
 		console.log(`    hit    ${hit.distance.toFixed(3)}  ${hit.conceptId}`);
-	}
-	for (const miss of found.misses.slice(0, 3)) {
-		console.log(`    miss   ${miss.distance.toFixed(3)}  ${miss.conceptId}`);
 	}
 }
 
@@ -99,13 +96,13 @@ if (stage === undefined) {
 			`indexed ${concepts.length} concepts, ${embedded} sections under ` +
 				`${PINNED_MODEL} in ${seconds.toFixed(1)}s`,
 		);
-		report(`\nthe pinned model searching its own vectors:`, await store.searchConcepts(QUERY, LIMIT, MAX_DISTANCE));
+		report(`\nthe pinned model searching its own vectors:`, await store.searchConcepts(QUERY, LIMIT));
 	});
 } else if (stage === "swap") {
 	await withModel(OTHER_MODEL, async (store, embedder) => {
 		report(
 			`\n${OTHER_MODEL} searching ${PINNED_MODEL}'s vectors:`,
-			await store.searchConcepts(QUERY, LIMIT, MAX_DISTANCE),
+			await store.searchConcepts(QUERY, LIMIT),
 		);
 
 		// What the same query returned before provenance was recorded:
@@ -135,7 +132,7 @@ if (stage === undefined) {
 		const { embedded } = await store.indexConcepts((await readBundle(BUNDLE)) ?? []);
 		const seconds = (Bun.nanoseconds() - started) / 1e9;
 		console.log(`\nthe next indexing pass re-embedded ${embedded} sections in ${seconds.toFixed(1)}s`);
-		report(`\n${OTHER_MODEL} searching its own vectors:`, await store.searchConcepts(QUERY, LIMIT, MAX_DISTANCE));
+		report(`\n${OTHER_MODEL} searching its own vectors:`, await store.searchConcepts(QUERY, LIMIT));
 	});
 } else if (stage === "back") {
 	await withModel(PINNED_MODEL, async (store) => {
@@ -143,7 +140,7 @@ if (stage === undefined) {
 		const { embedded } = await store.indexConcepts((await readBundle(BUNDLE)) ?? []);
 		const seconds = (Bun.nanoseconds() - started) / 1e9;
 		console.log(`\nswapping back re-embedded ${embedded} sections in ${seconds.toFixed(1)}s`);
-		report(`the pinned model again:`, await store.searchConcepts(QUERY, LIMIT, MAX_DISTANCE));
+		report(`the pinned model again:`, await store.searchConcepts(QUERY, LIMIT));
 	});
 } else {
 	throw new Error(`unknown stage: ${stage}`);

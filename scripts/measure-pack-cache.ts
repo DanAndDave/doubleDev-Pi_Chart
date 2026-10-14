@@ -7,7 +7,7 @@
  * **The baseline** (default) pairs consecutive Calls within one Turn over
  * governed Conversations — those whose Accounting records what each Pack
  * carried — and reports the cached share of the Pack against Call position,
- * against whether the leading parts changed between the two Calls, and
+ * against whether the system-prompt parts changed between the two Calls, and
  * against whether the verbatim tail slid. It then applies the rule
  * `pack-order-cache/design.md` fixed before any figure was seen. Pairs
  * spaced wider than the cache lifetime are dropped: a cold cache says
@@ -251,20 +251,11 @@ async function reportCorpus(): Promise<void> {
 
 // -------------------------------------------------------------- baseline --
 
-/** What a Call's leading parts carried, as one comparable string. */
+/** What a Call's system-prompt parts carried, as one comparable string. */
 function head(call: CallView): string {
 	return call.parts
-		.filter(
-			(part) =>
-				part.source === "recalled" ||
-				part.source === "curated" ||
-				part.source === "structure",
-		)
-		.map(
-			(part) =>
-				`${part.source}:${part.turnIndices.join(",")}|${part.conceptIds.join(",")}` +
-				`|${part.symbols.join(",")}`,
-		)
+		.filter((part) => part.source === "pinned" || part.source === "opening")
+		.map((part) => `${part.source}:${part.pinIds.join(",")}|${part.turnIndices.join(",")}`)
 		.join(";");
 }
 
@@ -350,10 +341,6 @@ async function reportBaseline(): Promise<void> {
 						// to survive a round trip through the database, and a
 						// window that cannot tell it apart cannot say so.
 						tailSource: call.tailSource,
-						// How much of the Pack the harness supplied itself: the
-						// prefix it can mark, and so the ceiling on what any
-						// provider was ever offered to cache.
-						leadingTokens: call.leadingTokens,
 						packTokens: call.packTokens,
 						floorTokens: call.floorTokens,
 						cacheRead: call.cacheRead,
@@ -364,8 +351,7 @@ async function reportBaseline(): Promise<void> {
 							approximate: part.approximate,
 							approximateTokens: part.approximateTokens,
 							turnIndices: part.turnIndices,
-							conceptIds: part.conceptIds,
-							symbols: part.symbols,
+							pinIds: part.pinIds,
 						})),
 					})),
 				})),
@@ -387,7 +373,6 @@ async function reportBaseline(): Promise<void> {
 	let writingCalls = 0;
 	const reads = new Set<number>();
 	const byTailSource = new Map<string, number[]>();
-	const byPrefix = new Map<string, number[]>();
 
 	for (const conversation of window.conversations) {
 		const calls = inspectConversation(conversation.turns);
@@ -406,22 +391,6 @@ async function reportBaseline(): Promise<void> {
 			if ((call.cacheWrite ?? 0) > 0) writingCalls++;
 			if (call.cacheRead !== undefined) reads.add(call.cacheRead);
 			if (call.cachedPackShare !== undefined) {
-				// Bucketed by size as well as presence, so a prefix too small
-				// to be worth a cache block would show as one: measured, it
-				// does not — what separates a cached Call from an uncached
-				// one is whether there was a prefix at all.
-				const prefix =
-					call.leadingTokens === undefined
-						? "unrecorded"
-						: call.leadingTokens === 0
-							? "none"
-							: call.leadingTokens < 1024
-								? "under 1024 tokens"
-								: "1024 tokens or more";
-				byPrefix.set(prefix, [
-					...(byPrefix.get(prefix) ?? []),
-					call.cachedPackShare,
-				]);
 				const source = call.tailSource ?? "unrecorded";
 				byTailSource.set(source, [
 					...(byTailSource.get(source) ?? []),
@@ -485,13 +454,6 @@ async function reportBaseline(): Promise<void> {
 	for (const [source, bucket] of [...byTailSource].sort()) {
 		console.log(
 			`  ${source.padEnd(17)} n=${bucket.length} median ${pct(quantile(bucket, 0.5))}`,
-		);
-	}
-
-	console.log("\ncached pack share by the prefix the harness could mark:");
-	for (const [prefix, bucket] of [...byPrefix].sort()) {
-		console.log(
-			`  ${prefix.padEnd(19)} n=${bucket.length} median ${pct(quantile(bucket, 0.5))}`,
 		);
 	}
 

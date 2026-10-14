@@ -5,10 +5,10 @@ import { bunSql, type Sql } from "./sql.ts";
 import {
 	groupByTurn,
 	type AccountingStore,
-	type BriefingFigures,
 	type CallAccounting,
 	recordPart,
 	type RecordedPart,
+	splitWindow,
 	type CallAddress,
 	type Measurement,
 	type MemoryBackendState,
@@ -21,7 +21,6 @@ import type { Concept, TrustTier } from "./concept.ts";
 import type {
 	ConceptHit,
 	ConceptMatches,
-	ConceptMiss,
 	ConceptSearch,
 	IndexResult,
 } from "./doc-index.ts";
@@ -35,7 +34,6 @@ import type {
 	OpeningSource,
 	Recollections,
 	RecalledTurn,
-	TurnMiss,
 	TurnRecall,
 	TurnSink,
 	TurnSize,
@@ -222,7 +220,7 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 	{
 		version: 14,
 		statements: [
-			// When a Turn entered the Store, so retention can judge its age.
+			// When a Turn entered the Store, so retention can tell its age.
 			// Added without a default and given one afterwards, deliberately:
 			// `ADD COLUMN ... DEFAULT now()` fills every existing row, which
 			// would date the whole Store one migration old and let retention
@@ -312,15 +310,11 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 	},
 	{
 		version: 22,
-		statements: [
-			// How a Call sent its Briefing and the earlier Briefings it sent
-			// again. Nullable: a row written before has no figures, which
-			// is not the same as a Call that re-sent none.
-			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS briefing_mode TEXT`,
-			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS resent_briefings INTEGER`,
-			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS resent_briefing_bytes INTEGER`,
-			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS missing_briefings INTEGER`,
-		],
+		// Once added four columns for a per-Call message pi-chart no longer
+		// sends (ADR-0015). The version stays taken because databases that
+		// ran it recorded it, and their columns stay because nothing drops a
+		// record.
+		statements: [],
 	},
 	{
 		version: 23,
@@ -330,6 +324,16 @@ const MIGRATIONS: { version: number; statements: string[] }[] = [
 			// before is sized from its messages on first read, then written
 			// back, rather than by a backfill.
 			`ALTER TABLE turns ADD COLUMN IF NOT EXISTS tail_tokens INTEGER`,
+		],
+	},
+	{
+		version: 24,
+		statements: [
+			// The size of pi-chart's additions to a Call's system prompt,
+			// taken out of the reported non-message size so the Floor is the
+			// harness's own (ADR-0015). Nullable: a row written before had no
+			// additions to subtract.
+			`ALTER TABLE call_accounting ADD COLUMN IF NOT EXISTS system_tokens INTEGER`,
 		],
 	},
 ];
@@ -370,10 +374,7 @@ interface AccountingRow {
 	unassembled: boolean;
 	tail_source: TailSource | null;
 	budgets: JsonColumn;
-	rejected: number | null;
-	unsearched: number | null;
-	concepts_unsearched: number | null;
-	leading_tokens: number | null;
+	system_tokens: number | null;
 	ceiling: number | null;
 	before_ceiling: number | null;
 	compaction_epoch: number | null;
@@ -381,10 +382,6 @@ interface AccountingRow {
 	cache_read: number | null;
 	cache_write: number | null;
 	input_tokens: number | null;
-	briefing_mode: BriefingFigures["mode"] | null;
-	resent_briefings: number | null;
-	resent_briefing_bytes: number | null;
-	missing_briefings: number | null;
 }
 
 function decode<T>(value: JsonColumn, fallback: T): T {
@@ -722,33 +719,19 @@ export class PostgresStore implements
 		conversationId: string,
 		prompt: string,
 		limit: number,
-		maxDistance: number,
 	): Promise<Recollections> {
-		const empty: Recollections = {
-			turns: [],
-			rejected: 0,
-			misses: [],
-			unsearched: 0,
-		};
+		const empty: Recollections = { turns: [], unsearched: 0 };
 		if (!this.embedder || limit <= 0) return empty;
 		const { model } = await this.embedder.identity();
 		const [vector] = await this.embedder.embedQuery([prompt]);
 		if (!vector) return empty;
 
 		const embedding = JSON.stringify(vector);
-		// One statement, always one row: the Turns kept, the contenders the
-		// threshold refused, and the Turns of this Conversation that hold no
-		// valid vector and so were not searched at all. Counting separately
-		// would re-score the Conversation, and two scans could disagree if
-		// embedding ran between them.
-		//
-		// Only candidates that would have competed are refused: the nearest
-		// `limit` of them. Reporting every distant Turn in a long
-		// Conversation would say more about its length than its relevance.
-		//
-		// The refused ones come back named as well as counted, from the same
-		// contender set: naming them costs no second scan, and a count is
-		// exactly what cannot explain an absence.
+		// One statement, always one row: the nearest `limit` Turns, and the
+		// Turns of this Conversation that hold no valid vector and so were
+		// not searched at all. Counting separately would re-score the
+		// Conversation, and two scans could disagree if embedding ran
+		// between them.
 		const [row] = (await this.sql`
 			WITH scored AS (
 				SELECT turn_index, embedding <=> ${embedding}::vector AS distance
@@ -757,30 +740,20 @@ export class PostgresStore implements
 					AND embedding IS NOT NULL
 					AND embedding_model = ${model}
 			),
-			contenders AS (
+			kept AS (
 				SELECT * FROM scored ORDER BY distance ASC, turn_index ASC LIMIT ${limit}
 			)
 			SELECT
-				(SELECT count(*)::int FROM contenders WHERE distance > ${maxDistance})
-					AS rejected,
 				(SELECT count(*)::int FROM turns
 					WHERE conversation_id = ${conversationId}
 						AND (embedding IS NULL OR embedding_model IS DISTINCT FROM ${model}))
 					AS unsearched,
 				coalesce((
 					SELECT jsonb_agg(turn_index ORDER BY distance ASC, turn_index ASC)
-					FROM contenders WHERE distance <= ${maxDistance}
-				), '[]'::jsonb) AS kept,
-				coalesce((
-					SELECT jsonb_agg(
-						jsonb_build_object('turnIndex', turn_index, 'distance', distance)
-						ORDER BY distance ASC, turn_index ASC)
-					FROM contenders WHERE distance > ${maxDistance}
-				), '[]'::jsonb) AS misses`) as {
-			rejected: number;
+					FROM kept
+				), '[]'::jsonb) AS kept`) as {
 			unsearched: number;
 			kept: JsonColumn;
-			misses: JsonColumn;
 		}[];
 
 		const turns: RecalledTurn[] = [];
@@ -789,12 +762,7 @@ export class PostgresStore implements
 			if (turn) turns.push({ turnIndex, turn });
 		}
 
-		return {
-			turns,
-			rejected: row?.rejected ?? 0,
-			misses: decode<TurnMiss[]>(row?.misses, []),
-			unsearched: row?.unsearched ?? 0,
-		};
+		return { turns, unsearched: row?.unsearched ?? 0 };
 	}
 
 	private async turnAt(
@@ -887,25 +855,20 @@ export class PostgresStore implements
 		pack: Pack,
 		tailSource: TailSource,
 		memoryBackend: MemoryBackendState,
-		briefing?: BriefingFigures,
 	): Promise<void> {
 		const parts = pack.parts.map(recordPart);
 
 		await this.sql`
 			INSERT INTO call_accounting
 				(conversation_id, turn_index, call_index, recorded_at, parts,
-				 approximate_tokens, unassembled, tail_source, budgets, rejected,
-				 unsearched, concepts_unsearched, leading_tokens, ceiling,
-				 before_ceiling, memory_backend, briefing_mode, resent_briefings,
-				 resent_briefing_bytes, missing_briefings)
+				 approximate_tokens, unassembled, tail_source, budgets,
+				 system_tokens, ceiling, before_ceiling, memory_backend)
 			VALUES (
 				${conversationId}, ${address.turnIndex}, ${address.callIndex}, now(),
 				${JSON.stringify(parts)}::jsonb, ${pack.approximateTokens}, FALSE,
-				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb, ${pack.rejected},
-				${pack.unsearched}, ${pack.conceptsUnsearched}, ${pack.leadingTokens},
-				${pack.ceiling}, ${pack.beforeCeiling},
-				${memoryBackend}, ${briefing?.mode ?? null}, ${briefing?.resent ?? null},
-				${briefing?.resentBytes ?? null}, ${briefing?.missing ?? null}
+				${tailSource}, ${JSON.stringify(pack.budgets)}::jsonb,
+				${pack.systemTokens}, ${pack.ceiling}, ${pack.beforeCeiling},
+				${memoryBackend}
 			)
 			ON CONFLICT (conversation_id, turn_index, call_index)
 			DO UPDATE SET
@@ -915,17 +878,10 @@ export class PostgresStore implements
 				unassembled = FALSE,
 				tail_source = EXCLUDED.tail_source,
 				budgets = EXCLUDED.budgets,
-				rejected = EXCLUDED.rejected,
-				unsearched = EXCLUDED.unsearched,
-				concepts_unsearched = EXCLUDED.concepts_unsearched,
-				leading_tokens = EXCLUDED.leading_tokens,
+				system_tokens = EXCLUDED.system_tokens,
 				ceiling = EXCLUDED.ceiling,
 				before_ceiling = EXCLUDED.before_ceiling,
-				memory_backend = EXCLUDED.memory_backend,
-				briefing_mode = EXCLUDED.briefing_mode,
-				resent_briefings = EXCLUDED.resent_briefings,
-				resent_briefing_bytes = EXCLUDED.resent_briefing_bytes,
-				missing_briefings = EXCLUDED.missing_briefings`;
+				memory_backend = EXCLUDED.memory_backend`;
 	}
 
 	async recordUnassembled(
@@ -953,25 +909,31 @@ export class PostgresStore implements
 		measurements: Measurement[],
 	): Promise<void> {
 		for (const measurement of measurements) {
-			const floor = measurement.snapshot.nonMessageTokens;
-			const packTokens = measurement.snapshot.promptTokens - floor;
+			// The Floor is the reported non-message size less pi-chart's own
+			// additions to the system prompt (`splitWindow`), which the
+			// Call's row already holds: its Pack is recorded before the
+			// harness measures it. A Call with no Pack yet subtracts nothing.
+			const { nonMessageTokens, promptTokens } = measurement.snapshot;
 			const epoch = measurement.snapshot.compactionEpoch ?? null;
 			const cacheRead = measurement.usage?.cacheRead ?? null;
 			const cacheWrite = measurement.usage?.cacheWrite ?? null;
 			const input = measurement.usage?.input ?? null;
+			const whole = splitWindow(measurement.snapshot);
 			await this.sql`
 				INSERT INTO call_accounting
 					(conversation_id, turn_index, call_index, pack_tokens, floor_tokens,
 					 compaction_epoch, cache_read, cache_write, input_tokens)
 				VALUES (
 					${conversationId}, ${measurement.turnIndex}, ${measurement.callIndex},
-					${packTokens}, ${floor}, ${epoch}, ${cacheRead}, ${cacheWrite},
-					${input}
+					${whole.packTokens}, ${whole.floorTokens}, ${epoch}, ${cacheRead},
+					${cacheWrite}, ${input}
 				)
 				ON CONFLICT (conversation_id, turn_index, call_index)
 				DO UPDATE SET
-					pack_tokens = EXCLUDED.pack_tokens,
-					floor_tokens = EXCLUDED.floor_tokens,
+					pack_tokens = ${promptTokens}::int - greatest(0,
+						${nonMessageTokens}::int - coalesce(call_accounting.system_tokens, 0)),
+					floor_tokens = greatest(0,
+						${nonMessageTokens}::int - coalesce(call_accounting.system_tokens, 0)),
 					-- Kept where the new snapshot has none: a harness that
 					-- stops reporting the epoch has not un-compacted the
 					-- Conversation, and overwriting it with null would erase
@@ -1035,11 +997,8 @@ export class PostgresStore implements
 		const rows = (await this.sql`
 			SELECT turn_index, call_index, recorded_at, parts, approximate_tokens,
 			       pack_tokens, floor_tokens, unassembled, tail_source, budgets,
-			       rejected, unsearched, concepts_unsearched, leading_tokens,
-			       ceiling, before_ceiling, compaction_epoch,
-			       memory_backend, cache_read, cache_write, input_tokens,
-			       briefing_mode, resent_briefings, resent_briefing_bytes,
-			       missing_briefings
+			       system_tokens, ceiling, before_ceiling, compaction_epoch,
+			       memory_backend, cache_read, cache_write, input_tokens
 			FROM call_accounting
 			WHERE conversation_id = ${conversationId}
 			ORDER BY turn_index ASC, call_index ASC`) as AccountingRow[];
@@ -1048,8 +1007,9 @@ export class PostgresStore implements
 			turnIndex: row.turn_index,
 			callIndex: row.call_index,
 			at: row.recorded_at?.toISOString(),
-			// Older rows carry only source and size; the added detail simply
-			// reads back absent rather than failing.
+			// Older rows carry only source and size, or fields this version
+			// no longer writes; either way they read back as recorded, and a
+			// part with no placement reads as sent among the messages.
 			parts: decode<RecordedPart[]>(row.parts, []).map((part) => ({
 				...part,
 				approximate: true as const,
@@ -1060,10 +1020,7 @@ export class PostgresStore implements
 			unassembled: row.unassembled || undefined,
 			tailSource: row.tail_source ?? undefined,
 			budgets: decode<CallAccounting["budgets"]>(row.budgets, undefined),
-			rejected: row.rejected ?? undefined,
-			unsearched: row.unsearched ?? undefined,
-			conceptsUnsearched: row.concepts_unsearched ?? undefined,
-			leadingTokens: row.leading_tokens ?? undefined,
+			systemTokens: row.system_tokens ?? undefined,
 			ceiling: row.ceiling ?? undefined,
 			beforeCeiling: row.before_ceiling ?? undefined,
 			compactionEpoch: row.compaction_epoch ?? undefined,
@@ -1071,17 +1028,6 @@ export class PostgresStore implements
 			cacheRead: row.cache_read ?? undefined,
 			cacheWrite: row.cache_write ?? undefined,
 			inputTokens: row.input_tokens ?? undefined,
-			// Absent rather than zero on rows written before the figures
-			// existed: a Call nobody counted did not re-send nothing.
-			briefing:
-				row.briefing_mode === null
-					? undefined
-					: {
-							mode: row.briefing_mode,
-							resent: row.resent_briefings ?? 0,
-							resentBytes: row.resent_briefing_bytes ?? 0,
-							missing: row.missing_briefings ?? 0,
-						},
 		}));
 
 		return groupByTurn(conversationId, calls);
@@ -1420,32 +1366,19 @@ export class PostgresStore implements
 	}
 
 	/**
-	 * Concepts relevant to a query, best section first, deduplicated, with
-	 * what the relevance threshold refused.
+	 * Concepts relevant to a query, best section first, deduplicated.
 	 *
 	 * Deprecated Concepts are withheld rather than down-weighted: a
 	 * superseded decision presented as current is the failure this Store
 	 * must not have. Among comparable matches — within `BAND` of the best
 	 * one — current and human-reviewed Concepts come first: a tie-break,
 	 * not a number mixed into a distance.
-	 *
-	 * The refusals come out of the same candidate set, in the same
-	 * statement: a curated part that carried nothing because the threshold
-	 * was set tight used to read exactly like one with no bundle at all,
-	 * and a second query would pay the nearest-neighbour cost twice where
-	 * the model is waiting.
 	 */
 	async searchConcepts(
 		query: string,
 		limit: number,
-		maxDistance: number,
 	): Promise<ConceptMatches> {
-		const empty: ConceptMatches = {
-			hits: [],
-			rejected: 0,
-			misses: [],
-			unsearched: 0,
-		};
+		const empty: ConceptMatches = { hits: [], unsearched: 0 };
 		if (!this.embedder || limit <= 0) return empty;
 		const { model } = await this.embedder.identity();
 		const [vector] = await this.embedder.embed([query]);
@@ -1483,18 +1416,7 @@ export class PostgresStore implements
 					identity, concept_id, section_index, text, trust, stale,
 					exclusions, distance
 				FROM nearest
-				WHERE distance <= ${maxDistance} AND status <> 'deprecated'
-				ORDER BY identity, distance ASC
-			),
-			-- Refused for distance alone. A deprecated Concept is withheld
-			-- by lifecycle, not by relevance, and reporting it as a near
-			-- miss would invite someone to loosen a threshold that was
-			-- never what kept it out.
-			missed AS (
-				SELECT DISTINCT ON (identity) identity, concept_id, distance
-				FROM nearest
-				WHERE distance > ${maxDistance} AND status <> 'deprecated'
-					AND identity NOT IN (SELECT identity FROM best)
+				WHERE status <> 'deprecated'
 				ORDER BY identity, distance ASC
 			),
 			ranked AS (
@@ -1538,9 +1460,8 @@ export class PostgresStore implements
 						ORDER BY ord)
 					FROM chosen WHERE ord <= ${limit}
 				), '[]'::jsonb) AS hits,
-				(SELECT count(*)::int FROM missed) AS rejected,
 				-- Concepts held only as vectors from another model: not
-				-- refused for distance, not searched at all. By identity,
+				-- searched at all. By identity,
 				-- because one Concept's several sections are one Concept —
 				-- and only where this model can see none of them, so a
 				-- Concept part-way through a repair, which the query above
@@ -1553,23 +1474,13 @@ export class PostgresStore implements
 							SELECT 1 FROM concept_sections mine
 							WHERE mine.identity = stranger.identity
 								AND mine.embedding IS NOT NULL
-								AND mine.embedding_model = ${model})) AS unsearched,
-				coalesce((
-					SELECT jsonb_agg(
-						jsonb_build_object('conceptId', concept_id, 'distance', distance)
-						ORDER BY distance ASC, concept_id ASC)
-					FROM missed
-				), '[]'::jsonb) AS misses`) as {
+								AND mine.embedding_model = ${model})) AS unsearched`) as {
 			hits: JsonColumn;
-			rejected: number;
 			unsearched: number;
-			misses: JsonColumn;
 		}[];
 
 		return {
 			hits: decode<ConceptHit[]>(row?.hits, []),
-			rejected: row?.rejected ?? 0,
-			misses: decode<ConceptMiss[]>(row?.misses, []),
 			unsearched: row?.unsearched ?? 0,
 		};
 	}

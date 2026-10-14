@@ -133,7 +133,7 @@ describeStore("retention", () => {
 		expect((await store.recentTurns("conv-1", 10)).map((each) => each.index)).toEqual([
 			0, 1,
 		]);
-		const { turns } = await store.similarTurns("conv-1", "prompt 0", 5, 2);
+		const { turns } = await store.similarTurns("conv-1", "prompt 0", 5);
 		expect(turns.map((each) => each.turnIndex)).toContain(0);
 	});
 
@@ -153,11 +153,8 @@ describeStore("retention", () => {
 			{
 				messages: [],
 				parts: [],
-				leadingTokens: 0,
-				budgets: { tail: 8, recall: 4, opening: 1, docs: 2, graph: 3, pins: 8 },
-				rejected: 0,
-				unsearched: 0,
-				conceptsUnsearched: 0,
+				systemTokens: 0,
+				budgets: { tail: 8, opening: 1, pins: 8 },
 				ceiling: 110_000,
 				beforeCeiling: 42,
 				approximateTokens: 42,

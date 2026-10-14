@@ -1,17 +1,21 @@
 import {
 	MemoryAccounting,
 	type AccountingStore,
-	type BriefingFigures,
 	type CallAddress,
 	type Measurement,
 	type MemoryBackendState,
 	type TailSource,
 } from "./accounting.ts";
 import {
+	asCuratedKnowledge,
+	asRecollection,
 	assemble as defaultAssemble,
+	failedAdditions,
+	systemAdditions,
 	type AssembleInput,
 	type AssemblerConfig,
 	type Pack,
+	type SystemAdditions,
 	tailTokens,
 } from "./assembler.ts";
 import {
@@ -34,18 +38,11 @@ import {
 	type DocWalk,
 	type WriteOutcome,
 } from "./doc-store.ts";
-import { type Extraction, GraphStore } from "./graph-store.ts";
+import { GraphStore } from "./graph-store.ts";
 import { type Check, describeChecks, Installation } from "./install.ts";
 import { describeTree, SpecStore } from "./spec-store.ts";
-import {
-	neighbourhoods,
-	symbolsInPlay,
-	type Neighbourhood,
-} from "./symbols.ts";
-import type {
-	ConceptMatches,
-	ConceptSearch,
-} from "./doc-index.ts";
+import { codebaseStructure, findSymbol } from "./symbols.ts";
+import type { ConceptSearch } from "./doc-index.ts";
 import {
 	comparePacks,
 	explain,
@@ -63,7 +60,6 @@ import {
 	renderExplanation,
 	renderLevel,
 	renderSearch,
-	type SearchJudgement,
 	renderSummary,
 } from "./report.ts";
 import {
@@ -80,6 +76,7 @@ import {
 	type Turn,
 } from "./messages.ts";
 import type {
+	BeforeAgentStartEvent,
 	BranchEntry,
 	ExtensionAPI,
 	HandlerContext,
@@ -98,22 +95,12 @@ import {
 	type FoundTurn,
 	MemoryTurnSource,
 	type OpeningSource,
-	type Recollections,
 	type TurnRecall,
 	type TurnSink,
 	type TurnSize,
 	type TurnSource,
 	type VectorModels,
 } from "./thread-store.ts";
-import {
-	JEV_ENDPOINT,
-	JEV_MODEL,
-	JevJudge,
-	JUDGE_THRESHOLD,
-	JudgeFailure,
-	type RelevanceJudge,
-} from "./relevance-judge.ts";
-import { EMBED_CHARACTERS, embedText } from "./embed-text.ts";
 import { reconstructTurns } from "./turns.ts";
 import {
 	admit,
@@ -125,15 +112,6 @@ import {
 	type PinEvent,
 	type PinState,
 } from "./pins.ts";
-import {
-	BRIEFING_ENTRY,
-	briefingEntry,
-	briefingMessage,
-	carriedBriefings,
-	placeBriefings,
-	replayBriefings,
-	type StoredBriefing,
-} from "./briefings.ts";
 import { approximateTokens } from "./tokens.ts";
 
 export interface Dependencies {
@@ -141,6 +119,7 @@ export interface Dependencies {
 	assemble: (input: AssembleInput, config: AssemblerConfig) => Pack;
 	turns: TurnSource;
 	ingest?: TurnSink;
+	/** Finds this Conversation's evicted Turns by meaning, when the model asks. */
 	recall?: TurnRecall;
 	/**
 	 * Turn 0's stored prompt. Absent without a Thread Store: the harness's
@@ -176,13 +155,7 @@ export interface Dependencies {
 	show?: (text: string) => void;
 	/** Searches every Conversation, when the agent asks. */
 	search?: CorpusSearch;
-	/**
-	 * Builds the relevance judge from the key the host resolves at session
-	 * start. A factory because the key exists only then; absent where there
-	 * is nothing to search.
-	 */
-	judgeWith?: (key: string) => RelevanceJudge;
-	/** The Doc Store's index, searched during assembly. */
+	/** The Doc Store's index, searched when the agent asks. */
 	docs?: ConceptSearch;
 	/** The bundle as the agent walks it, Level by Level. */
 	walk?: DocWalk;
@@ -216,9 +189,9 @@ const PIN_STATUS = "pi-chart.pins";
 const PINS_UNAVAILABLE =
 	"Pins are off: this harness does not let pi-chart read and write its journal.";
 
-/** How many hits a cross-Conversation search returns when unasked. */
+/** How many hits a search tool returns when unasked. */
 const DEFAULT_SEARCH_RESULTS = 5;
-/** A ceiling, so one call cannot empty the store into the window. */
+/** A ceiling, so one call cannot empty a Store into the window. */
 const MAX_SEARCH_RESULTS = 20;
 
 /**
@@ -296,6 +269,23 @@ function text(value: unknown): string | undefined {
 }
 
 /**
+ * Whether the branch holds no earlier user prompt, so the Turn starting now
+ * is Turn 0. The prompt being sent is not on the branch yet when the hook
+ * runs, so any user message there is an earlier Turn's.
+ */
+function isFirstTurn(branch: BranchEntry[]): boolean {
+	return !branch.some(
+		(entry) => entry.type === "message" && entry.message?.role === "user",
+	);
+}
+
+/** A result count the model asked for, defaulted and held to the ceiling. */
+function limitOf(value: unknown): number {
+	const asked = typeof value === "number" ? Math.floor(value) : 0;
+	return Math.min(Math.max(asked > 0 ? asked : DEFAULT_SEARCH_RESULTS, 1), MAX_SEARCH_RESULTS);
+}
+
+/**
  * The harness's answer in our vocabulary.
  *
  * Silence — no `memory`, no `status`, or a `status` that threw — is
@@ -348,6 +338,12 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * to fail.
 	 */
 	let governing = true;
+	/**
+	 * Whether the last assembled Call's system prompt carried Pins: not when
+	 * its Turn's hook failed or never ran, or the Turn started holding none.
+	 * True at every session start, as `governing` is.
+	 */
+	let pinsOffered = true;
 	/** Said once a Conversation: the harness keeps trying on every Call. */
 	let compactionDeclineReported = false;
 	/** Conversations already told their packs are approaching the ceiling. */
@@ -363,7 +359,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let lastLaunch: Promise<void> | undefined;
 	/** Said once: a store not set up is a condition, not an event. */
 	let setupAnnounced = false;
-	/** Said once: an index mid-swap is a condition, not a per-Call event. */
+	/** Said once a session: a Concept index in transition is a condition. */
 	let unsearchedConceptsReported = false;
 	/** The whole-bundle indexing pass, so authoring can wait rather than race it. */
 	let indexingBundle: Promise<void> | undefined;
@@ -374,15 +370,22 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 */
 	let ui: HandlerContext["ui"];
 	/**
-	 * The relevance judge for this session, built from the key the host
-	 * resolved at session start. Absent means no key: the search is
-	 * distance alone, as it was before judging existed.
+	 * What each Conversation's current Turn added to the system prompt, set
+	 * when the Turn starts and read by every Call of it, so a Pin changed
+	 * mid-Turn is never recorded as sent when it was not.
 	 */
-	let judge: RelevanceJudge | undefined;
-	/** Set by a 401: the same key would be refused again, so it is not sent. */
-	let judgeRejected = false;
-	/** Said once a session, just before Turn text first leaves the machine. */
-	let judgeDisclosed = false;
+	const turnAdditions = new Map<string, SystemAdditions>();
+	/**
+	 * The Opening's text once known, per Conversation, kept for the rest of
+	 * the process so every later Turn sends it byte for byte as before.
+	 */
+	const openings = new Map<string, string>();
+	/**
+	 * Where the verbatim tail started on each Conversation's latest Call,
+	 * and the Turn that Call was in: what `recall_earlier_turns` searches
+	 * before.
+	 */
+	const tailStarts = new Map<string, { start: number; current: number }>();
 	/**
 	 * The Pins the Conversation's Journal held when last replayed. The
 	 * Journal is the truth and is replayed before every use; this is what a
@@ -416,96 +419,63 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * The Briefings the Conversation's Journal stored, as of the last
-	 * replay. Like `held`, it is what a branch carries from, because by
-	 * then the Journal it came from is gone. Refreshed wherever the Journal
-	 * may have grown: after each Call writes its own, and at the end of
-	 * each Turn, once the prompt a first Call's entry precedes is flushed.
+	 * What this Turn adds to the system prompt: the Pins, the Opening and
+	 * the eviction notice, as one block. Fixed for the Turn: every Call of
+	 * it reads back from cache what the first sent (ADR-0015).
 	 */
-	let storedBriefings: Map<string, StoredBriefing> = new Map();
-
-	function storedBriefingsOf(session: SessionView | undefined): Map<string, StoredBriefing> {
-		return replayBriefings(session?.getEntries?.() ?? []);
+	async function additionsFor(
+		conversationId: string,
+		event: BeforeAgentStartEvent,
+		branch: BranchEntry[],
+		session: SessionView | undefined,
+	): Promise<SystemAdditions> {
+		held = pinsOf(session);
+		const opening = await openingText(conversationId, event, branch);
+		return systemAdditions(
+			{
+				pins: held.pins,
+				opening: opening.value,
+				unavailable: opening.unavailable,
+				recallAvailable: recallRegistered,
+			},
+			assemblerConfig(deps.config),
+		);
 	}
 
 	/**
-	 * How this Call sends its Briefing (ADR-0011). On a model that declares
-	 * both mid-Conversation and turn-scoped system messages, and a harness
-	 * that can store it, the Briefing goes out cleared after the Turn in
-	 * progress and is stored as sent, and every earlier one whose message
-	 * the Pack still carries is sent again where it was. Anywhere else the
-	 * Pack goes as assembled: one user Briefing, replaced next Call, with
-	 * nothing stored and nothing sent again.
+	 * Turn 0's prompt, from the first place it is known, then kept. The
+	 * Store's copy where it holds Turn 0; on the Conversation's first Turn,
+	 * before anything is stored, the prompt the Turn starts with. A failed
+	 * or late query is not kept, so the next Turn asks again.
 	 */
-	function brief(
-		pack: Pack,
-		ctx: HandlerContext,
+	async function openingText(
+		conversationId: string,
+		event: BeforeAgentStartEvent,
 		branch: BranchEntry[],
-	): { messages: HarnessMessage[]; figures: BriefingFigures } {
-		const compat = ctx.model?.compat;
-		const session = ctx.sessionManager;
-		if (
-			compat?.supportsMidConversationSystem !== true ||
-			compat.supportsTurnScopedSystem !== true ||
-			!pi.appendEntry ||
-			!session?.getEntries
-		) {
-			return {
-				messages: pack.messages,
-				figures: { mode: "replaced", resent: 0, resentBytes: 0, missing: 0 },
-			};
+	): Promise<Supplied<string | undefined>> {
+		if (!deps.opening) return { value: undefined, unavailable: "unconfigured" };
+		// Off: no query. `systemAdditions` records the zero Budget.
+		if (deps.config.openingTokens <= 0) return { value: undefined };
+		const kept = openings.get(conversationId);
+		if (kept !== undefined) return { value: kept };
+		let stored: string | undefined;
+		try {
+			const found = await inTime(
+				"Thread Store (opening)",
+				deps.config.tailDeadlineMs,
+				deps.opening.openingPrompt(conversationId),
+			);
+			if (!found.answered) return { value: undefined, unavailable: "failed" };
+			stored = found.value;
+		} catch (error) {
+			reportSafely(`Opening unavailable, system prompt sent without it: ${describe(error)}`);
+			return { value: undefined, unavailable: "failed" };
 		}
-
-		// Pack messages are matched to the Journal by role and timestamp:
-		// the tail may be the Thread Store's copies, not the hook's objects.
-		const ids = new Map<string, string>();
-		for (const entry of branch) {
-			const message = entry.message;
-			if (entry.type !== "message" || entry.id === undefined) continue;
-			if (message?.timestamp === undefined) continue;
-			const key = `${message.role}@${message.timestamp}`;
-			if (!ids.has(key)) ids.set(key, entry.id);
-		}
-		const idOf = (message: HarnessMessage) =>
-			message.timestamp === undefined ? undefined : ids.get(`${message.role}@${message.timestamp}`);
-
-		const entries = session.getEntries();
-		const leading = pack.briefing === undefined ? pack.messages : pack.messages.slice(0, -1);
-		const followed = leading.at(-1);
-		// The message this Call's Briefing follows gets this Call's, never
-		// an earlier one: a retried Call replaces what the first try sent.
-		const placed = placeBriefings(
-			leading,
-			(message) => (message === followed ? undefined : idOf(message)),
-			replayBriefings(entries),
-		);
-		const figures: BriefingFigures = {
-			mode: pack.briefing === undefined ? "none" : "kept",
-			resent: placed.resent,
-			resentBytes: placed.resentBytes,
-			missing: placed.missing,
-		};
-		if (pack.briefing === undefined) return { messages: placed.messages, figures };
-
-		// Written before the request goes out, so no sent Briefing exists only
-		// in memory. A first Call's prompt is not flushed yet: its entry
-		// precedes it, and resolves to it once it is.
-		const flushed = followed === undefined ? undefined : idOf(followed);
-		pi.appendEntry(
-			BRIEFING_ENTRY,
-			briefingEntry(
-				pack.briefing,
-				flushed === undefined
-					? { precedes: true, at: followed?.timestamp }
-					: { follows: flushed },
-				entries,
-			),
-		);
-		storedBriefings = storedBriefingsOf(session);
-		return {
-			messages: [...placed.messages, briefingMessage(pack.briefing, followed?.timestamp)],
-			figures,
-		};
+		// The first Turn's own prompt only while nothing came before it:
+		// a later Turn never stands in for a Turn 0 the Store has lost.
+		const text = stored ?? (isFirstTurn(branch) ? event.prompt : undefined);
+		if (text !== undefined) openings.set(conversationId, text);
+		return { value: text };
 	}
 
 	/**
@@ -518,7 +488,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			target?.setStatus?.(PIN_STATUS, undefined);
 			return;
 		}
-		const unsent = governing ? "" : " — not sent";
+		const unsent = governing && pinsOffered ? "" : " — not sent";
 		target?.setStatus?.(
 			PIN_STATUS,
 			`pinned: ${held.pins.length} (~${pinTokens(held.pins)} tok)${unsent}`,
@@ -612,8 +582,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.ui;
 		governing = true;
+		pinsOffered = true;
 		held = pinsOf(ctx.sessionManager);
-		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 		// Said once: without the Journal surface every Pack goes out with no
 		// Pins, which must not look like a Conversation that holds none.
@@ -636,13 +606,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					"Run `/pi-chart setup`.",
 			);
 		}
-
-		// Resolved whether or not judging is on, so `pi-chart judge auto`
-		// can turn it on mid-session. Resolving contacts nobody; only a
-		// judged search sends anything.
-		judge = deps.judgeWith ? await resolveJudge(ctx, deps.judgeWith) : undefined;
-		judgeRejected = false;
-		judgeDisclosed = false;
 
 		if (deps.specs && deps.config.specsVerify) {
 			const specs = deps.specs;
@@ -669,10 +632,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			extract();
 		}
 
-		if (deps.graph && deps.config.graphSymbols > 0) {
-			// Read now, so the first Call finds the graph read rather than
-			// waiting on a read of hundreds of megabytes. The Call that needs
-			// the graph reports a failure; saying it here too says it twice.
+		if (deps.graph) {
+			// Read now, so the first `codebase_structure` call finds the graph
+			// read rather than waiting on a read of hundreds of megabytes. The
+			// call that needs the graph reports a failure; saying it here too
+			// says it twice.
 			inBackground(
 				"Graph Store read",
 				deps.graph.graph(deps.codebase ?? process.cwd()).then(
@@ -744,6 +708,32 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 	});
 
+	// Once per Turn, before its first Call: what pi-chart adds to the system
+	// prompt, appended to whatever the harness and earlier handlers built,
+	// and kept for every Call of the Turn to record (ADR-0015).
+	pi.on("before_agent_start", async (event, ctx) => {
+		ui = ctx.ui;
+		const conversationId = conversationOf(ctx);
+		try {
+			const additions = await additionsFor(
+				conversationId,
+				event,
+				ctx.sessionManager?.getBranch?.() ?? [],
+				ctx.sessionManager,
+			);
+			turnAdditions.set(conversationId, additions);
+			if (additions.text === "") return undefined;
+			return { systemPrompt: [...event.systemPrompt, additions.text] };
+		} catch (error) {
+			// The Turn goes out with the harness's system prompt alone, and its
+			// Calls record the Pins and the Opening as failed: the harness did
+			// offer the system prompt, so this is not `unhooked`.
+			turnAdditions.set(conversationId, failedAdditions(assemblerConfig(deps.config)));
+			reportSafely(`System prompt sent without pi-chart's additions: ${describe(error)}`);
+			return undefined;
+		}
+	});
+
 	pi.on("context", async (event, ctx) => {
 		ui = ctx.ui;
 		const conversationId = conversationOf(ctx);
@@ -755,58 +745,42 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		reconcile(conversationId, branch);
 
 		try {
-			// Inside the fail-open path: a Journal that cannot be listed costs
-			// this Call its Pack, never the Call.
-			held = pinsOf(ctx.sessionManager);
 			const live = positioned(reconstructTurns(messages), address.turnIndex);
 			const current = live[live.length - 1];
 
 			// The current Turn always comes from the event: the Journal has not
 			// been flushed for it yet, and reading our own write would race.
-			// The Opening is fetched at once, under the tail's deadline: it is
-			// the Turn the tail query stops returning, and its miss must not
-			// cost the tail.
-			const [{ tail, tailSizes, tailSource }, opening] = await Promise.all([
-				tailFor(conversationId, live, deps.config.tailTurns),
-				openingFor(conversationId),
-			]);
-
-			// All three retrievals at once: none depends on another, and a
-			// Call should not pay for them in series.
-			const [recalled, concepts, structure] = await Promise.all([
-				recallFor(conversationId, current),
-				conceptsFor(current),
-				structureFor(current),
-			]);
+			const { tail, tailSizes, copied } = await tailFor(
+				conversationId,
+				live,
+				deps.config.tailTurns,
+			);
 
 			const pack = deps.assemble(
 				{
 					turns: current ? [...tail, current] : tail,
-					opening: opening.value,
-					recalled: recalled.value.turns,
-					rejected: recalled.value.rejected,
-					recallMisses: recalled.value.misses,
-					unsearched: recalled.value.unsearched,
-					concepts: concepts.value.hits,
-					conceptsRejected: concepts.value.rejected,
-					conceptMisses: concepts.value.misses,
-					conceptsUnsearched: concepts.value.unsearched,
-					structure: structure.value,
-					pins: held.pins,
+					system: turnAdditions.get(conversationId),
 					tailSizes,
-					unavailable: {
-						opening: opening.unavailable,
-						recalled: recalled.unavailable,
-						curated: concepts.unavailable,
-						structure: structure.unavailable,
-					},
 				},
 				assemblerConfig(deps.config),
 			);
 
-			warnIfNearCeiling(conversationId, pack);
+			const carried = pack.parts.find((part) => part.source === "verbatim-tail");
+			const carriedIndices = carried?.turnIndices ?? [];
+			const tailSource: TailSource =
+				copied === undefined
+					? "harness-fallback"
+					: carriedIndices.some((index) => copied.has(index))
+						? "thread-store"
+						: "harness";
+			// Where `recall_earlier_turns` searches before: the oldest Turn
+			// this Call carried, or the Turn in progress when it carried none.
+			tailStarts.set(conversationId, {
+				start: carriedIndices.length > 0 ? Math.min(...carriedIndices) : address.turnIndex,
+				current: address.turnIndex,
+			});
 
-			const sent = brief(pack, ctx, branch);
+			warnIfNearCeiling(conversationId, pack);
 
 			inBackground(
 				"Accounting",
@@ -818,13 +792,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 					pack,
 					tailSource,
 					memoryBackend,
-					sent.figures,
 				),
 			);
 
 			governing = true;
+			const offered = turnAdditions.get(conversationId);
+			pinsOffered = offered !== undefined && offered.pinned.absent === undefined;
 			showPins(ui);
-			return { messages: sent.messages };
+			return { messages: pack.messages };
 		} catch (error) {
 			// Fails open, toward the accumulating window this exists to prevent,
 			// so every occurrence is reported and the Call is marked unassembled
@@ -851,7 +826,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	pi.on("session_switch", async (_event, ctx) => {
 		ui = ctx.ui;
 		held = pinsOf(ctx.sessionManager);
-		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 	});
 
@@ -859,10 +833,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	// to the leaf, which misses a Pin added after the leaf moved and keeps
 	// one removed off it. Where the copy disagrees with what the parent
 	// held, the parent's state is written into the new Journal, once; from
-	// then on the two hold their Pins independently. A Briefing's entry
-	// lands after the message it follows, so it can be off the path while
-	// its message is on it: every Briefing the parent stored for a message
-	// on the path is written into the copy, text and all.
+	// then on the two hold their Pins independently.
 	pi.on("session_branch", async (_event, ctx) => {
 		ui = ctx.ui;
 		const journal = pinJournal(ctx.sessionManager);
@@ -872,12 +843,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		} else {
 			held = copied;
 		}
-		if (journal) {
-			const path = ctx.sessionManager?.getBranch?.() ?? [];
-			const carried = carriedBriefings(path, storedBriefings, storedBriefingsOf(ctx.sessionManager));
-			for (const entry of carried) pi.appendEntry?.(BRIEFING_ENTRY, entry);
-		}
-		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 	});
 
@@ -919,7 +884,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		ui = ctx.ui;
 		const conversationId = conversationOf(ctx);
 		reconcile(conversationId, ctx.sessionManager?.getBranch?.() ?? []);
-		storedBriefings = storedBriefingsOf(ctx.sessionManager);
+		// This Turn's additions end with it: a next Turn the hook never
+		// reaches records `unhooked`, never this Turn's block as sent.
+		turnAdditions.delete(conversationId);
 		// The Turn that just finished is the Turn that may have edited the
 		// Codebase, so this is where a graph frozen at session start stops
 		// being frozen. Notification-only and in the background, so nothing
@@ -1006,7 +973,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		// The whole file holds the Pins, not the branch, so a move inside
 		// it changes none; the status is refreshed all the same.
 		held = pinsOf(ctx.sessionManager);
-		storedBriefings = storedBriefingsOf(ctx.sessionManager);
 		showPins(ui);
 		const sink = deps.ingest;
 		if (!sink) return;
@@ -1162,29 +1128,32 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * The verbatim tail, from the store when it can be reached, with every
-	 * completed Turn's size for the tail's start to be replayed from
-	 * (ADR-0013). Falling back to the harness's own history is a worse pack,
-	 * not a broken Turn — and it is recorded, so a session spent on fallback
-	 * is visible afterwards. The fallback carries no sizes: the Assembler
-	 * sizes the Turns the harness still holds.
+	 * The verbatim tail, with every completed Turn's size for the tail's
+	 * start to be replayed from (ADR-0013).
 	 *
-	 * The store lags the harness: ingest runs after `agent_end`, which the
-	 * harness does not wait for, so a quick reply opens a Turn before the one
-	 * it answers is stored. Turns the harness sent that are newer than the
-	 * store's newest are taken from the harness, and sized from it, or the
-	 * question being answered is missing from the window.
+	 * Each Turn is sent as the harness's live history holds it, so a Turn
+	 * that leaves the Turn in progress for the tail reaches the model byte
+	 * for byte as it did and is read back from cache. The Store's copy
+	 * stands in only for a Turn the live history no longer holds whole,
+	 * which is a Turn a compaction cut out of it; `copied` names those.
+	 *
+	 * The Store lags the harness: ingest runs after `agent_end`, which the
+	 * harness does not wait for, so a quick reply opens a Turn before the
+	 * one it answers is stored. Those Turns are sized from the harness.
+	 *
+	 * Without the Store's sizes the tail is the harness's history alone, a
+	 * worse pack rather than a broken Turn, and `copied` is absent so the
+	 * fallback is recorded.
 	 */
 	async function tailFor(
 		conversationId: string,
 		live: Turn[],
 		tailTurns: number,
-	): Promise<{ tail: Turn[]; tailSizes?: TurnSize[]; tailSource: TailSource }> {
+	): Promise<{ tail: Turn[]; tailSizes?: TurnSize[]; copied?: Set<number> }> {
 		const completed = live.slice(0, -1);
-		const fallback = {
-			tail: completed,
-			tailSource: "harness-fallback" as const,
-		};
+		const fallback = { tail: completed };
+		let recent: Turn[];
+		let sizes: TurnSize[];
 		try {
 			const stored = await inTime(
 				"Thread Store",
@@ -1198,35 +1167,47 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// this Call: the harness still has the history, and the fallback
 			// is recorded exactly as an unreachable Store's is.
 			if (!stored.answered) return fallback;
-			const [recent, sizes] = stored.value;
-			if (recent.length > 0) {
-				const newest = recent.at(-1)?.index;
-				const unstored =
-					newest === undefined
-						? []
-						: completed.filter(
-								(turn): turn is Turn & { index: number } =>
-									turn.index !== undefined && turn.index > newest,
-							);
-				return {
-					tail: [...recent, ...unstored],
-					tailSizes: [
-						...sizes,
-						...unstored.map((turn) => ({
-							index: turn.index,
-							tokens: tailTokens(turn),
-						})),
-					],
-					tailSource: "thread-store",
-				};
-			}
+			[recent, sizes] = stored.value;
 		} catch (error) {
 			reportSafely(`Thread Store unreachable, using harness history: ${describe(error)}`);
 			return fallback;
 		}
-		// An empty store is not a failure: a Conversation's first Turns predate
-		// any ingest, and the harness still has them.
-		return fallback;
+
+		// Whole Turns only: what precedes a compaction summary's place is a
+		// Turn the compaction cut into, and only the Store holds all of it.
+		const whole = new Map<number, Turn>();
+		for (const turn of completed) {
+			if (turn.index !== undefined && turn.messages[0]?.role === "user") {
+				whole.set(turn.index, turn);
+			}
+		}
+		const copied = new Set<number>();
+		const tail: Turn[] = [];
+		for (const stored of recent) {
+			const held = stored.index === undefined ? undefined : whole.get(stored.index);
+			if (held !== undefined) {
+				tail.push(held);
+			} else {
+				tail.push(stored);
+				if (stored.index !== undefined) copied.add(stored.index);
+			}
+		}
+		// Newer than anything stored, so only the harness has them, a
+		// compaction's summary included: it is carried as text, not lost.
+		const newest = recent.at(-1)?.index ?? -1;
+		const unstored = completed.filter(
+			(turn): turn is Turn & { index: number } =>
+				turn.index !== undefined && turn.index > newest,
+		);
+		tail.push(...unstored);
+		return {
+			tail,
+			tailSizes: [
+				...sizes,
+				...unstored.map((turn) => ({ index: turn.index, tokens: tailTokens(turn) })),
+			],
+			copied,
+		};
 	}
 
 	/**
@@ -1277,6 +1258,66 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				limit: pi.zod.number().describe("Most results to return").optional(),
 			}),
 			execute: (_id, params) => searchCorpus(params),
+		});
+	}
+
+	/** Whether `recall_earlier_turns` is offered, so the notice may name it. */
+	const recallRegistered = pi.registerTool !== undefined && deps.recall !== undefined;
+
+	if (pi.registerTool && deps.recall) {
+		pi.registerTool({
+			name: "recall_earlier_turns",
+			label: "Recall earlier turns",
+			description:
+				"Search this conversation's turns that have left the context " +
+				"window, by meaning. Use when something said or done earlier is " +
+				"needed and is no longer in view. Each result says which turn it " +
+				"was and what was done in it.",
+			parameters: pi.zod?.object({
+				query: pi.zod.string().describe("What to look for"),
+				limit: pi.zod.number().describe("Most turns to return").optional(),
+			}),
+			execute: (_id, params, _signal, _onUpdate, ctx) =>
+				recallEarlier(params, conversationOf(ctx ?? {})),
+		});
+	}
+
+	if (pi.registerTool && deps.docs) {
+		pi.registerTool({
+			name: "search_documentation",
+			label: "Search the documentation bundle",
+			description:
+				"Search the curated documentation bundle by meaning: decisions, " +
+				"standards and definitions the team has written down. Use when " +
+				"how this codebase does something may already be settled. Each " +
+				"result names its concept, says what it is not, and marks stale " +
+				"or partial text.",
+			parameters: pi.zod?.object({
+				query: pi.zod.string().describe("What to look for"),
+				limit: pi.zod.number().describe("Most concepts to return").optional(),
+			}),
+			execute: (_id, params) => searchDocumentation(params),
+		});
+	}
+
+	if (pi.registerTool && deps.graph) {
+		pi.registerTool({
+			name: "codebase_structure",
+			label: "Codebase structure",
+			description:
+				"Show what a symbol in this codebase connects to: what calls it, " +
+				"what it calls, imports, contains and references, with file and " +
+				"line. Use before changing a function or class whose callers or " +
+				"dependencies matter. Accepts a bare name, Class.method, or a " +
+				"name with ().",
+			parameters: pi.zod?.object({
+				symbol: pi.zod.string().describe("The function, class or method to look up"),
+				depth: pi.zod
+					.number()
+					.describe("How many hops out to follow, 1 to 3; 1 when omitted")
+					.optional(),
+			}),
+			execute: (_id, params) => structureOf(params),
 		});
 	}
 
@@ -1482,116 +1523,232 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	async function searchCorpus(
 		params: Record<string, unknown>,
 	): Promise<ToolResult> {
-		const query = params.query;
-		if (typeof query !== "string" || query.trim().length === 0) {
+		const query = text(params.query);
+		if (query === undefined) {
 			// Searching for nothing would return whatever happens to fall
 			// under the threshold, which is exactly the weak result the
 			// threshold exists to prevent.
 			return toolResult("A query is required to search.", { failed: true });
 		}
-
-		const asked = typeof params.limit === "number" ? Math.floor(params.limit) : 0;
-		const limit = Math.min(
-			Math.max(asked > 0 ? asked : DEFAULT_SEARCH_RESULTS, 1),
-			MAX_SEARCH_RESULTS,
-		);
-
-		// With a judge, the whole ceiling is fetched and judged in one
-		// parallel round, so a refusal among the nearest is replaced from
-		// further down without a second round trip.
-		const judging = judgeInForce();
+		const limit = limitOf(params.limit);
 		let found: FoundTurn[];
 		try {
-			found = await (deps.search?.searchAll(
-				query,
-				judging ? MAX_SEARCH_RESULTS : limit,
-				deps.config.recallMaxDistance,
-			) ?? Promise.resolve([]));
+			found = await (deps.search?.searchAll(query, limit, deps.config.recallMaxDistance) ??
+				Promise.resolve([]));
 		} catch (error) {
 			const reason = describe(error);
 			deps.report(`Cross-conversation search failed: ${reason}`);
 			return toolResult(`The search could not run: ${reason}`, { failed: true });
 		}
-
-		// Nothing admitted is nothing to send: no request, no disclosure.
-		if (!judging || found.length === 0) {
-			return searchResult(found.slice(0, limit), { judged: false });
-		}
-
-		const verdict = await judgeAll(judging, query, found);
-		if ("unjudged" in verdict) {
-			// Wholly unjudged rather than half: a result mixing two
-			// standards under one heading could not be read by either.
-			return searchResult(found.slice(0, limit), { judged: false, ...verdict });
-		}
-		const kept = found.filter((_hit, at) => verdict.scores[at]! >= JUDGE_THRESHOLD);
-		return searchResult(kept.slice(0, limit), {
-			judged: true,
-			refused: found.length - kept.length,
+		return toolResult(renderSearch(found), {
+			results: found.length,
+			conversations: [...new Set(found.map((hit) => hit.conversationId))],
 		});
-	}
-
-	/** The judge, when this session may use it; otherwise the search is distance alone. */
-	function judgeInForce(): RelevanceJudge | undefined {
-		return deps.config.judge === "auto" && !judgeRejected ? judge : undefined;
 	}
 
 	/**
-	 * One verdict per Turn, asked in parallel. Any failure discards them
-	 * all and names why; a rejected key also ends judging for the session,
-	 * said once, because the same key would be refused again.
+	 * This Conversation's Turns the verbatim tail has evicted, nearest the
+	 * query first, however far: the model asked, and judges them itself.
+	 *
+	 * Over-fetched by the Turns the tail still carries and filtered after,
+	 * so a tail Turn more similar than any evicted one never takes a place.
+	 * What counts as evicted is what the latest Call of this Conversation
+	 * left out; before any Call has, nothing has.
 	 */
-	async function judgeAll(
-		using: RelevanceJudge,
-		query: string,
-		found: FoundTurn[],
-	): Promise<{ scores: number[] } | { unjudged: string }> {
-		if (!judgeDisclosed) {
-			judgeDisclosed = true;
-			announce(
-				`recall_across_conversations sends each candidate Turn, up to ` +
-					`${EMBED_CHARACTERS} characters of it, with the query to ` +
-					`${new URL(JEV_ENDPOINT).host} to judge its relevance. Set ` +
-					"PICHART_JUDGE=off to stop, or `pi-chart judge off` for this session.",
+	async function recallEarlier(
+		params: Record<string, unknown>,
+		conversationId: string,
+	): Promise<ToolResult> {
+		const query = text(params.query);
+		if (query === undefined) {
+			return toolResult("A query is required to search.", { failed: true });
+		}
+		const recall = deps.recall;
+		const bound = tailStarts.get(conversationId);
+		if (!recall || bound === undefined || bound.start <= 0) {
+			return toolResult(
+				"Nothing has left the window yet: every earlier turn of this " +
+					"conversation is still in view.",
+				{ results: 0 },
 			);
 		}
+		const limit = limitOf(params.limit);
+		let found;
 		try {
-			const scores = await Promise.all(
-				found.map((hit) => using.judge(query, embedText(hit.turn.messages))),
+			const answer = await inTime(
+				"Thread Store (recall)",
+				deps.config.recallDeadlineMs,
+				recall.similarTurns(
+					conversationId,
+					query,
+					limit + (bound.current - bound.start + 1),
+				),
 			);
-			return { scores };
-		} catch (error) {
-			const reason = describe(error);
-			if (error instanceof JudgeFailure && error.rejected && !judgeRejected) {
-				judgeRejected = true;
-				announce(
-					`The relevance judge rejected the TypeSafe key, so cross-conversation ` +
-						"searches are unjudged for the rest of this session. Run " +
-						"`/login typesafe` with a valid key, or set PICHART_JUDGE=off.",
+			if (!answer.answered) {
+				return toolResult(
+					`The Thread Store did not answer within ${deps.config.recallDeadlineMs}ms; ` +
+						"earlier turns could not be searched.",
+					{ failed: true },
 				);
 			}
-			return { unjudged: reason };
+			found = answer.value;
+		} catch (error) {
+			const reason = describe(error);
+			reportSafely(`Recalling earlier turns failed: ${reason}`);
+			return toolResult(`The Thread Store could not be searched: ${reason}`, {
+				failed: true,
+			});
 		}
+		const evicted = found.turns
+			.filter((each) => each.turnIndex < bound.start)
+			.slice(0, limit);
+		if (evicted.length === 0) {
+			return toolResult("No earlier turn of this conversation matches.", { results: 0 });
+		}
+		const rendered = evicted.map((each) =>
+			messageText(asRecollection(each, deps.config.recallTokens)),
+		);
+		return toolResult(rendered.join("\n\n"), {
+			results: evicted.length,
+			turnIndices: evicted.map((each) => each.turnIndex),
+		});
 	}
 
-	function searchResult(
-		found: FoundTurn[],
-		judgement: SearchJudgement & { judged: boolean },
-	): ToolResult {
-		return toolResult(renderSearch(found, judgement), {
-			results: found.length,
-			conversations: [...new Set(found.map((hit) => hit.conversationId))],
-			...judgement,
+	/**
+	 * Curated knowledge, nearest the query first, in the order the Store
+	 * gives: lifecycle and trust rank before distance there, not here.
+	 */
+	async function searchDocumentation(
+		params: Record<string, unknown>,
+	): Promise<ToolResult> {
+		const query = text(params.query);
+		if (query === undefined) {
+			return toolResult("A query is required to search.", { failed: true });
+		}
+		const docs = deps.docs;
+		if (!docs) return toolResult("No documentation bundle is configured.", {});
+		const limit = limitOf(params.limit);
+		let hits;
+		let unsearched = 0;
+		try {
+			const answer = await inTime(
+				"Doc Store",
+				deps.config.docDeadlineMs,
+				docs.searchConcepts(query, limit),
+			);
+			if (!answer.answered) {
+				return toolResult(
+					`The Doc Store did not answer within ${deps.config.docDeadlineMs}ms; ` +
+						"the bundle could not be searched.",
+					{ failed: true },
+				);
+			}
+			unsearched = answer.value.unsearched;
+			reportUnsearchedConcepts(unsearched);
+			hits = answer.value.hits.slice(0, limit);
+		} catch (error) {
+			const reason = describe(error);
+			reportSafely(`Searching the documentation failed: ${reason}`);
+			return toolResult(`The Doc Store could not be searched: ${reason}`, {
+				failed: true,
+			});
+		}
+		// Said to the model on every result while it holds: a thin answer is
+		// an index in transition, not a corpus with nothing relevant in it.
+		const unseen =
+			unsearched > 0
+				? `\n\n${unsearched} concept${unsearched === 1 ? "" : "s"} could not be searched: ` +
+					`${unsearched === 1 ? "its" : "their"} vectors are from another embedding model.`
+				: "";
+		if (hits.length === 0) {
+			return toolResult(`No concept in the documentation bundle matches.${unseen}`, {
+				results: 0,
+				unsearched,
+			});
+		}
+		const rendered = hits.map((hit) =>
+			messageText(asCuratedKnowledge(hit, deps.config.docTokens)),
+		);
+		return toolResult(`${rendered.join("\n\n")}${unseen}`, {
+			results: hits.length,
+			conceptIds: hits.map((hit) => hit.conceptId),
+			unsearched,
 		});
+	}
+
+	/**
+	 * What one symbol connects to, as many hops out as asked. A graph not
+	 * read yet, or never extracted, is said in words the model can act on.
+	 */
+	async function structureOf(params: Record<string, unknown>): Promise<ToolResult> {
+		const symbol = text(params.symbol);
+		if (symbol === undefined) {
+			return toolResult("A symbol name is required.", { failed: true });
+		}
+		const store = deps.graph;
+		if (!store) return toolResult("No codebase graph is configured.", {});
+		const codebase = deps.codebase ?? process.cwd();
+		try {
+			const answer = await inTime(
+				"Graph Store",
+				deps.config.graphDeadlineMs,
+				store.graph(codebase),
+			);
+			if (!answer.answered) {
+				return toolResult(
+					"The codebase structure is not loaded yet; try again shortly.",
+					{ failed: true },
+				);
+			}
+			const graph = answer.value;
+			if (!graph) {
+				// A first extraction still running is a wait, not a missing
+				// setting: neither the model nor the user is sent after one.
+				const state = await inTime(
+					"Graph Store",
+					deps.config.graphDeadlineMs,
+					store.extraction(codebase),
+				).catch(() => undefined);
+				const running = state?.answered ? state.value.running : undefined;
+				reportMissingGraph(running);
+				return toolResult(
+					running
+						? `This codebase's first extraction is still running (started ` +
+								`${clock(running.since)}); structure arrives when it finishes.`
+						: "This codebase has no structure graph. Run with PICHART_GRAPH=on to " +
+								"derive one.",
+					{ failed: true },
+				);
+			}
+			const newer = store.takeLoadFailure(codebase);
+			if (newer) {
+				reportSafely(
+					`Graph Store could not read the newer graph, structure is from ` +
+						`the one before it: ${describe(newer)}`,
+				);
+			}
+			return toolResult(
+				await codebaseStructure(graph, symbol, {
+					depth: typeof params.depth === "number" ? params.depth : undefined,
+					maxTokens: deps.config.graphTokens,
+					older: (files) => store.changedSince(codebase, graph.extractedAt, files),
+				}),
+				{ found: "node" in findSymbol(graph, symbol) },
+			);
+		} catch (error) {
+			const reason = describe(error);
+			reportSafely(`Reading the codebase structure failed: ${reason}`);
+			return toolResult(`The Graph Store could not be read: ${reason}`, {
+				failed: true,
+			});
+		}
 	}
 
 	if (pi.registerCommand) {
 		pi.registerCommand("pi-chart", {
 			description:
 				"Check what this extension needs and what is missing: " +
-				"`pi-chart` to check, `pi-chart setup` to start " +
-				"the thread store, `pi-chart judge <auto|off>` to switch " +
-				"relevance judging for this session",
+				"`pi-chart` to check, `pi-chart setup` to start the thread store",
 			handler: async (args, commandCtx) => {
 				const output = await manageInstall(args.trim());
 				tell(commandCtx, output);
@@ -1614,9 +1771,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"`pack <turn>[.<call>]` for any recorded call, " +
 				"`pack why [<address>] <subject>` for why something was not " +
 				"carried, `pack diff [<a> <b>]`, `pack summary`, " +
-				"`pack budget <tail|recall|docs|graph|" +
-				"tail-tokens|recall-tokens|opening-tokens|docs-tokens|graph-tokens|pack|" +
-				"pins|pins-tokens> <n>`",
+				"`pack budget <tail|tail-tokens|recall-tokens|opening-tokens|" +
+				"docs-tokens|graph-tokens|pack|pins|pins-tokens> <n>`",
 			handler: async (args, commandCtx) => {
 				const text = await inspect(args.trim());
 				tell(commandCtx, text);
@@ -1650,31 +1806,24 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				deps.graph !== undefined,
 			);
 			return `${describeChecks(done)}\n\nNow:\n${describeChecks(
-				withJudge(await withExtraction(after)),
+				await withExtraction(after),
 			)}`;
 		}
-		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
-		if (verb === "judge") return switchJudge(rest.join(" "));
 		if (args !== "") {
-			return (
-				`Unknown command: ${args}. Use \`pi-chart\`, \`pi-chart setup\` ` +
-				"or `pi-chart judge <auto|off>`."
-			);
+			return `Unknown command: ${args}. Use \`pi-chart\` or \`pi-chart setup\`.`;
 		}
 
 		return describeChecks(
-			withJudge(
-				await withExtraction(
-					await install.check(deps.config, memoryBackend, deps.graph !== undefined),
-				),
+			await withExtraction(
+				await install.check(deps.config, memoryBackend, deps.graph !== undefined),
 			),
 		);
 	}
 
 	/**
 	 * The codebase graph line, with whether an extraction is running and
-	 * how the last one ended. Session state, like the judge's, so it is
-	 * added here rather than known to `Installation`.
+	 * how the last one ended. Session state, so it is added here rather
+	 * than known to `Installation`.
 	 */
 	async function withExtraction(checks: Check[]): Promise<Check[]> {
 		const graph = deps.graph;
@@ -1699,58 +1848,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				? { ...check, detail: `${check.detail}; ${said.join("; ")}` }
 				: check,
 		);
-	}
-
-	/**
-	 * Switches judging for the running session. In memory only, like
-	 * `pack budget`: an experiment that silently persisted into tomorrow's
-	 * sessions would be a trap. `PICHART_JUDGE` sets the default.
-	 */
-	function switchJudge(value: string): string {
-		if (value !== "auto" && value !== "off") {
-			return `Relevance judging unchanged: "${value}" is neither auto nor off.`;
-		}
-		deps.config.judge = value;
-		return describeChecks(withJudge([]));
-	}
-
-	/**
-	 * The relevance judge's state beside the installation's, where there is
-	 * a search to judge. Session state, so it is added here rather than
-	 * known to `Installation`.
-	 */
-	function withJudge(checks: Check[]): Check[] {
-		if (!deps.judgeWith) return checks;
-		const name = "relevance judge";
-		const check: Check =
-			deps.config.judge === "off"
-				? {
-						name,
-						ok: true,
-						detail: "off; cross-conversation searches are ranked by distance alone",
-						fix: "PICHART_JUDGE=auto, or `pi-chart judge auto` for this session",
-					}
-				: !judge
-					? {
-							name,
-							ok: true,
-							detail: "no key; cross-conversation searches are ranked by distance alone",
-							fix: "set TYPESAFE_API_KEY or run `/login typesafe` to judge them",
-						}
-					: judgeRejected
-						? {
-								name,
-								ok: false,
-								detail: "key rejected; searches are unjudged for this session",
-								fix: "`/login typesafe` with a valid key, or PICHART_JUDGE=off",
-							}
-						: {
-								name,
-								ok: true,
-								detail: `on (${JEV_MODEL}); candidate turns are sent to ${new URL(JEV_ENDPOINT).host}`,
-								fix: "PICHART_JUDGE=off, or `pi-chart judge off` for this session",
-							};
-		return [...checks, check];
 	}
 
 	/**
@@ -1969,7 +2066,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		const budget = pinBudget(deps.config);
 		const each = pins.map(
 			(one, index) =>
-				`#${one.id}  ~${approximateTokens([renderPin(one, index + 1, pins.length)])} ` +
+				`#${one.id}  ~${approximateTokens([{ role: "user", content: renderPin(one, index + 1, pins.length) }])} ` +
 				`tokens\n${one.text}`,
 		);
 		return (
@@ -1979,85 +2076,16 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * What a retrieval supplied, and why it supplied nothing where it did.
+	 * What a Store supplied, and why it supplied nothing where it did.
 	 *
-	 * A part absent because no Store was configured, because retrieval
-	 * failed, and because nothing was relevant are three different
-	 * problems with three different remedies, and only the caller of the
-	 * Store can tell the first two apart.
+	 * Absent because no Store was configured and absent because the query
+	 * failed are different problems with different remedies, and only the
+	 * caller of the Store can tell them apart.
 	 */
 	type Supplied<T> = {
 		value: T;
 		unavailable?: "unconfigured" | "failed";
 	};
-
-	/**
-	 * Turn 0's stored prompt, for the Opening. Its own query rather than a
-	 * column on the tail's, because the tail stops returning exactly that
-	 * Turn; bounded by the tail's deadline, and never answered from the
-	 * harness's history.
-	 */
-	async function openingFor(conversationId: string): Promise<Supplied<string | undefined>> {
-		if (!deps.opening) return { value: undefined, unavailable: "unconfigured" };
-		// Off: no query. The Assembler records the zero Budget.
-		if (deps.config.openingTokens <= 0) return { value: undefined };
-		try {
-			const found = await inTime(
-				"Thread Store (opening)",
-				deps.config.tailDeadlineMs,
-				deps.opening.openingPrompt(conversationId),
-			);
-			return found.answered
-				? { value: found.value }
-				: { value: undefined, unavailable: "failed" };
-		} catch (error) {
-			reportSafely(`Opening unavailable, pack assembled without it: ${describe(error)}`);
-			return { value: undefined, unavailable: "failed" };
-		}
-	}
-
-	/**
-	 * Turns recalled by meaning. A retrieval failure costs the recollections,
-	 * never the Turn: the pack is assembled without them and the failure is
-	 * reported.
-	 */
-	async function recallFor(
-		conversationId: string,
-		current: Turn | undefined,
-	): Promise<Supplied<Recollections>> {
-		const none: Recollections = {
-			turns: [],
-			rejected: 0,
-			misses: [],
-			unsearched: 0,
-		};
-		// No Store and no prompt are different absences: one is a machine
-		// with nothing wired, the other a Call with nothing to search for.
-		if (!deps.recall) return { value: none, unavailable: "unconfigured" };
-		if (!current || deps.config.recallTurns <= 0) return { value: none };
-		try {
-			// Over-fetch: the Assembler drops what the verbatim tail already
-			// carries, and only it knows what that is.
-			const found = await inTime(
-				"Recall",
-				deps.config.recallDeadlineMs,
-				deps.recall.similarTurns(
-					conversationId,
-					current.prompt,
-					deps.config.recallTurns + deps.config.tailTurns,
-					deps.config.recallMaxDistance,
-				),
-			);
-			// Out of time is out of reach for this Call: the part is absent
-			// for a reason the operator can act on, not for irrelevance.
-			return found.answered
-				? { value: found.value }
-				: { value: none, unavailable: "failed" };
-		} catch (error) {
-			reportSafely(`Recall unavailable, pack assembled without it: ${describe(error)}`);
-			return { value: none, unavailable: "failed" };
-		}
-	}
 
 	/**
 	 * Stores what the Journal holds, and says what happened.
@@ -2103,39 +2131,6 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * Curated knowledge for this prompt, with what the threshold refused.
-	 * A retrieval failure costs the Concepts, never the Turn.
-	 */
-	async function conceptsFor(
-		current: Turn | undefined,
-	): Promise<Supplied<ConceptMatches>> {
-		const none: ConceptMatches = { hits: [], rejected: 0, misses: [], unsearched: 0 };
-		if (!deps.docs) return { value: none, unavailable: "unconfigured" };
-		if (!current || deps.config.docConcepts <= 0) return { value: none };
-		try {
-			// Over-fetch, as recall does: the Assembler applies the Budget,
-			// so what the Budget excluded is visible rather than invisible.
-			const found = await inTime(
-				"Doc Store",
-				deps.config.docDeadlineMs,
-				deps.docs.searchConcepts(
-					current.prompt,
-					deps.config.docConcepts * 2,
-					deps.config.docMaxDistance,
-				),
-			);
-			if (found.answered) {
-				reportUnsearchedConcepts(found.value.unsearched);
-				return { value: found.value };
-			}
-			return { value: none, unavailable: "failed" };
-		} catch (error) {
-			reportSafely(`Doc Store unavailable, pack assembled without it: ${describe(error)}`);
-			return { value: none, unavailable: "failed" };
-		}
-	}
-
-	/**
 	 * Says so, once, while the Concept index holds vectors another model
 	 * made.
 	 *
@@ -2157,93 +2152,20 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * The structure around the symbols this Turn is working with, with what
-	 * the Codebase has outgrown marked. A Graph Store failure costs the
-	 * structure, never the Turn.
+	 * Said once when `codebase_structure` is asked of a Codebase with no
+	 * graph: the tool result says so to the model, and this says why to
+	 * the user.
 	 */
-	async function structureFor(
-		current: Turn | undefined,
-	): Promise<Supplied<Neighbourhood[]>> {
-		if (!deps.graph) return { value: [], unavailable: "unconfigured" };
-		if (!current || deps.config.graphSymbols <= 0) return { value: [] };
-		const store = deps.graph;
-		const codebase = deps.codebase ?? process.cwd();
-		try {
-			const found = await inTime(
-				"Graph Store",
-				deps.config.graphDeadlineMs,
-				store.graph(codebase),
-			);
-			if (!found.answered) return { value: [], unavailable: "failed" };
-			const graph = found.value;
-			// No graph is a Codebase never extracted, which is nothing
-			// configured rather than something that failed.
-			if (!graph) {
-				reportMissingGraph();
-				return { value: [], unavailable: "unconfigured" };
-			}
-			const newer = store.takeLoadFailure(codebase);
-			if (newer) {
-				reportSafely(
-					`Graph Store could not read the newer graph, structure is from ` +
-						`the one before it: ${describe(newer)}`,
-				);
-			}
-			// Over-fetch, as the other Stores do, so what the Budget excluded
-			// is visible in the accounting rather than invisible.
-			const around = neighbourhoods(graph, symbolsInPlay(graph, current)).slice(
-				0,
-				deps.config.graphSymbols * 2,
-			);
-			// Aged after selection, so the number of `stat` calls is the
-			// over-fetch rather than the graph.
-			const older = await store.changedSince(
-				codebase,
-				graph.extractedAt,
-				around.map((each) => each.symbol.file),
-			);
-			return {
-				value: around.map((each) =>
-					older.has(each.symbol.file) ? { ...each, stale: true as const } : each,
-				),
-			};
-		} catch (error) {
-			reportSafely(
-				`Graph Store unavailable, pack assembled without it: ${describe(error)}`,
-			);
-			return { value: [], unavailable: "failed" };
-		}
-	}
-
-	/**
-	 * Said once when a structure Budget is set and there is no graph to
-	 * serve it: an empty part with no explanation reads as a Codebase with
-	 * no structure worth carrying, which is a different thing entirely.
-	 *
-	 * Asked of the runner off the Call path, since it is a subprocess:
-	 * a first extraction still running is a wait, not a missing setting.
-	 */
-	function reportMissingGraph(): void {
+	function reportMissingGraph(running: { since: number } | undefined): void {
 		if (missingGraphReported) return;
 		missingGraphReported = true;
-		const graph = deps.graph;
-		const codebase = deps.codebase ?? process.cwd();
-		inBackground(
-			"Graph Store status",
-			(async () => {
-				const running = graph
-					? (await graph.extraction(codebase).catch((): Extraction => ({}))).running
-					: undefined;
-				announce(
-					running
-						? `Structure is configured but this codebase's first extraction is ` +
-								`still running (started ${clock(running.since)}); structure ` +
-								`arrives when it finishes.`
-						: `Structure is configured (${deps.config.graphSymbols} symbols) but this ` +
-								`codebase has no graph; run with PICHART_GRAPH=on to derive one, or set ` +
-								`PICHART_GRAPH_SYMBOLS=0 to stop asking for it.`,
-				);
-			})(),
+		announce(
+			running
+				? `codebase_structure was asked for, but this codebase's first ` +
+						`extraction is still running (started ${clock(running.since)}); ` +
+						`structure arrives when it finishes.`
+				: `codebase_structure was asked for, but this codebase has no graph; ` +
+						`run with PICHART_GRAPH=on to derive one.`,
 		);
 	}
 
@@ -2430,28 +2352,6 @@ function sleep(ms: number): Promise<void> {
 	return promise;
 }
 
-/**
- * The session's relevance judge, from the key the host resolves for
- * TypeSafe. pi-chart never reads the key itself: the host already merges the
- * environment, every `.env` and `/login`. A host that throws, or offers no
- * resolution at all, is no key — the search as it was before judging.
- */
-async function resolveJudge(
-	ctx: HandlerContext,
-	judgeWith: (key: string) => RelevanceJudge,
-): Promise<RelevanceJudge | undefined> {
-	let key: string | undefined;
-	try {
-		key = await ctx.modelRegistry?.getApiKeyForProvider?.(
-			"typesafe",
-			ctx.sessionManager?.getSessionId?.(),
-		);
-	} catch {
-		key = undefined;
-	}
-	return key ? judgeWith(key) : undefined;
-}
-
 export default function piChart(pi: ExtensionAPI): void {
 	const config = loadConfig(process.env, readSavedUrl());
 
@@ -2509,7 +2409,6 @@ export default function piChart(pi: ExtensionAPI): void {
 		recall: store,
 		opening: store,
 		search: store,
-		judgeWith: (key) => new JevJudge(key),
 		docs: store,
 		ready,
 		bundle: () => readBundle(config.docBundle),

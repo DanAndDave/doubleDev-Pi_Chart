@@ -1,15 +1,9 @@
 import type { CodeGraph, GraphEdge, GraphSymbol } from "./graph.ts";
-import {
-	isToolCall,
-	messageText,
-	toolCallText,
-	type HarnessMessage,
-	type Turn,
-} from "./messages.ts";
+import { approximateTokens } from "./tokens.ts";
 
 /**
- * A graph with the indexes selection and neighbourhood construction need,
- * built once where the parse is cached rather than per Call.
+ * A graph with the indexes `findSymbol` and `neighbourhoods` need, built
+ * once where the parse is cached rather than per question.
  *
  * One artifact with one invalidation rule: a memo inside this module would
  * be a second cache over the same file with no shared trigger, so a stale
@@ -22,14 +16,6 @@ export interface PreparedGraph {
 	extractedAt: number;
 	/** Canonical name to the symbols carrying it. */
 	byName: Map<string, GraphSymbol[]>;
-	/** Source file to the symbols it defines. */
-	byFile: Map<string, GraphSymbol[]>;
-	/**
-	 * A file's name without directories or extension, to its files. Test and
-	 * script files are left out: a bare word is a plain word, and plain words
-	 * do not reach them.
-	 */
-	byStem: Map<string, string[]>;
 	/** Ids of the symbols defined in a test or script file; see `isHeldBack`. */
 	heldBack: Set<string>;
 	/** Symbol id to every edge touching it, either direction. */
@@ -38,23 +24,12 @@ export interface PreparedGraph {
 
 export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 	const byName = new Map<string, GraphSymbol[]>();
-	const byFile = new Map<string, GraphSymbol[]>();
-	const byStem = new Map<string, string[]>();
 	const heldBack = new Set<string>();
 	for (const symbol of graph.symbols) {
 		const key = canonical(symbol.label);
 		if (key.length > 0) append(byName, key, symbol);
 		const file = normalisePath(symbol.file);
-		if (file === "") continue;
-		const held = isHeldBack(file);
-		const known = byFile.get(file);
-		if (known) known.push(symbol);
-		else {
-			byFile.set(file, [symbol]);
-			const stem = canonical(stemOf(file));
-			if (stem.length > 0 && !held) append(byStem, stem, file);
-		}
-		if (held) heldBack.add(symbol.id);
+		if (file !== "" && isHeldBack(file)) heldBack.add(symbol.id);
 	}
 
 	const incident = new Map<string, GraphEdge[]>();
@@ -68,8 +43,6 @@ export function prepare(graph: CodeGraph, extractedAt: number): PreparedGraph {
 		edges: graph.edges,
 		extractedAt,
 		byName,
-		byFile,
-		byStem,
 		heldBack,
 		incident,
 	};
@@ -91,14 +64,9 @@ const HELD_BACK_DIRECTORY = new Set(["test", "tests", "__tests__", "scripts"]);
 const HELD_BACK_NAME = /\.(?:test|spec)\.|_test\.|^test_/;
 
 /**
- * Whether a file is a test or a script, which plain words do not reach.
- *
- * Tests and scripts reuse the ordinary words of a Codebase's domain for
- * helpers and fixtures. Measured on this repository's benchmark, plain words
- * on a Turn's first Call carried `conversation()` and `CONVERSATION` from
- * `test/`, and of 90 slots spent in `test/` or `scripts/`, none was what the
- * Turn worked with. Decided on the path alone, so the rule holds for any
- * Codebase rather than for this one's names.
+ * Whether a file is a test or a script, which a name carried by source as
+ * well never resolves to; see `findSymbol`. Decided on the path alone, so
+ * the rule holds for any Codebase rather than for this one's names.
  */
 function isHeldBack(file: string): boolean {
 	const segments = file.split("/");
@@ -109,13 +77,7 @@ function isHeldBack(file: string): boolean {
 	);
 }
 
-function stemOf(path: string): string {
-	const name = path.slice(path.lastIndexOf("/") + 1);
-	const dot = name.indexOf(".");
-	return dot > 0 ? name.slice(0, dot) : name;
-}
-
-/** A symbol in play, with the connections around it. */
+/** A symbol with the connections around it. */
 export interface Neighbourhood {
 	symbol: GraphSymbol;
 	/** Direct connections, both directions. One hop: two is the Codebase. */
@@ -140,272 +102,9 @@ export interface Neighbourhood {
  */
 const MAX_EDGES = 12;
 
-/** An identifier, with whatever punctuation marks it as code around it. */
-const IDENTIFIER = /(\.?)([A-Za-z_][A-Za-z0-9_]{2,})(\s*\()?/g;
-const WORD_PART = /[A-Z]?[a-z0-9]+/g;
-const COMPOUND = /[a-z][A-Z]|_/;
-const CAPITALISED = /^[A-Z]/;
-
 /** Letters and digits only, so `.recordPack()` and `record_pack` are one name. */
 function canonical(name: string): string {
 	return name.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-/**
- * How much of each message is read for symbol names, and how many of a
- * Turn's messages are read at all.
- *
- * Measured over this machine's 423 real Turns: the median Turn offers 91
- * candidate characters and the widest 1,580,818 across 1,805 messages.
- * Scanning that Turn whole costs 89 ms on the Call's own path — more than
- * recall's entire measured budget — while its most recent 32 messages at
- * 1,000 characters each cost 1.1 ms and still name 95 symbols. A tool loop
- * works on what it just did, so recency is what bounds it.
- */
-const MESSAGE_HEAD = 1_000;
-const RECENT_MESSAGES = 32;
-
-/** A path-shaped token: `src/assembler.ts`, `./src/assembler.ts`, `graph.ts`. */
-const PATH_TOKEN = /[A-Za-z0-9_@.~-]*(?:\/[A-Za-z0-9_@.-]+)+|[A-Za-z0-9_-]+\.[A-Za-z]{1,5}\b/g;
-
-/**
- * The symbols the current Turn is working with.
- *
- * By name, not by meaning: a symbol's name is exact, and a structural
- * question has one correct answer. An identifier that matches nothing is
- * split on case boundaries and its parts tried — but only then, so
- * `recordPack` does not drag in every `Pack`.
- *
- * The whole Turn, not its opening prompt: a Call made ten tool results into
- * an agentic Turn would otherwise derive structure from a sentence written
- * before any of them. Order is the whole contract — a Budget takes symbols
- * from the front — and the prompt, being what was asked about, leads:
- *
- * 1. what the prompt writes as code;
- * 2. the files whose path the prompt names;
- * 3. what the rest of the Turn writes as code, or, when nothing in the Turn
- *    is written as code, every plain word, the prompt's first;
- * 4. every other file: paths the rest of the Turn names, and bare words
- *    equal to a file's stem, which are plain words and so the weakest.
- */
-export function symbolsInPlay(graph: PreparedGraph, turn: Turn): GraphSymbol[] {
-	const whole = `${turn.prompt}\n${widerText(turn)}`;
-	// One pass over the whole text, so whether anything is written as code
-	// is judged over the Turn rather than the prompt alone; the prompt is
-	// scanned again only to order the result.
-	const all = mentioned(graph, whole);
-	const prompt = mentioned(graph, turn.prompt);
-
-	const tiers = [
-		all.symbols.filter((symbol) => prompt.code.has(symbol.id)),
-		throughFiles(graph, pathsNamed(graph, turn.prompt)),
-		all.symbols,
-		throughFiles(graph, [
-			...new Set([...pathsNamed(graph, whole), ...stemsNamed(graph, whole)]),
-		]),
-	];
-	const found = new Map<string, GraphSymbol>();
-	for (const symbol of tiers.flat()) {
-		if (!found.has(symbol.id)) found.set(symbol.id, symbol);
-	}
-	return [...found.values()];
-}
-
-/**
- * The Turn's text beyond its prompt, bounded by message and by recency.
- *
- * A tool call contributes what it passed, not the name it was made with:
- * `read(` reads as a call written as code, and measured live every Call of a
- * Turn that used the `read` tool carried `.read()`. A tool's name says what
- * the agent did, not what the Turn is about; its arguments and its result
- * still name the code it touched.
- */
-function widerText(turn: Turn): string {
-	const recent = turn.messages.slice(-RECENT_MESSAGES);
-	const parts: string[] = [];
-	for (const message of recent) {
-		parts.push(messageText(message).slice(0, MESSAGE_HEAD));
-		const content = message.content;
-		if (!Array.isArray(content)) continue;
-		for (const block of content) {
-			if (isToolCall(block)) parts.push(toolCallText(block).passed.slice(0, MESSAGE_HEAD));
-		}
-	}
-	return parts.filter((each) => each.length > 0).join("\n");
-}
-
-/** The symbols a piece of text names, and which of them it wrote as code. */
-interface Mentioned {
-	symbols: GraphSymbol[];
-	code: Set<string>;
-}
-
-/** What one identifier matched, and how it was written. */
-interface Mention {
-	code: boolean;
-	symbols: GraphSymbol[];
-}
-
-function mentioned(graph: PreparedGraph, text: string): Mentioned {
-	const mentions = new Map<string, Mention>();
-	for (const match of text.matchAll(IDENTIFIER)) {
-		const [, member, identifier = "", call] = match;
-
-		const whole = graph.byName.get(canonical(identifier));
-		const symbols =
-			whole ??
-			(identifier.match(WORD_PART) ?? [])
-				.filter((part) => part.length > 2)
-				.flatMap((part) => graph.byName.get(canonical(part)) ?? []);
-		if (symbols.length === 0) continue;
-
-		// Does the text itself say this is code? `parseConcept`,
-		// `record_pack`, `.read` and `read()` do outright. A capital says
-		// so only when it names something that is not a method — every
-		// sentence starts with a capital, and `Describe` opening a question
-		// is not a reference to `.describe()`.
-		const code =
-			COMPOUND.test(identifier) ||
-			member !== "" ||
-			call !== undefined ||
-			(CAPITALISED.test(identifier) &&
-				symbols.some((each) => !each.label.startsWith(".")));
-
-		const key = canonical(identifier);
-		const seen = mentions.get(key);
-		mentions.set(key, { code: code || (seen?.code ?? false), symbols });
-	}
-
-	// A plain word counts only when nothing in the text is written as code.
-	// Prose is full of words that happen to name symbols: measured live,
-	// "read" carried `.read()`, "explain" `explain()`, "summarise"
-	// `summarise()`, "conversation" `conversation()` and "report" `report()`,
-	// each spending a slot beside the symbol the text wrote as code. A text
-	// written entirely in prose still finds what its words name — but a word
-	// matching only a method gives way to one matching a function or a type:
-	// the first Call of a Turn has seen no code yet, and measured on the
-	// benchmark, "Read src/elision.ts" spent a slot on `.read()` that way.
-	// Nor does a plain word reach a test or script file (`isHeldBack`) —
-	// decided after choosing which words count, so a word naming a test
-	// helper still sets aside a method word rather than handing it the slot.
-	const all = [...mentions.values()];
-	const code = all.filter((mention) => mention.code);
-	const unambiguous = all.filter((mention) =>
-		mention.symbols.some((each) => !each.label.startsWith(".")),
-	);
-	const considered = (
-		code.length > 0 ? code : unambiguous.length > 0 ? unambiguous : all
-	).map((mention) =>
-		mention.code
-			? mention
-			: {
-					...mention,
-					symbols: mention.symbols.filter((each) => !graph.heldBack.has(each.id)),
-				},
-	);
-
-	// One symbol per identifier per round: a word that happens to name
-	// three methods must not spend a Budget ahead of the next identifier.
-	const found = new Map<string, GraphSymbol>();
-	for (const symbol of takenInTurn(considered.map((mention) => mention.symbols))) {
-		if (!found.has(symbol.id)) found.set(symbol.id, symbol);
-	}
-
-	// What is considered is either all written as code or all plain words.
-	return {
-		symbols: [...found.values()],
-		code: new Set(code.length > 0 ? found.keys() : []),
-	};
-}
-
-/** One from each list per round, so no list spends a Budget before the rest. */
-function takenInTurn<T>(lists: T[][]): T[] {
-	const result: T[] = [];
-	for (let round = 0; ; round++) {
-		let added = false;
-		for (const list of lists) {
-			if (round >= list.length) continue;
-			result.push(list[round] as T);
-			added = true;
-		}
-		if (!added) return result;
-	}
-}
-
-/**
- * The files a text names by path, in the order it first names them.
- *
- * Through the file the graph itself states, not through a suffix rule on
- * the name: that is how `assembler` reaches `assemble` without `canonical`
- * learning morphology, and why a path matching no file yields nothing
- * rather than a partial-token guess. A path reaches a test or script file
- * like any other.
- */
-function pathsNamed(graph: PreparedGraph, text: string): string[] {
-	const files = new Set<string>();
-	for (const [token] of text.matchAll(PATH_TOKEN)) {
-		const path = normalisePath(token);
-		if (path === "") continue;
-		for (const file of graph.byFile.keys()) {
-			// Either spelling: a repository-relative path is a suffix of an
-			// absolute one, and the graph's own path may be the longer.
-			if (endsWithPath(file, path) || endsWithPath(path, file)) files.add(file);
-		}
-	}
-	return [...files];
-}
-
-/**
- * The files a text names by a bare word equal to a file's stem: `assembler`
- * for `src/assembler.ts`. A bare word is a plain word, so it never reaches a
- * test or script file (`isHeldBack`).
- */
-function stemsNamed(graph: PreparedGraph, text: string): string[] {
-	const files = new Set<string>();
-	for (const [, , identifier = ""] of text.matchAll(IDENTIFIER)) {
-		for (const file of graph.byStem.get(canonical(identifier)) ?? []) {
-			files.add(file);
-		}
-	}
-	return [...files];
-}
-
-/**
- * The symbols of some files: within a file, the most-connected first, a tie
- * going to the earlier line; across files, one from each per round, so a
- * prompt naming two files carries both under a Budget of three.
- *
- * Connections, because extraction order is not importance: what most of the
- * codebase touches says most about what a file is for. The file's own node
- * takes part like any other — its connections are what it imports and what
- * imports it.
- */
-function throughFiles(graph: PreparedGraph, files: string[]): GraphSymbol[] {
-	return takenInTurn(
-		files.map((file) =>
-			(graph.byFile.get(file) ?? [])
-				.map((symbol) => ({
-					symbol,
-					degree: graph.incident.get(symbol.id)?.length ?? 0,
-					line: lineOf(symbol),
-				}))
-				// Stable, so a full tie keeps extraction order.
-				.sort((a, b) => b.degree - a.degree || a.line - b.line)
-				.map((each) => each.symbol),
-		),
-	);
-}
-
-/** A symbol's line, `L92` → 92; one with no position sorts after the rest. */
-function lineOf(symbol: GraphSymbol): number {
-	const digits = symbol.position?.match(/\d+/);
-	return digits ? Number(digits[0]) : Number.MAX_SAFE_INTEGER;
-}
-
-/** Whether one path ends with another at a directory boundary. */
-function endsWithPath(path: string, suffix: string): boolean {
-	if (path === suffix) return true;
-	return path.endsWith(`/${suffix}`);
 }
 
 /**
@@ -498,4 +197,206 @@ export function describeEdge(edge: GraphEdge): string {
 
 function place(symbol: GraphSymbol): string {
 	return symbol.position ? `${symbol.file}:${symbol.position}` : symbol.file;
+}
+
+/**
+ * The one symbol a name means, or the graph's names nearest to it.
+ *
+ * A structural question has one correct answer, so the name is matched
+ * exactly, up to capitalisation and punctuation: `Store.read()` and
+ * `store.read` name the same member. Where a name is carried by several
+ * symbols, source is preferred over tests and scripts, a function over a
+ * method, and then the most connected, so the same name always resolves to
+ * the same symbol.
+ */
+export function findSymbol(
+	graph: PreparedGraph,
+	name: string,
+): { node: GraphSymbol } | { nearest: string[] } {
+	const written = name.trim().replace(/\(\)$/, "").trim();
+	const dot = written.lastIndexOf(".");
+	if (dot > 0 && dot < written.length - 1) {
+		const member = canonical(written.slice(dot + 1));
+		const members = (graph.byName.get(canonical(written.slice(0, dot))) ?? []).flatMap(
+			(owner) =>
+				(graph.incident.get(owner.id) ?? [])
+					.filter(
+						(edge) =>
+							edge.from.id === owner.id &&
+							MEMBERSHIP.has(edge.relation) &&
+							canonical(edge.to.label) === member,
+					)
+					.map((edge) => edge.to),
+		);
+		const chosen = preferred(graph, members);
+		if (chosen) return { node: chosen };
+	}
+	const key = canonical(written);
+	const chosen = preferred(graph, graph.byName.get(key) ?? []);
+	if (chosen) return { node: chosen };
+	return { nearest: nearestNames(graph, key) };
+}
+
+function preferred(graph: PreparedGraph, candidates: GraphSymbol[]): GraphSymbol | undefined {
+	const rank = (symbol: GraphSymbol) => [
+		graph.heldBack.has(symbol.id) ? 1 : 0,
+		symbol.label.startsWith(".") ? 1 : 0,
+		-(graph.incident.get(symbol.id)?.length ?? 0),
+	];
+	return [...candidates].sort((left, right) => {
+		const a = rank(left);
+		const b = rank(right);
+		for (let index = 0; index < a.length; index++) {
+			if (a[index] !== b[index]) return (a[index] ?? 0) - (b[index] ?? 0);
+		}
+		return qualify(left).localeCompare(qualify(right));
+	})[0];
+}
+
+/** How many names an unknown name is offered in its place. */
+const NEAREST = 5;
+
+/**
+ * The names nearest to one the graph does not know: those it begins, or
+ * that begin it, first; then those containing it; then those a few edits
+ * away. Anything further is not close, and is not offered.
+ */
+function nearestNames(graph: PreparedGraph, key: string): string[] {
+	if (key.length === 0) return [];
+	const scored: { name: string; tier: number; distance: number }[] = [];
+	for (const [candidate, symbols] of graph.byName) {
+		const distance = editDistance(key, candidate);
+		const tier =
+			candidate.startsWith(key) || key.startsWith(candidate)
+				? 0
+				: candidate.includes(key)
+					? 1
+					: distance <= Math.max(2, Math.floor(key.length / 3))
+						? 2
+						: undefined;
+		if (tier === undefined) continue;
+		for (const symbol of symbols) scored.push({ name: qualify(symbol), tier, distance });
+	}
+	return scored
+		.sort(
+			(left, right) =>
+				left.tier - right.tier ||
+				left.distance - right.distance ||
+				left.name.localeCompare(right.name),
+		)
+		.slice(0, NEAREST)
+		.map((each) => each.name);
+}
+
+function editDistance(left: string, right: string): number {
+	let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+	for (let row = 1; row <= left.length; row++) {
+		const current = [row];
+		for (let column = 1; column <= right.length; column++) {
+			current[column] = Math.min(
+				(previous[column] ?? 0) + 1,
+				(current[column - 1] ?? 0) + 1,
+				(previous[column - 1] ?? 0) + (left[row - 1] === right[column - 1] ? 0 : 1),
+			);
+		}
+		previous = current;
+	}
+	return previous[right.length] ?? 0;
+}
+
+/** How far a structure question may reach: past three hops is the Codebase. */
+const MAX_DEPTH = 3;
+
+/**
+ * The whole `codebase_structure` result for a name: the connections out to
+ * `depth` hops, each once, in the form a pack carried them, cut at a whole
+ * line to `maxTokens` with a marker saying how much went.
+ *
+ * Each hop is `neighbourhoods` over the symbols the previous hop reached, so
+ * every symbol keeps its most informative connections and says how many it
+ * left out, and depth 1 is exactly the one-hop neighbourhood.
+ *
+ * `older` is asked once, with the file of every symbol whose neighbourhood
+ * the result holds, for those changed since the extraction. Each
+ * neighbourhood carries its own age: the root's in the header, a later
+ * hop's on each line it contributes, so one edited file never marks
+ * structure that is still current.
+ */
+export async function codebaseStructure(
+	graph: PreparedGraph,
+	name: string,
+	options: {
+		depth?: number;
+		maxTokens: number;
+		older: (files: string[]) => Promise<ReadonlySet<string>>;
+	},
+): Promise<string> {
+	const found = findSymbol(graph, name);
+	if ("nearest" in found) {
+		return found.nearest.length === 0
+			? `No symbol named "${name.trim()}" in the codebase graph, and no name in the graph is close.`
+			: `No symbol named "${name.trim()}" in the codebase graph. Nearest names:\n` +
+					found.nearest.map((each) => `- ${each}`).join("\n");
+	}
+
+	const root = found.node;
+	const depth = Math.min(Math.max(Math.floor(options.depth ?? 1), 1), MAX_DEPTH);
+	const walked: Neighbourhood[] = [];
+	const reached = new Set([root.id]);
+	let frontier = [root];
+	for (let hop = 0; hop < depth && frontier.length > 0; hop++) {
+		const next: GraphSymbol[] = [];
+		for (const around of neighbourhoods(graph, frontier)) {
+			walked.push(around);
+			for (const edge of around.edges) {
+				const other = edge.from.id === around.symbol.id ? edge.to : edge.from;
+				if (!reached.has(other.id)) {
+					reached.add(other.id);
+					next.push(other);
+				}
+			}
+		}
+		frontier = next;
+	}
+
+	// Not the Concept's "(stale)": this is measured against the file, not
+	// declared by an author, and one word for both would blur provenance.
+	const caveat = " (older than the codebase)";
+	const older = await options.older([root.file, ...walked.map((around) => around.symbol.file)]);
+	const lines: string[] = [];
+	const listed = new Set<GraphEdge>();
+	for (const around of walked) {
+		const own = around.symbol !== root && older.has(around.symbol.file) ? caveat : "";
+		for (const edge of around.edges) {
+			if (listed.has(edge)) continue;
+			listed.add(edge);
+			lines.push(`${describeEdge(edge)}${own}`);
+		}
+		// Saying how many were left out matters: silence would read as
+		// "this symbol connects to twelve things", which for a hub is false.
+		if (around.dropped > 0) {
+			lines.push(
+				around.symbol === root
+					? `… and ${around.dropped} more connections`
+					: `… and ${around.dropped} more connections of ${qualify(around.symbol)}`,
+			);
+		}
+	}
+
+	const header = `[codebase structure: ${qualify(root)}${older.has(root.file) ? caveat : ""}]`;
+	const cost = (text: string) => approximateTokens([{ role: "user", content: text }]);
+	const whole = [header, ...lines].join("\n");
+	if (cost(whole) <= options.maxTokens) return whole;
+
+	const marker = (left: number) =>
+		`… [pi-chart elided ${left} more line${left === 1 ? "" : "s"} of this structure]`;
+	let kept = lines.length - 1;
+	while (
+		kept > 0 &&
+		cost([header, ...lines.slice(0, kept), marker(lines.length - kept)].join("\n")) >
+			options.maxTokens
+	) {
+		kept--;
+	}
+	return [header, ...lines.slice(0, kept), marker(lines.length - kept)].join("\n");
 }

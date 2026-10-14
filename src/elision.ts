@@ -93,7 +93,7 @@ export function elide(
 }
 
 /** The marker for a payload elided whole, in tokens. */
-function elidedWhole(text: string): string {
+export function elidedWhole(text: string): string {
 	return ELIDED_WHOLE(Math.ceil(text.length / 4));
 }
 
@@ -552,7 +552,7 @@ function tokenFigure(tokens: number): string {
 
 /**
  * The head with the marker after its text. A copy, keeping every other
- * field — `timestamp` included, so a Briefing that followed it still finds it.
+ * field — `timestamp` included, so the message stays recognisably itself.
  */
 function withMarker(message: HarnessMessage, marker: string): HarnessMessage {
 	const content = message.content;

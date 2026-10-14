@@ -487,9 +487,9 @@ describe("reading a codebase's graph", () => {
 		const first = await graphStore.graph("/work/project");
 		const again = await graphStore.graph("/work/project");
 
-		// The same prepared graph, indexes and all: `symbolsInPlay` and
-		// `neighbourhoods` walked every symbol and every edge per Call
-		// while the parse they read was already cached.
+		// The same prepared graph, indexes and all: `findSymbol` and
+		// `neighbourhoods` read them on every question, and the parse they
+		// read was already cached.
 		expect(again).toBe(first);
 		expect(first?.byName.size).toBeGreaterThan(0);
 		expect(first?.incident.size).toBeGreaterThan(0);

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { GraphStore } from "../src/graph-store.ts";
-import { neighbourhoods, symbolsInPlay } from "../src/symbols.ts";
+import { findSymbol, neighbourhoods } from "../src/symbols.ts";
 
 const describeReal = process.env.PICHART_GRAPHIFY === "1" ? describe : describe.skip;
 const TIMEOUT = 600_000;
@@ -40,16 +40,14 @@ describeReal("against the real graphify", () => {
 
 			// `assemble` is called from the extension; that is a fact a
 			// parser can establish, and the whole point of this Store.
-			const found = symbolsInPlay(graph, {
-				prompt: "who calls assemble",
-				messages: [],
-			});
-			const [around] = neighbourhoods(graph, found);
+			const found = findSymbol(graph, "assemble");
+			if (!("node" in found)) throw new Error("assemble not in the graph");
+			const [around] = neighbourhoods(graph, [found.node]);
 			const partners = (around?.edges ?? []).map(
 				(edge) => `${edge.from.label} ${edge.relation} ${edge.to.label}`,
 			);
 
-			expect(found.map((symbol) => symbol.label)).toContain("assemble()");
+			expect(found.node.label).toBe("assemble()");
 			// The counterpart, not the symbol itself: every edge here names
 			// `assemble()` by construction, so only an edge arriving from
 			// something else proves a caller was found.

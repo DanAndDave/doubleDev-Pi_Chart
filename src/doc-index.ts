@@ -25,27 +25,13 @@ export interface ConceptHit {
 	exclusions?: Exclusion[];
 }
 
-/** A Concept the relevance threshold refused, and how far it was. */
-export interface ConceptMiss {
-	conceptId: string;
-	distance: number;
-}
-
-/** What a search found, what it refused, and what it could not see. */
+/** What a search found, and what it could not see. */
 export interface ConceptMatches {
 	hits: ConceptHit[];
-	/** How many Concepts fell outside the relevance threshold. */
-	rejected: number;
-	/**
-	 * Which of those they were, nearest first. Named rather than counted,
-	 * so a threshold set too tight can be answered for rather than guessed
-	 * at from an empty part.
-	 */
-	misses: ConceptMiss[];
 	/**
 	 * How many Concepts the search could not rank at all, because their
 	 * vectors were made by another embedding model. Counted rather than
-	 * named: they were not refused for distance and may be anything, and a
+	 * named: they may be anything, and a
 	 * curated part that came back thin while the index is in transition
 	 * should say so rather than read as a corpus with nothing in it.
 	 */
@@ -77,6 +63,5 @@ export interface ConceptSearch {
 	searchConcepts(
 		query: string,
 		limit: number,
-		maxDistance: number,
 	): Promise<ConceptMatches>;
 }

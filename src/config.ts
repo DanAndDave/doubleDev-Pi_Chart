@@ -18,8 +18,6 @@ export interface Config {
 	 * carries it past either (ADR-0013). In (0, 1]; 1 slides the tail.
 	 */
 	tailLowWater: number;
-	/** How many recalled Turns a pack may carry. Zero disables recall. */
-	recallTurns: number;
 	/**
 	 * How distant a Turn may be and still be worth recalling, as cosine
 	 * distance. Measured, not chosen: under the query derivation and the
@@ -28,10 +26,6 @@ export interface Config {
 	 * within it at all.
 	 */
 	recallMaxDistance: number;
-	/** How many Concepts a pack may carry. Zero disables curated knowledge. */
-	docConcepts: number;
-	/** How many symbols' neighbourhoods a pack may carry. Zero disables them. */
-	graphSymbols: number;
 	/**
 	 * Whether to derive a Codebase's graph. Off means read one if it is
 	 * already there; extraction writes a directory into the Codebase, which
@@ -48,12 +42,6 @@ export interface Config {
 	graphExtractDeadlineMs: number;
 	/** Whether to check the Codebase's OpenSpec tree at all. */
 	specsVerify: boolean;
-	/**
-	 * How distant a Concept may be and still be carried. Measured separately
-	 * from recall on curated prose: genuine matches land at 0.24-0.42 and
-	 * unrelated queries at 0.61 and above.
-	 */
-	docMaxDistance: number;
 	/**
 	 * The Thread Store's connection: the server `PICHART_DATABASE_URL` names,
 	 * or the one `/pi-chart setup` found and saved. Present only when
@@ -81,13 +69,16 @@ export interface Config {
 	 * measured tokens — the derivation is on `DEFAULT_PACK_TOKENS`.
 	 */
 	tailTokens: number;
+	/** The cap on each `recall_earlier_turns` result, elided visibly past it. */
 	recallTokens: number;
 	/**
 	 * The Opening's size Budget: Turn 0's prompt, carried once the tail no
 	 * longer carries it (ADR-0014). Zero turns the Opening off.
 	 */
 	openingTokens: number;
+	/** The cap on each Concept `search_documentation` returns. */
 	docTokens: number;
+	/** The cap on a whole `codebase_structure` result. */
 	graphTokens: number;
 	packTokens: number;
 	/**
@@ -128,13 +119,6 @@ export interface Config {
 	 * their policy, not this project's default.
 	 */
 	retainDays?: number;
-	/**
-	 * Whether `recall_across_conversations` asks a relevance judge about
-	 * what distance admits. `auto` asks when the host resolves a TypeSafe
-	 * key; `off` never asks, key or not. Judging sends Turn text off the
-	 * machine, so the switch is separate from the key.
-	 */
-	judge: "auto" | "off";
 }
 
 /**
@@ -142,21 +126,16 @@ export interface Config {
  * than the pairs the environment names.
  *
  * The environment keeps the pairs because that is what it is — `PICHART_TAIL_TURNS`
- * and `PICHART_TAIL_TOKENS` are two variables, and `pack budget` names nine of
- * them — so the two shapes meet here, once, instead of at every reader.
+ * and `PICHART_TAIL_TOKENS` are two variables — so the two shapes meet here,
+ * once, instead of at every reader.
  */
 export function assemblerConfig(config: Config): AssemblerConfig {
 	return {
 		tail: { count: config.tailTurns, tokens: config.tailTokens },
 		tailLowWater: config.tailLowWater,
-		recall: { count: config.recallTurns, tokens: config.recallTokens },
 		opening: { count: config.openingTokens > 0 ? 1 : 0, tokens: config.openingTokens },
-		docs: { count: config.docConcepts, tokens: config.docTokens },
-		graph: { count: config.graphSymbols, tokens: config.graphTokens },
 		packTokens: config.packTokens,
 		pins: pinBudget(config),
-		recallMaxDistance: config.recallMaxDistance,
-		docMaxDistance: config.docMaxDistance,
 		explainCandidates: config.explainCandidates,
 	};
 }
@@ -177,7 +156,6 @@ export const DEFAULT_TAIL_TURNS = 8;
  * (ADR-0013).
  */
 export const DEFAULT_TAIL_LOW_WATER = 0.6;
-export const DEFAULT_RECALL_TURNS = 4;
 /**
  * The relevance minimum, re-measured under the query derivation and the
  * bounded embed text (the old 0.50 was measured on a hand-written prompt and
@@ -186,9 +164,6 @@ export const DEFAULT_RECALL_TURNS = 4;
  * keeps 95 but admits 8, which is what the derivation buys.
  */
 export const DEFAULT_RECALL_MAX_DISTANCE = 0.52;
-export const DEFAULT_DOC_CONCEPTS = 2;
-export const DEFAULT_GRAPH_SYMBOLS = 3;
-export const DEFAULT_DOC_MAX_DISTANCE = 0.5;
 /**
  * The connection string for the Postgres `compose.yaml` serves, on the port
  * it publishes: the candidate setup tries last among running servers, and
@@ -243,9 +218,9 @@ export const DEFAULT_PACK_TOKENS = 300_000;
 export const DEFAULT_PIN_COUNT = 8;
 export const DEFAULT_PIN_TOKENS = 2_000;
 /**
- * The retained head of each part's excluded candidates. Twelve is recall's
- * own over-fetch — `recallTurns + tailTurns` — and so the widest candidate
- * set any part produces under the defaults.
+ * The retained head of each part's excluded candidates: enough to name
+ * every Turn an eight-Turn tail evicted at its low-water mark, with room
+ * to spare.
  */
 export const DEFAULT_EXPLAIN_CANDIDATES = 12;
 export const DEFAULT_PACK_WARN_SHARE = 0.75;
@@ -272,9 +247,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_CAPTURE_FILE",
 	"PICHART_DATABASE_URL",
 	"PICHART_DOC_BUNDLE",
-	"PICHART_DOC_CONCEPTS",
 	"PICHART_DOC_DEADLINE_MS",
-	"PICHART_DOC_MAX_DISTANCE",
 	"PICHART_DOC_TOKENS",
 	"PICHART_EMBED",
 	"PICHART_EMBED_MODEL",
@@ -283,9 +256,7 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_GRAPHIFY",
 	"PICHART_GRAPH_DEADLINE_MS",
 	"PICHART_GRAPH_EXTRACT_DEADLINE_MS",
-	"PICHART_GRAPH_SYMBOLS",
 	"PICHART_GRAPH_TOKENS",
-	"PICHART_JUDGE",
 	"PICHART_LIVE",
 	"PICHART_OPENSPEC",
 	"PICHART_OPENING_TOKENS",
@@ -297,7 +268,6 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_RECALL_DEADLINE_MS",
 	"PICHART_RECALL_MAX_DISTANCE",
 	"PICHART_RECALL_TOKENS",
-	"PICHART_RECALL_TURNS",
 	"PICHART_RETAIN_DAYS",
 	"PICHART_SPECS",
 	"PICHART_TAIL_DEADLINE_MS",
@@ -305,6 +275,27 @@ export const SETTINGS: readonly string[] = [
 	"PICHART_TAIL_TOKENS",
 	"PICHART_TAIL_TURNS",
 ];
+
+/**
+ * Settings nothing reads any more, each with what took its place, so a
+ * session started with one set is told rather than left looking configured
+ * (ADR-0003).
+ */
+const RETIRED: Readonly<Record<string, string>> = {
+	PICHART_STORE_DIR:
+		"the Thread Store is a Postgres server now; run `/pi-chart setup`.",
+	PICHART_RECALL_TURNS:
+		"earlier Turns are searched with the recall_earlier_turns tool now, " +
+		"and PICHART_RECALL_TOKENS caps each result.",
+	PICHART_DOC_CONCEPTS:
+		"Concepts are searched with the search_documentation tool now, " +
+		"and PICHART_DOC_TOKENS caps each result.",
+	PICHART_GRAPH_SYMBOLS:
+		"structure is asked for with the codebase_structure tool now, " +
+		"and PICHART_GRAPH_TOKENS caps each result.",
+	PICHART_DOC_MAX_DISTANCE: "search_documentation has no distance cutoff.",
+	PICHART_JUDGE: "recall_across_conversations no longer asks a relevance judge.",
+};
 
 /**
  * The settings, from the environment and the connection setup saved.
@@ -331,15 +322,11 @@ export function loadConfig(
 				: `${name} is not read: this is pi-chart now, and its settings are named PICHART_*.`,
 		);
 	}
-	// The embedded store this named a directory for is gone; a session
-	// started with it set would look configured and use nothing it says.
-	// Tested by name rather than read: nothing reads it, so it is not in
-	// `SETTINGS`.
-	if ("PICHART_STORE_DIR" in env) {
-		problems.push(
-			"PICHART_STORE_DIR is not read: the Thread Store is a Postgres server now; " +
-				"run `/pi-chart setup`.",
-		);
+	// A retired setting still set would look configured and change nothing,
+	// so each is named with what took its place. Tested by name rather than
+	// read: nothing reads them, so none is in `SETTINGS`.
+	for (const [name, reason] of Object.entries(RETIRED)) {
+		if (name in env) problems.push(`${name} is not read: ${reason}`);
 	}
 	const supplied = env.PICHART_DATABASE_URL;
 	const storeOrigin: Config["storeOrigin"] =
@@ -354,20 +341,16 @@ export function loadConfig(
 		problems,
 		tailTurns: count(env.PICHART_TAIL_TURNS, DEFAULT_TAIL_TURNS),
 		tailLowWater: share(env.PICHART_TAIL_LOW_WATER, DEFAULT_TAIL_LOW_WATER),
-		recallTurns: count(env.PICHART_RECALL_TURNS, DEFAULT_RECALL_TURNS),
 		recallMaxDistance: distance(
 			env.PICHART_RECALL_MAX_DISTANCE,
 			DEFAULT_RECALL_MAX_DISTANCE,
 		),
-		docConcepts: count(env.PICHART_DOC_CONCEPTS, DEFAULT_DOC_CONCEPTS),
-		graphSymbols: count(env.PICHART_GRAPH_SYMBOLS, DEFAULT_GRAPH_SYMBOLS),
 		graphExtract: env.PICHART_GRAPH === "on",
 		graphExtractDeadlineMs: count(
 			env.PICHART_GRAPH_EXTRACT_DEADLINE_MS,
 			DEFAULT_GRAPH_EXTRACT_DEADLINE_MS,
 		),
 		specsVerify: env.PICHART_SPECS !== "off",
-		docMaxDistance: distance(env.PICHART_DOC_MAX_DISTANCE, DEFAULT_DOC_MAX_DISTANCE),
 		databaseUrl:
 			storeOrigin === "supplied"
 				? supplied
@@ -400,7 +383,6 @@ export function loadConfig(
 			env.PICHART_GRAPH_DEADLINE_MS,
 			DEFAULT_RETRIEVAL_DEADLINE_MS,
 		),
-		judge: judging(env.PICHART_JUDGE, problems),
 		retainDays: days(env.PICHART_RETAIN_DAYS, problems),
 	};
 }
@@ -420,9 +402,6 @@ type NumericSetting = {
  */
 const BUDGET_FIELDS: Record<string, NumericSetting> = {
 	tail: "tailTurns",
-	recall: "recallTurns",
-	docs: "docConcepts",
-	graph: "graphSymbols",
 	"tail-tokens": "tailTokens",
 	"recall-tokens": "recallTokens",
 	"opening-tokens": "openingTokens",
@@ -450,9 +429,8 @@ export function setBudget(
 		return {
 			ok: false,
 			reason:
-				`unknown budget "${name}"; expected tail, recall, docs, graph, ` +
-				`tail-tokens, recall-tokens, opening-tokens, docs-tokens, graph-tokens, ` +
-				`pack, pins or pins-tokens`,
+				`unknown budget "${name}"; expected tail, tail-tokens, recall-tokens, ` +
+				`opening-tokens, docs-tokens, graph-tokens, pack, pins or pins-tokens`,
 		};
 	}
 
@@ -505,19 +483,4 @@ function days(
 		return undefined;
 	}
 	return parsed;
-}
-
-/**
- * The relevance judge switch. An unrecognised value is off, and said aloud:
- * a typo in a switch someone reached for is likelier an attempt to stop
- * sending text than to start.
- */
-function judging(raw: string | undefined, problems: string[]): Config["judge"] {
-	if (raw === undefined || raw === "auto") return "auto";
-	if (raw === "off") return "off";
-	problems.push(
-		`PICHART_JUDGE is "${raw}", which is neither auto nor off. ` +
-			`Relevance judging stays off.`,
-	);
-	return "off";
 }

@@ -65,28 +65,6 @@ export interface HandlerContext {
 	sessionManager?: SessionView;
 	memory?: { status?: () => Promise<MemoryStatus> | MemoryStatus };
 	ui?: HarnessUI;
-	/**
-	 * The host's credential resolution: environment, every `.env` it loads,
-	 * and `/login`. Optional because it is outside the documented extension
-	 * surface; its absence means no key, which is the unjudged search.
-	 */
-	modelRegistry?: {
-		getApiKeyForProvider?: (
-			provider: string,
-			sessionId?: string,
-		) => Promise<string | undefined> | string | undefined;
-	};
-	/**
-	 * The session's current model, read per Call: a model switch takes
-	 * effect on the next one. Only the capability flags this extension
-	 * decides on are declared.
-	 */
-	model?: {
-		compat?: {
-			supportsMidConversationSystem?: boolean;
-			supportsTurnScopedSystem?: boolean;
-		};
-	};
 }
 
 export type ContextHandler = (
@@ -98,6 +76,28 @@ export type LifecycleHandler = (
 	event: unknown,
 	ctx: HandlerContext,
 ) => Promise<void>;
+
+/**
+ * Once per agent start, which is once per Turn, before the provider is
+ * called. `systemPrompt` is what the previous handler returned, or the
+ * harness's own entries for the first: a returned array is taken as the
+ * whole system prompt, so a handler appends rather than replaces.
+ */
+export interface BeforeAgentStartEvent {
+	/** The prompt the Turn is starting with. */
+	prompt: string;
+	systemPrompt: string[];
+}
+
+/** A string is taken as `[string]`; absent leaves the system prompt alone. */
+export interface BeforeAgentStartResult {
+	systemPrompt?: string | string[];
+}
+
+export type BeforeAgentStartHandler = (
+	event: BeforeAgentStartEvent,
+	ctx: HandlerContext,
+) => Promise<BeforeAgentStartResult | undefined>;
 
 /** A move of the leaf inside the Conversation's tree, by `/tree` or `/branch`. */
 export interface SessionTreeEvent {
@@ -199,9 +199,16 @@ export interface ToolDefinition {
 	label: string;
 	description: string;
 	parameters: unknown;
+	/**
+	 * The harness passes the session's context last, after an abort signal
+	 * and a progress callback this extension does not use.
+	 */
 	execute: (
 		id: string,
 		params: Record<string, unknown>,
+		signal?: AbortSignal,
+		onUpdate?: unknown,
+		ctx?: HandlerContext,
 	) => Promise<ToolResult>;
 }
 
@@ -217,6 +224,7 @@ export interface Logger {
 
 export interface ExtensionAPI {
 	on(event: "context", handler: ContextHandler): void;
+	on(event: "before_agent_start", handler: BeforeAgentStartHandler): void;
 	on(
 		event: "session_start" | "agent_end" | "session_shutdown",
 		handler: LifecycleHandler,

@@ -1,5 +1,7 @@
 # The tail evicts to a low-water mark, replayed from the Conversation
 
+Partly superseded by ADR-0015: the start is still replayed from the Store's Turn sizes, but the tail's content is the matching slice of the harness's live history, and a Store copy is used only for a Turn that history no longer holds. Evicted Turns are searched by the `recall_earlier_turns` tool rather than recalled into every Pack.
+
 The verbatim tail used to keep as many of the newest Turns as its Budget allowed. Each new Turn that pushed it over the Budget therefore moved its start forward. Each move changed the first message after the Briefing, so the tail was rewritten to the cache in full. In the 12-Turn benchmark (`docs/benchmarks/2026-10-13-token-usage-parts-follow-turn.json`) the start moved 5 times, and a simulation over the measured Turn sizes put the tail's rewritten tokens at 110k–133k per run.
 
 **The tail now gives up its oldest Turns only by Eviction.** Between Evictions the start does not move, and each new Turn is added behind it. When a new Turn would carry the tail past either Budget (tokens or count), the oldest Turns are dropped in one step until both are at or under the low-water mark. The mark is a share of each Budget, 0.6 by default. For the count Budget that share is rounded down, never below 1 Turn (8 × 0.6 → 4). Turns the tail has evicted become eligible for recall again.

@@ -1,5 +1,7 @@
 # Every Briefing stays where it was sent
 
+Superseded by ADR-0015: no Briefing is sent, so none is stored or sent again. The `pi-chart.briefing` Journal entries are ignored.
+
 Supersedes ADR-0010's "the next Call replaces that block".
 
 On Claude Opus 5.5 a thinking block stays valid only while everything sent before it is unchanged on later requests. Under ADR-0010 the Briefing sat before the thinking each Call produced, and the next Call replaced it. So the API dropped every thinking block in a pi-chart Conversation (53 drops over 11 Calls, none in plain omp; `openspec/changes/archive/2026-10-13-pack-parts-follow-the-turn/evidence/thinking-binding.md`). The model lost its own earlier reasoning on every Call and spent output tokens to re-derive it.

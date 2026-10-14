@@ -14,8 +14,13 @@ export interface CallAddress {
 	callIndex: number;
 }
 
-/** Where the verbatim tail of a Context Pack came from. */
-export type TailSource = "thread-store" | "harness-fallback";
+/**
+ * Where the verbatim tail of a Context Pack came from: `harness` when every
+ * tail Turn came from the harness's live history, `thread-store` when at
+ * least one was the Store's copy of a Turn the live history no longer held,
+ * `harness-fallback` when the Store's Turn sizes were unavailable.
+ */
+export type TailSource = "harness" | "thread-store" | "harness-fallback";
 
 /**
  * What the harness's own memory backend was doing while a Conversation ran,
@@ -28,30 +33,12 @@ export type TailSource = "thread-store" | "harness-fallback";
 export type MemoryBackendState = "off" | "active" | "unconfirmed";
 
 /**
- * How one Call sent its Briefing, and the earlier Briefings it sent again.
- * `kept` is a cleared, turn-scoped system message stored and re-sent by
- * later Calls; `replaced` is the fallback user message the next Call
- * replaces, used where the model or the harness can't keep one; `none` is
- * a Call that assembled nothing, which may still send earlier ones again.
- * Sizes in UTF-8 bytes: a cleared Briefing costs no tokens, so none of
- * this counts toward the pack size, a Budget, the Ceiling or the Floor.
- */
-export interface BriefingFigures {
-	mode: "kept" | "replaced" | "none";
-	/** Earlier Briefings this Call sent again. */
-	resent: number;
-	/** Their total size in UTF-8 bytes. */
-	resentBytes: number;
-	/** Earlier Briefings it could not send again: no stored text was found. */
-	missing: number;
-}
-
-/**
  * What one Call's Context Window was made of.
  *
  * `packTokens` and `floorTokens` come from the harness's own report and are
- * absent until it has answered. `approximateTokens` is ours, and is only ever
- * used to attribute a pack across its parts.
+ * absent until it has answered, less only `systemTokens`, which is ours.
+ * `approximateTokens` is ours, and is only ever used to attribute a pack
+ * across its parts.
  */
 export interface CallAccounting extends CallAddress {
 	at?: string;
@@ -61,37 +48,22 @@ export interface CallAccounting extends CallAddress {
 	floorTokens?: number;
 	/** True when assembly failed and the harness's own array was used. */
 	unassembled?: boolean;
-	/** Whether the tail came from the store or from the harness's own history. */
+	/** Where the verbatim tail came from. */
 	tailSource?: TailSource;
 	/** The Budgets in force for this Call, recorded even when unused. */
 	budgets?: {
 		tail: number;
-		recall: number;
 		/** Absent from Calls recorded before the Opening existed. */
 		opening?: number;
-		docs: number;
-		graph?: number;
 		pins?: number;
 	};
-	/** Candidates refused as not relevant enough, even when none survived. */
-	rejected?: number;
 	/**
-	 * Turns of the Conversation retrieval could not see, for want of a valid
-	 * vector. Absent on records written before it was recorded.
+	 * The estimated size of pi-chart's additions to this Call's system
+	 * prompt, taken out of the reported non-message size so the Floor is the
+	 * harness's own. Absent on records written before it was recorded, and
+	 * on Calls whose Pack was never assembled.
 	 */
-	unsearched?: number;
-	/**
-	 * Concepts the Doc Store could not rank, for want of a vector from the
-	 * model in use. Absent on records written before it was recorded.
-	 */
-	conceptsUnsearched?: number;
-	/**
-	 * The size of what preceded the Briefing — the tail and the Turn
-	 * in progress — which the harness caches through (ADR-0010). Before
-	 * ADR-0010, how much of the Pack led with the harness's own messages.
-	 * Absent on records written before it was recorded.
-	 */
-	leadingTokens?: number;
+	systemTokens?: number;
 	/** The Pack ceiling in force for this Call. Absent on older records. */
 	ceiling?: number;
 	/**
@@ -122,11 +94,6 @@ export interface CallAccounting extends CallAddress {
 	cacheRead?: number;
 	cacheWrite?: number;
 	inputTokens?: number;
-	/**
-	 * How this Call sent its Briefing and what it sent again. Absent on
-	 * records written before it was recorded — not zero.
-	 */
-	briefing?: BriefingFigures;
 }
 
 /** What one part of a pack contributed, as recorded at assembly time. */
@@ -135,14 +102,12 @@ export interface RecordedPart {
 	approximateTokens: number;
 	/** Always true: nothing reports per-part cost, so this is our estimate. */
 	approximate: true;
+	/** Where it was sent; absent means among the messages. */
+	placement?: "system-prompt";
 	/** How many Turns it carried. Absent on older records. */
 	carried?: number;
 	/** Turns this part carried, by position. Absent on older records. */
 	turnIndices?: number[];
-	/** Concepts this part carried, by id — identity, not count. */
-	conceptIds?: string[];
-	/** Symbols this part carried, by name — identity, not count. */
-	symbols?: string[];
 	/** Pins this part carried, by id — never their text, which the Journal holds. */
 	pinIds?: number[];
 	/**
@@ -156,8 +121,6 @@ export interface RecordedPart {
 	tokenBudget?: number;
 	/** How many candidates it chose from. */
 	candidates?: number;
-	/** How many were refused as insufficiently relevant. */
-	irrelevant?: number;
 	/**
 	 * Why it carried less than its candidates offered, by reason. Absent on
 	 * older records, and absent when nothing was excluded.
@@ -169,10 +132,6 @@ export interface RecordedPart {
 	 * Call unexplainable rather than one that excluded nothing.
 	 */
 	excludedCandidates?: ExcludedCandidate[];
-	/** The relevance threshold it selected against, where it had one. */
-	threshold?: number;
-	/** True where the part has no relevance threshold at all. */
-	unranked?: true;
 	/** Why it contributed nothing, where it contributed nothing. */
 	absent?: AbsenceCause;
 	/** What it would have carried had the pack ceiling not bound. */
@@ -216,7 +175,6 @@ export interface AccountingStore {
 		pack: Pack,
 		tailSource: TailSource,
 		memoryBackend: MemoryBackendState,
-		briefing?: BriefingFigures,
 	): Promise<void>;
 	recordUnassembled(
 		conversationId: string,
@@ -257,18 +215,14 @@ export interface AccountingStore {
 export function recordPart(part: {
 	source: PackSource;
 	approximateTokens: number;
+	placement?: "system-prompt";
 	carried?: number;
 	turnIndices?: number[];
-	conceptIds?: string[];
-	symbols?: string[];
 	pinIds?: number[];
 	budget?: Budget;
 	candidates?: number;
-	irrelevant?: number;
 	excluded?: PartExclusion;
 	excludedCandidates?: ExcludedCandidate[];
-	threshold?: number;
-	unranked?: true;
 	absent?: AbsenceCause;
 	withoutCeiling?: number;
 	shortened?: boolean;
@@ -278,23 +232,34 @@ export function recordPart(part: {
 		source: part.source,
 		approximateTokens: part.approximateTokens,
 		approximate: true,
+		placement: part.placement,
 		carried: part.carried,
 		turnIndices: part.turnIndices,
-		conceptIds: part.conceptIds,
-		symbols: part.symbols,
 		pinIds: part.pinIds,
 		budget: part.budget,
 		candidates: part.candidates,
-		irrelevant: part.irrelevant,
 		excluded: part.excluded,
 		excludedCandidates: part.excludedCandidates ?? [],
-		threshold: part.threshold,
-		unranked: part.unranked,
 		absent: part.absent,
 		withoutCeiling: part.withoutCeiling,
 		shortened: part.shortened,
 		droppedMessages: part.droppedMessages,
 	};
+}
+
+/**
+ * The Floor and the pack side of one reported window. The harness reports
+ * the system prompt inside one non-message figure, so pi-chart's additions
+ * to it are taken out by estimate: they belong to the pack, and the Floor is
+ * what the Assembler does not control. Never below zero — an estimate over
+ * the reported figure must not invent a negative Floor.
+ */
+export function splitWindow(
+	snapshot: ContextSnapshot,
+	systemTokens = 0,
+): { floorTokens: number; packTokens: number } {
+	const floorTokens = Math.max(0, snapshot.nonMessageTokens - systemTokens);
+	return { floorTokens, packTokens: snapshot.promptTokens - floorTokens };
 }
 
 /** Folds Calls into the Turns that contain them, in Turn order. */
@@ -355,7 +320,6 @@ export class MemoryAccounting implements AccountingStore {
 		pack: Pack,
 		tailSource: TailSource,
 		memoryBackend: MemoryBackendState,
-		briefing?: BriefingFigures,
 	): Promise<void> {
 		const call = this.at(conversationId, address);
 		call.at = new Date().toISOString();
@@ -363,14 +327,10 @@ export class MemoryAccounting implements AccountingStore {
 		call.approximateTokens = pack.approximateTokens;
 		call.tailSource = tailSource;
 		call.budgets = pack.budgets;
-		call.rejected = pack.rejected;
-		call.unsearched = pack.unsearched;
-		call.conceptsUnsearched = pack.conceptsUnsearched;
-		call.leadingTokens = pack.leadingTokens;
+		call.systemTokens = pack.systemTokens;
 		call.ceiling = pack.ceiling;
 		call.beforeCeiling = pack.beforeCeiling;
 		call.memoryBackend = memoryBackend;
-		call.briefing = briefing === undefined ? undefined : { ...briefing };
 	}
 
 	async recordUnassembled(
@@ -390,9 +350,12 @@ export class MemoryAccounting implements AccountingStore {
 	): Promise<void> {
 		for (const measurement of measurements) {
 			const call = this.at(conversationId, measurement);
-			call.floorTokens = measurement.snapshot.nonMessageTokens;
-			call.packTokens =
-				measurement.snapshot.promptTokens - measurement.snapshot.nonMessageTokens;
+			const { floorTokens, packTokens } = splitWindow(
+				measurement.snapshot,
+				call.systemTokens,
+			);
+			call.floorTokens = floorTokens;
+			call.packTokens = packTokens;
 			call.compactionEpoch = measurement.snapshot.compactionEpoch;
 			// Left alone where the provider reported nothing: a Call it did
 			// not price is unmeasured, and zeroes would read as free.

@@ -4,7 +4,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
-import { assemble } from "../src/assembler.ts";
+import { assemble, systemAdditions } from "../src/assembler.ts";
 import { loadConfig } from "../src/config.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import { readJournal } from "../src/journal.ts";
@@ -22,9 +22,33 @@ afterAll(() => location.dispose());
 
 let store: PostgresStore;
 
+/** A Pack whose Turn started with two Pins and the Opening in its system prompt. */
+function packWithSystem() {
+	const config = budgets({ tailTurns: 2, openingTokens: 2000 });
+	const system = systemAdditions(
+		{
+			pins: [
+				{ id: 1, text: "answer in British English" },
+				{ id: 2, text: "never touch the migrations" },
+			],
+			opening: "build the accounting report",
+			recallAvailable: true,
+		},
+		config,
+	);
+	return assemble(
+		{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }], system },
+		config,
+	);
+}
+
 describeStore("PostgresStore", () => {
+	// The store's own handle, for writing rows the way an earlier build did.
+	let sql: Sql;
+
 	beforeAll(async () => {
-		store = new PostgresStore(location.open());
+		sql = location.open();
+		store = new PostgresStore(sql);
 		await store.migrate();
 	});
 
@@ -133,7 +157,7 @@ describeStore("PostgresStore", () => {
 		await store.recordPack(
 			"conv-1",
 			{ turnIndex: 0, callIndex: 0 },
-			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 })),
+			assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2 })),
 			"thread-store",
 			"off",
 		);
@@ -155,27 +179,108 @@ describeStore("PostgresStore", () => {
 		expect(turn?.calls[0]?.parts[0]?.approximate).toBe(true);
 	});
 
-	test("what a call's curated part could not see survives the write", async () => {
-		const pack = assemble(
+	test("pi-chart's system-prompt additions leave the floor and join the pack", async () => {
+		const pack = packWithSystem();
+		expect(pack.systemTokens).toBeGreaterThan(0);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "harness", "off");
+		await store.recordMeasurements("conv-1", [
 			{
-				turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }],
-				conceptsUnsearched: 5,
+				turnIndex: 0,
+				callIndex: 0,
+				snapshot: { promptTokens: 29352, nonMessageTokens: 25588 },
 			},
-			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }),
-		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+		]);
 
 		const [turn] = await store.readAccounting("conv-1");
+		const call = turn?.calls[0];
+		expect(call?.systemTokens).toBe(pack.systemTokens);
+		expect(call?.floorTokens).toBe(25588 - pack.systemTokens);
+		expect((call?.floorTokens ?? 0) + (call?.packTokens ?? 0)).toBe(29352);
+	});
 
-		// Read back per Call, because a Conversation spanning a model change
-		// has Calls on both sides of the repair.
-		expect(turn?.calls[0]?.conceptsUnsearched).toBe(5);
+	test("the floor never goes below zero", async () => {
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, packWithSystem(), "harness", "off");
+		await store.recordMeasurements("conv-1", [
+			{ turnIndex: 0, callIndex: 0, snapshot: { promptTokens: 500, nonMessageTokens: 1 } },
+		]);
+
+		const [turn] = await store.readAccounting("conv-1");
+		expect(turn?.calls[0]?.floorTokens).toBe(0);
+		expect(turn?.calls[0]?.packTokens).toBe(500);
+	});
+
+	test("the pins and the opening read back placed in the system prompt", async () => {
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, packWithSystem(), "harness", "off");
+
+		const [turn] = await store.readAccounting("conv-1");
+		const parts = turn?.calls[0]?.parts ?? [];
+		const pinned = parts.find((part) => part.source === "pinned");
+		const opening = parts.find((part) => part.source === "opening");
+		expect(pinned?.placement).toBe("system-prompt");
+		expect(pinned?.pinIds).toEqual([1, 2]);
+		expect(opening?.placement).toBe("system-prompt");
+		expect(opening?.turnIndices).toEqual([0]);
+		expect(parts.find((part) => part.source === "current-turn")?.placement).toBeUndefined();
+		expect(turn?.calls[0]?.tailSource).toBe("harness");
+	});
+
+	test("system-prompt parts the hook never reached read back unhooked", async () => {
+		const pack = assemble(
+			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
+			budgets({ tailTurns: 2 }),
+		);
+		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "harness", "off");
+
+		const [turn] = await store.readAccounting("conv-1");
+		const parts = turn?.calls[0]?.parts ?? [];
+		expect(parts.find((part) => part.source === "pinned")?.absent).toBe("unhooked");
+		expect(parts.find((part) => part.source === "opening")?.absent).toBe("unhooked");
+	});
+
+	test("a call recorded before the system prompt carried anything still reads", async () => {
+		// What an earlier build left: retrieval refusal counts and the
+		// leading size in columns this version no longer names, a recalled
+		// part with relevance detail, and no placement anywhere.
+		const parts = [
+			{ source: "verbatim-tail", approximateTokens: 40, approximate: true, turnIndices: [3] },
+			{
+				source: "recalled",
+				approximateTokens: 120,
+				approximate: true,
+				turnIndices: [1],
+				irrelevant: 4,
+				threshold: 0.6,
+				excludedCandidates: [{ turnIndex: 2, reason: "irrelevant", distance: 0.7, threshold: 0.6 }],
+			},
+			{ source: "pinned", approximateTokens: 30, approximate: true, pinIds: [1] },
+		];
+		await sql`
+			INSERT INTO call_accounting
+				(conversation_id, turn_index, call_index, recorded_at, parts,
+				 approximate_tokens, pack_tokens, floor_tokens, unassembled,
+				 tail_source, rejected, unsearched, concepts_unsearched,
+				 leading_tokens)
+			VALUES ('old', 4, 0, now(), ${JSON.stringify(parts)}::jsonb,
+				190, 3764, 25588, FALSE, 'thread-store', 4, 1, 2, 40)`;
+
+		const [turn] = await store.readAccounting("old");
+		const call = turn?.calls[0];
+		expect(call?.floorTokens).toBe(25588);
+		expect(call?.packTokens).toBe(3764);
+		expect(call?.systemTokens).toBeUndefined();
+		expect(call?.parts.map((part) => part.source as string)).toEqual([
+			"verbatim-tail",
+			"recalled",
+			"pinned",
+		]);
+		// Pins recorded while they were a message read as a message.
+		expect(call?.parts.every((part) => part.placement === undefined)).toBe(true);
 	});
 
 	test("costs land on the calls a pack was recorded for, and nowhere else", async () => {
 		const pack = assemble(
 			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
-			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+			budgets({ tailTurns: 2 }),
 		);
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off");
@@ -204,98 +309,8 @@ describeStore("PostgresStore", () => {
 		expect([second?.inputTokens, second?.cacheRead, second?.cacheWrite]).toEqual([9, 7, 5]);
 	});
 
-	test("what precedes the Briefing survives the write", async () => {
-		const messages = [
-			{ role: "user", content: "earlier" },
-			{ role: "assistant", content: "answered" },
-			{ role: "user", content: "hi" },
-		];
-		const pack = assemble(
-			{ turns: reconstructTurns(messages) },
-			budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
-		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
-
-		const [turn] = await store.readAccounting("conv-1");
-
-		// The figure that explains a cache line: what was charged says
-		// nothing about why without it.
-		expect(pack.leadingTokens).toBeGreaterThan(0);
-		expect(turn?.calls[0]?.leadingTokens).toBe(pack.leadingTokens);
-	});
-
-	test("the briefings a call sent again survive the write", async () => {
-		const pack = assemble(
-			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
-			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
-		);
-		const briefing = { mode: "kept" as const, resent: 3, resentBytes: 1200, missing: 1 };
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off", briefing);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off", {
-			mode: "replaced",
-			resent: 0,
-			resentBytes: 0,
-			missing: 0,
-		});
-
-		const [turn] = await store.readAccounting("conv-1");
-
-		expect(turn?.calls[0]?.briefing).toEqual(briefing);
-		expect(turn?.calls[1]?.briefing).toEqual({ mode: "replaced", resent: 0, resentBytes: 0, missing: 0 });
-	});
-
-	test("a call recorded without briefing figures reads them back absent, not zero", async () => {
-		const pack = assemble(
-			{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
-			budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
-		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
-		await store.recordUnassembled("conv-1", { turnIndex: 1, callIndex: 0 }, "off");
-
-		const turns = await store.readAccounting("conv-1");
-
-		expect(turns[0]?.calls[0]).not.toHaveProperty("briefing", expect.anything());
-		expect(turns[0]?.calls[0]?.briefing).toBeUndefined();
-		expect(turns[1]?.calls[0]?.briefing).toBeUndefined();
-	});
-
-	test("briefings sent again leave the recorded pack size unchanged", async () => {
-		const messages = [
-			{ role: "user", content: "earlier" },
-			{ role: "assistant", content: "answered" },
-			{ role: "user", content: "hi" },
-		];
-		const pack = assemble(
-			{ turns: reconstructTurns(messages) },
-			budgets({ tailTurns: 4, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
-		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off", {
-			mode: "kept",
-			resent: 3,
-			resentBytes: 1200,
-			missing: 0,
-		});
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off", {
-			mode: "kept",
-			resent: 0,
-			resentBytes: 0,
-			missing: 0,
-		});
-
-		const [turn] = await store.readAccounting("conv-1");
-		const [resending, plain] = turn?.calls ?? [];
-
-		// A cleared Briefing adds no input tokens, so the pack size, and
-		// everything compared against it, comes from the Pack alone.
-		expect(resending?.approximateTokens).toBe(pack.approximateTokens);
-		expect(resending?.approximateTokens).toBe(plain?.approximateTokens);
-		expect(resending?.beforeCeiling).toBe(plain?.beforeCeiling);
-		expect(resending?.leadingTokens).toBe(plain?.leadingTokens);
-		expect(resending?.ceiling).toBe(plain?.ceiling);
-	});
-
 	test("accounting for a tool-using turn groups its calls", async () => {
-		const pack = assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }));
+		const pack = assemble({ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] }, budgets({ tailTurns: 2 }));
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
 		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 1 }, pack, "thread-store", "off");
 		await store.recordPack("conv-1", { turnIndex: 1, callIndex: 0 }, pack, "thread-store", "off");
@@ -568,7 +583,7 @@ describeServer("sessions sharing one server", () => {
 			const at = { turnIndex: 0, callIndex: 0 };
 			const pack = assemble(
 				{ turns: [{ prompt: "hi", messages: [{ role: "user", content: "hi" }] }] },
-				budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 0, graphSymbols: 0 }),
+				budgets({ tailTurns: 2 }),
 			);
 			await store.recordPack("costs", at, pack, "thread-store", "off");
 

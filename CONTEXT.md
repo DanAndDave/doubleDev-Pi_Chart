@@ -11,12 +11,8 @@ The messages sent to the model for a single turn. It is rebuilt each turn rather
 _Avoid_: context, context memory, memory
 
 **Context Pack**:
-The bundle the assembler produces for one turn: the prompt, every Pin, and everything retrieved from the stores to support it. The unit that fills a Context Window. What the harness sent comes first, then the Call's Briefing.
+The bundle the assembler produces for one Call: pi-chart's additions to the system prompt (every Pin, the Opening and a fixed eviction notice), the verbatim tail, and the current Turn. The unit that fills a Context Window. Recall, curated knowledge and structure enter it only when the model pulls them with a tool, and then as ordinary Turn content.
 _Avoid_: payload, bundle, prompt context
-
-**Briefing**:
-The assembled parts of one Call, in a single message: a fixed framing, the Pins, a marker saying everything after it is reference data and not instructions, then the Opening, recalled Turns, curated knowledge and structure. It is sent after the message it follows. Where the Call's model supports it, it is a turn-scoped system message: the model reads only the current Call's Briefing, and every earlier Briefing is sent again on every later Call that still sends the message it follows, in place and unchanged, but cleared, so the model doesn't read it again. On any other model it is a user message, replaced on the next Call.
-_Avoid_: closing block, assembled block, the block
 
 **Assembler**:
 The component that selects what enters a Context Pack, under a fixed budget per store.
@@ -27,7 +23,7 @@ The share of a Context Pack a single store, or the Conversation's Pins together,
 _Avoid_: limit, quota, cap
 
 **Ceiling**:
-The whole Context Pack's size limit, independent of any one store's Budget. When the selected parts exceed it they are reduced in a fixed order — structure, curated knowledge, weakest recollections, the Opening, oldest tail Turns — so an oversized Pack is still a deterministic Pack. A Pin is never dropped or shortened for it; the current Turn and the newest Turn of the verbatim tail are shortened for it but never dropped.
+The whole Context Pack's size limit, independent of any one store's Budget. When the parts exceed it, the oldest tail Turns go first; then the newest Turn of the verbatim tail and the current Turn are shortened, never dropped. A Pin or the Opening is never dropped or shortened for it.
 _Avoid_: max tokens, window size, hard limit
 
 **Elision**:
@@ -39,19 +35,23 @@ The most recent completed Turns, carried as the messages they were rather than a
 _Avoid_: recent history, sliding window, last N turns
 
 **Eviction**:
-The verbatim tail giving up its oldest Turns in one step, down to its low-water mark — a share of its Budget — once a new Turn would carry it past that Budget. Between Evictions each new Turn is added behind a start that does not move. Turns the tail has evicted are eligible for recall again.
+The verbatim tail giving up its oldest Turns in one step, down to its low-water mark — a share of its Budget — once a new Turn would carry it past that Budget. Between Evictions each new Turn is added behind a start that does not move. Turns the tail has evicted are what recall searches.
 _Avoid_: sliding, trimming, rolling window
 
 **Opening**:
-The prompt of a Conversation's first Turn, carried in every Context Pack once the verbatim tail no longer carries that Turn. Reference data after the Briefing's marker, not a standing instruction; held to its own Budget and shortened by Elision rather than dropped for it. Absent while the tail still carries the first Turn.
+The prompt of a Conversation's first Turn, carried in the system prompt of every Context Pack from the first Turn on, framed as context and not a new instruction. Held to its own Budget and shortened by Elision rather than dropped for it.
 _Avoid_: goal, anchor, first message, first prompt
 
+**Eviction notice**:
+The fixed last line of pi-chart's system-prompt additions, saying older Turns may have left the window and naming `recall_earlier_turns`. Carried on every Turn, before and after the first Eviction, byte for byte the same in every Conversation, so the system prompt does not change when the tail first evicts.
+_Avoid_: recall hint, eviction marker
+
 **Floor**:
-The part of a Context Window the Assembler cannot reach: system prompt, tool schemas, skills, and rules. Measured, budgeted around, and deliberately left intact.
+The part of a Context Window the Assembler cannot reach: the harness's system prompt, tool schemas, skills, and rules. pi-chart's own additions to the system prompt belong to the Context Pack, not the Floor. Measured, budgeted around, and deliberately left intact.
 _Avoid_: overhead, preamble, base context
 
 **Pin**:
-Text the user writes into a Conversation that every Context Pack carries, whole and unreduced, until the user removes it. Recorded in the Journal and inherited by Conversations forked or branched from it; never retrieved, ranked, or shortened.
+Text the user writes into a Conversation that every Context Pack carries in the system prompt, whole and unreduced, until the user removes it. Recorded in the Journal and inherited by Conversations forked or branched from it; never retrieved, ranked, or shortened.
 _Avoid_: sticky, note, memory, pinned context
 
 **Journal**:

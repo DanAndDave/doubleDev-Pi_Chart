@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { assemble } from "../src/assembler.ts";
+import { asRecollection, assemble } from "../src/assembler.ts";
 import { messageText, type HarnessMessage, type Turn } from "../src/messages.ts";
-import { budgets, UNBOUNDED } from "./fixtures.ts";
+import { approximateTokens } from "../src/tokens.ts";
+import { budgets } from "./fixtures.ts";
 
 /**
  * Elision, driven through `assemble`.
@@ -183,27 +184,6 @@ describe("shortening", () => {
 		expect(String(passed?.content).length).toBeLessThan(20_000);
 	});
 
-	test("a recollection too large for the room left is shortened, not dropped", () => {
-		const pack = assemble(
-			{
-				turns: [turnOf(9)],
-				recalled: [
-					{ turnIndex: 2, turn: turnOf(2, bulky(100, "a")) },
-					{ turnIndex: 5, turn: turnOf(5, bulky(4000, "b")) },
-				],
-			},
-			budgets({ recallTurns: 2, recallTokens: 3000 }),
-		);
-		const part = pack.parts.find((each) => each.source === "recalled");
-
-		// The second recollection does not fit the room the first left, and is
-		// carried shortened rather than lost: the Conversation has one Turn
-		// that said the thing.
-		expect(part?.turnIndices).toEqual([2, 5]);
-		expect(part?.shortened).toBe(true);
-		expect(part?.approximateTokens).toBeLessThanOrEqual(3000);
-	});
-
 	test("a prompt and assistant reasoning in the current turn are never shortened", () => {
 		// The newest tail Turn's are elided below its smallest form (ADR-0012);
 		// the current Turn's never are, whatever the ceiling.
@@ -246,56 +226,40 @@ describe("shortening", () => {
 	});
 
 	test("an oversized recollection is shortened rather than dropped", () => {
-		const pack = assemble(
-			{
-				turns: [turnOf(9)],
-				recalled: [{ turnIndex: 2, turn: turnOf(2, bulky(3000, "r")) }],
-			},
-			budgets({ recallTurns: 1, recallTokens: UNBOUNDED, packTokens: 600 }),
-		);
-		const part = pack.parts.find((each) => each.source === "recalled");
-		const text = messageText(part?.messages[0] ?? { role: "user" });
+		const message = asRecollection({ turnIndex: 2, turn: turnOf(2, bulky(3000, "r")) }, 600);
+		const text = messageText(message);
 
-		expect(part?.carried).toBe(1);
-		expect(part?.shortened).toBe(true);
+		expect(message.piChartShortened).toBe(true);
 		expect(text).toContain("[recalled from turn 2 of this conversation]");
 		expect(text).toContain("elided");
-		expect(pack.approximateTokens).toBeLessThanOrEqual(600);
+		expect(approximateTokens([message])).toBeLessThanOrEqual(600);
 	});
 
 	test("a recollection whose bulk is prose is shortened rather than dropped", () => {
 		// The fixture above is tool-result heavy, so it passes even when only
 		// outputs may give way. This Turn's bulk is the agent's own prose: if
-		// prose cannot give way the recollection never fits and `fit` drops
-		// it, which `context-assembly` forbids.
+		// prose cannot give way the recollection never fits its allowance,
+		// which `context-assembly` forbids.
 		const reasoning = "because ".repeat(3000);
-		const pack = assemble(
+		const message = asRecollection(
 			{
-				turns: [turnOf(9)],
-				recalled: [
-					{
-						turnIndex: 4,
-						turn: {
-							index: 4,
-							prompt: "why did that work",
-							messages: [
-								{ role: "user", content: "why did that work" },
-								{ role: "assistant", content: reasoning },
-							],
-						},
-					},
-				],
+				turnIndex: 4,
+				turn: {
+					index: 4,
+					prompt: "why did that work",
+					messages: [
+						{ role: "user", content: "why did that work" },
+						{ role: "assistant", content: reasoning },
+					],
+				},
 			},
-			budgets({ recallTurns: 1, recallTokens: 400 }),
+			400,
 		);
-		const part = pack.parts.find((each) => each.source === "recalled");
-		const text = messageText(part?.messages[0] ?? { role: "user" });
+		const text = messageText(message);
 
-		expect(part?.carried).toBe(1);
-		expect(part?.turnIndices).toEqual([4]);
-		expect(part?.shortened).toBe(true);
+		expect(message.piChartShortened).toBe(true);
 		expect(text).toContain("[recalled from turn 4 of this conversation]");
 		expect(text).toContain("elided");
-		expect(part?.approximateTokens).toBeLessThanOrEqual(400);
+		expect(approximateTokens([message])).toBeLessThanOrEqual(400);
 	});
 });

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	MemoryAccounting,
 	recordPart,
+	type TailSource,
 	type TurnAccounting,
 } from "../src/accounting.ts";
 import {
@@ -13,7 +14,7 @@ import {
 	setBudget,
 	type Config,
 } from "../src/config.ts";
-import { assemble } from "../src/assembler.ts";
+import { assemble, systemAdditions } from "../src/assembler.ts";
 import {
 	comparePacks,
 	inspectCall,
@@ -21,11 +22,8 @@ import {
 	summarise,
 } from "../src/inspection.ts";
 import type { Turn } from "../src/messages.ts";
-import { reconstructTurns } from "../src/turns.ts";
 import { renderCall, renderDiff } from "../src/report.ts";
-import { approximateTokens } from "../src/tokens.ts";
-import type { RecalledTurn } from "../src/thread-store.ts";
-import { budgets, settings, UNBOUNDED } from "./fixtures.ts";
+import { budgets, settings } from "./fixtures.ts";
 
 function turn(prompt: string, index?: number): Turn {
 	return {
@@ -38,25 +36,16 @@ function turn(prompt: string, index?: number): Turn {
 	};
 }
 
-function recalled(...indices: number[]): RecalledTurn[] {
-	return indices.map((turnIndex) => ({
-		turnIndex,
-		turn: turn(`older ${turnIndex}`, turnIndex),
-	}));
-}
-
 /** Records one Call and reads it back the way an inspector would. */
 async function record(options: {
 	turns: Turn[];
-	recalled?: RecalledTurn[];
 	tailTurns: number;
-	recallTurns: number;
 	measured?: { promptTokens: number; nonMessageTokens: number };
 	callIndex?: number;
 }): Promise<TurnAccounting[]> {
 	const store = new MemoryAccounting();
 	const address = { turnIndex: 0, callIndex: options.callIndex ?? 0 };
-	const pack = assemble({ turns: options.turns, recalled: options.recalled }, budgets({ tailTurns: options.tailTurns, recallTurns: options.recallTurns, docConcepts: 0, graphSymbols: 0 }));
+	const pack = assemble({ turns: options.turns }, budgets({ tailTurns: options.tailTurns }));
 	await store.recordPack("conv-1", address, pack, "thread-store", "off");
 	if (options.measured) {
 		await store.recordMeasurements("conv-1", [
@@ -67,43 +56,33 @@ async function record(options: {
 }
 
 const CONVERSATION = [turn("older", 1), turn("recent", 2), turn("current")];
+const LONGER = [turn("a", 1), turn("b", 2), turn("c", 3), turn("d", 4), turn("current")];
 
 describe("inspecting one call", () => {
 	test("itemises the pack by part", async () => {
-		const turns = await record({
-			turns: CONVERSATION,
-			recalled: recalled(7),
-			tailTurns: 2,
-			recallTurns: 2,
-		});
+		const turns = await record({ turns: CONVERSATION, tailTurns: 2 });
 
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
 		expect(
 			view.parts.filter((part) => part.carried > 0).map((part) => part.source),
-		).toEqual(["recalled", "verbatim-tail", "current-turn"]);
+		).toEqual(["verbatim-tail", "current-turn"]);
 	});
 
-	test("names the turns a recalled part carried", async () => {
-		const turns = await record({
-			turns: CONVERSATION,
-			recalled: recalled(7, 9),
-			tailTurns: 2,
-			recallTurns: 2,
-		});
+	test("names the turns the tail carried", async () => {
+		const turns = await record({ turns: CONVERSATION, tailTurns: 2 });
 
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
 		expect(
-			view.parts.find((part) => part.source === "recalled")?.turnIndices,
-		).toEqual([7, 9]);
+			view.parts.find((part) => part.source === "verbatim-tail")?.turnIndices,
+		).toEqual([1, 2]);
 	});
 
 	test("reports the floor's share of the window", async () => {
 		const turns = await record({
 			turns: CONVERSATION,
 			tailTurns: 2,
-			recallTurns: 0,
 			measured: { promptTokens: 30_000, nonMessageTokens: 24_000 },
 		});
 
@@ -115,11 +94,7 @@ describe("inspecting one call", () => {
 	});
 
 	test("an unmeasured call invents no figures", async () => {
-		const turns = await record({
-			turns: CONVERSATION,
-			tailTurns: 2,
-			recallTurns: 0,
-		});
+		const turns = await record({ turns: CONVERSATION, tailTurns: 2 });
 
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
@@ -129,21 +104,16 @@ describe("inspecting one call", () => {
 });
 
 describe("budget spend", () => {
-	test("a part trimmed by its budget says how many were dropped", async () => {
-		const turns = await record({
-			turns: CONVERSATION,
-			recalled: recalled(5, 6, 7, 8, 9),
-			tailTurns: 2,
-			recallTurns: 2,
-		});
+	test("a tail its count bound says what it left out", async () => {
+		const turns = await record({ turns: LONGER, tailTurns: 2 });
 
 		const part = inspectCall(turns[0]?.calls[0] ?? missing()).parts.find(
-			(each) => each.source === "recalled",
+			(each) => each.source === "verbatim-tail",
 		);
 
-		expect(part?.trimmed).toBe(true);
 		expect(part?.budget?.count).toBe(2);
-		expect(part?.dropped).toBe(3);
+		expect(part?.dropped).toBe(2);
+		expect(part?.excluded).toEqual({ evicted: 2 });
 	});
 
 	test("a call recorded before the budget was one value still reads", () => {
@@ -152,7 +122,7 @@ describe("budget spend", () => {
 			callIndex: 0,
 			parts: [
 				{
-					source: "recalled",
+					source: "verbatim-tail",
 					approximateTokens: 900,
 					approximate: true,
 					carried: 2,
@@ -165,7 +135,7 @@ describe("budget spend", () => {
 				},
 			],
 		});
-		const part = view.parts.find((each) => each.source === "recalled");
+		const part = view.parts.find((each) => each.source === "verbatim-tail");
 
 		expect(part?.budget).toEqual({ count: 4, tokens: 8_000 });
 		expect(part?.dropped).toBe(3);
@@ -177,7 +147,7 @@ describe("budget spend", () => {
 			callIndex: 0,
 			parts: [
 				{
-					source: "recalled",
+					source: "verbatim-tail",
 					approximateTokens: 900,
 					approximate: true,
 					carried: 2,
@@ -187,7 +157,7 @@ describe("budget spend", () => {
 				},
 			],
 		});
-		const part = view.parts.find((each) => each.source === "recalled");
+		const part = view.parts.find((each) => each.source === "verbatim-tail");
 
 		// Zero would read as a Budget the part overran, and `/pack` would
 		// call every such part irreducible.
@@ -197,15 +167,10 @@ describe("budget spend", () => {
 	});
 
 	test("a part under its budget is not reported as trimmed", async () => {
-		const turns = await record({
-			turns: CONVERSATION,
-			recalled: recalled(7),
-			tailTurns: 2,
-			recallTurns: 4,
-		});
+		const turns = await record({ turns: CONVERSATION, tailTurns: 4 });
 
 		const part = inspectCall(turns[0]?.calls[0] ?? missing()).parts.find(
-			(each) => each.source === "recalled",
+			(each) => each.source === "verbatim-tail",
 		);
 
 		expect(part?.trimmed).toBe(false);
@@ -216,37 +181,23 @@ describe("budget spend", () => {
 describe("comparing packs", () => {
 	test("names what entered and what left", async () => {
 		const before = inspectCall(
-			(await record({
-				turns: CONVERSATION,
-				recalled: recalled(7),
-				tailTurns: 2,
-				recallTurns: 1,
-			}))[0]?.calls[0] ?? missing(),
+			(await record({ turns: LONGER.slice(0, 4), tailTurns: 2 }))[0]?.calls[0] ?? missing(),
 		);
 		const after = inspectCall(
-			(await record({
-				turns: CONVERSATION,
-				recalled: recalled(9),
-				tailTurns: 2,
-				recallTurns: 1,
-			}))[0]?.calls[0] ?? missing(),
+			(await record({ turns: LONGER, tailTurns: 2 }))[0]?.calls[0] ?? missing(),
 		);
 
 		const diff = comparePacks(before, after);
 
-		expect(diff.entered.map((item) => item.turnIndex)).toContain(9);
-		expect(diff.left.map((item) => item.turnIndex)).toContain(7);
-		expect(diff.unchanged.map((item) => item.turnIndex)).toContain(1);
+		// Turn 4 was in progress, then finished into the tail beside Turn 3.
+		expect(diff.entered).toContainEqual({ source: "verbatim-tail", turnIndex: 4 });
+		expect(diff.left).toContainEqual({ source: "current-turn", turnIndex: 4 });
+		expect(diff.unchanged).toContainEqual({ source: "verbatim-tail", turnIndex: 3 });
 	});
 
 	test("a pack compared with itself has no difference", async () => {
 		const view = inspectCall(
-			(await record({
-				turns: CONVERSATION,
-				recalled: recalled(7),
-				tailTurns: 2,
-				recallTurns: 2,
-			}))[0]?.calls[0] ?? missing(),
+			(await record({ turns: CONVERSATION, tailTurns: 2 }))[0]?.calls[0] ?? missing(),
 		);
 
 		const diff = comparePacks(view, view);
@@ -259,7 +210,7 @@ describe("comparing packs", () => {
 describe("summarising a conversation", () => {
 	test("reports the floor's share across measured calls", async () => {
 		const store = new MemoryAccounting();
-		const pack = assemble({ turns: CONVERSATION, recalled: recalled(7) }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
+		const pack = assemble({ turns: CONVERSATION }, budgets({ tailTurns: 2 }));
 		for (const callIndex of [0, 1]) {
 			const address = { turnIndex: callIndex, callIndex: 0 };
 			await store.recordPack("conv-1", address, pack, "thread-store", "off");
@@ -276,19 +227,14 @@ describe("summarising a conversation", () => {
 	});
 
 	test("reports how much of each budget was spent", async () => {
-		const turns = await record({
-			turns: CONVERSATION,
-			recalled: recalled(5, 6, 7),
-			tailTurns: 2,
-			recallTurns: 1,
-		});
+		const turns = await record({ turns: LONGER, tailTurns: 1 });
 
 		const summary = summarise("conv-1", turns);
 
-		const recall = summary.budgetUse.find((each) => each.source === "recalled");
-		expect(recall?.budget).toBe(1);
-		expect(recall?.averageCarried).toBe(1);
-		expect(recall?.timesTrimmed).toBe(1);
+		const tail = summary.budgetUse.find((each) => each.source === "verbatim-tail");
+		expect(tail?.budget).toBe(1);
+		expect(tail?.averageCarried).toBe(1);
+		expect(tail?.timesTrimmed).toBe(1);
 	});
 
 	test("a conversation with nothing recorded summarises to nothing", () => {
@@ -303,9 +249,7 @@ describe("inspection is read-only", () => {
 	test("inspecting leaves the accounting unchanged", async () => {
 		const turns = await record({
 			turns: CONVERSATION,
-			recalled: recalled(7),
 			tailTurns: 2,
-			recallTurns: 2,
 			measured: { promptTokens: 30_000, nonMessageTokens: 24_000 },
 		});
 		const before = JSON.stringify(turns);
@@ -329,11 +273,7 @@ describe("changing a budget", () => {
 	function config(): Config {
 		return settings({
 			tailTurns: DEFAULT_TAIL_TURNS,
-			recallTurns: 4,
 			recallMaxDistance: 0.5,
-			docConcepts: 0,
-			docMaxDistance: 0.5,
-			graphSymbols: 0,
 			graphExtract: false,
 			specsVerify: false,
 			docBundle: "/unused",
@@ -343,26 +283,26 @@ describe("changing a budget", () => {
 	test("a valid budget replaces the one in force", () => {
 		const current = config();
 
-		const result = setBudget(current, "recall", "2");
+		const result = setBudget(current, "tail", "2");
 
 		expect(result).toEqual({ ok: true, budget: 2 });
-		expect(current.recallTurns).toBe(2);
+		expect(current.tailTurns).toBe(2);
 	});
 
 	test("zero is a budget, not a rejection", () => {
 		const current = config();
 
-		expect(setBudget(current, "recall", "0").ok).toBe(true);
-		expect(current.recallTurns).toBe(0);
+		expect(setBudget(current, "pins", "0").ok).toBe(true);
+		expect(current.pinCount).toBe(0);
 	});
 
 	test("something that is not a count is refused and changes nothing", () => {
 		const current = config();
 
-		const result = setBudget(current, "recall", "lots");
+		const result = setBudget(current, "tail", "lots");
 
 		expect(result.ok).toBe(false);
-		expect(current.recallTurns).toBe(4);
+		expect(current.tailTurns).toBe(DEFAULT_TAIL_TURNS);
 	});
 
 	test("a negative budget is refused", () => {
@@ -379,7 +319,22 @@ describe("changing a budget", () => {
 
 		expect(result.ok).toBe(false);
 		expect(current.tailTurns).toBe(DEFAULT_TAIL_TURNS);
-		expect(current.recallTurns).toBe(4);
+	});
+
+	test("the retired part budgets are refused, naming the keys that remain", () => {
+		const current = config();
+		const before = JSON.stringify(current);
+
+		for (const name of ["recall", "docs", "graph"]) {
+			const result = setBudget(current, name, "3");
+
+			expect(result.ok).toBe(false);
+			const reason = result.ok ? "" : result.reason;
+			for (const key of ["tail", "tail-tokens", "opening-tokens", "pack", "pins", "pins-tokens"]) {
+				expect(reason).toContain(key);
+			}
+		}
+		expect(JSON.stringify(current)).toBe(before);
 	});
 
 	test("the token budgets and the ceiling are settable by name", () => {
@@ -440,11 +395,7 @@ describe("parts whose turns have no recorded position", () => {
 		// Early in a Conversation the tail comes from the harness's own
 		// history, where Turns have no durable position yet.
 		const anonymous = [turn("older"), turn("recent"), turn("current")];
-		const turns = await record({
-			turns: anonymous,
-			tailTurns: 4,
-			recallTurns: 0,
-		});
+		const turns = await record({ turns: anonymous, tailTurns: 4 });
 
 		const part = inspectCall(turns[0]?.calls[0] ?? missing()).parts.find(
 			(each) => each.source === "verbatim-tail",
@@ -456,11 +407,7 @@ describe("parts whose turns have no recorded position", () => {
 
 	test("a summary counts what was carried, not what was named", async () => {
 		const anonymous = [turn("older"), turn("recent"), turn("current")];
-		const turns = await record({
-			turns: anonymous,
-			tailTurns: 4,
-			recallTurns: 0,
-		});
+		const turns = await record({ turns: anonymous, tailTurns: 4 });
 
 		const summary = summarise("conv-1", turns);
 
@@ -471,66 +418,14 @@ describe("parts whose turns have no recorded position", () => {
 	});
 
 	test("the budgets in force are recorded even when a part carried nothing", async () => {
-		const turns = await record({
-			turns: [turn("current")],
-			tailTurns: 5,
-			recallTurns: 3,
-		});
+		const turns = await record({ turns: [turn("current")], tailTurns: 5 });
 
 		const view = inspectCall(turns[0]?.calls[0] ?? missing());
 
 		expect(
-			view.parts.find((part) => part.source === "recalled")?.carried,
+			view.parts.find((part) => part.source === "verbatim-tail")?.carried,
 		).toBe(0);
-		expect(view.budgets).toEqual({ tail: 5, recall: 3, opening: 0, docs: 0, graph: 0, pins: 8 });
-	});
-});
-
-describe("relevance against budget", () => {
-	test("a part that found little is not reported as trimmed", async () => {
-		const store = new MemoryAccounting();
-		const pack = assemble({ turns: CONVERSATION, recalled: recalled(7), rejected: 4 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
-
-		const part = inspectCall(
-			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
-		).parts.find((each) => each.source === "recalled");
-
-		expect(part?.carried).toBe(1);
-		expect(part?.trimmed).toBe(false);
-		expect(part?.irrelevant).toBe(4);
-	});
-
-	test("a call where everything was rejected reports the part as refused", async () => {
-		const store = new MemoryAccounting();
-		const pack = assemble({ turns: CONVERSATION, recalled: [], rejected: 6 }, budgets({ tailTurns: 2, recallTurns: 3, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
-
-		const view = inspectCall(
-			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
-		);
-
-		const recalled = view.parts.find((part) => part.source === "recalled");
-		expect(recalled?.carried).toBe(0);
-		// Refused, not missing: six candidates were measured and none was
-		// near enough, which is not an empty Conversation.
-		expect(recalled?.absent).toBe("irrelevant");
-		expect(recalled?.irrelevant).toBe(6);
-		expect(view.budgets).toEqual({ tail: 2, recall: 3, opening: 0, docs: 0, graph: 0, pins: 8 });
-	});
-
-	test("trimming still outranks irrelevance when both happened", async () => {
-		const store = new MemoryAccounting();
-		const pack = assemble({ turns: CONVERSATION, recalled: recalled(5, 6, 7, 8), rejected: 2 }, budgets({ tailTurns: 2, recallTurns: 2, docConcepts: 0, graphSymbols: 0 }));
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
-
-		const part = inspectCall(
-			(await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing(),
-		).parts.find((each) => each.source === "recalled");
-
-		expect(part?.trimmed).toBe(true);
-		expect(part?.dropped).toBe(2);
-		expect(part?.irrelevant).toBe(2);
+		expect(view.budgets).toEqual({ tail: 5, opening: 0, pins: 8 });
 	});
 });
 
@@ -554,108 +449,38 @@ describe("configuration of the threshold", () => {
 	});
 });
 
-describe("the curated part in accounting", () => {
-	test("a call's parts are attributed separately, concepts included", () => {
-		const pack = assemble({
-				turns: reconstructTurns([
-					{ role: "user", content: "prompt 1" },
-					{ role: "assistant", content: "answer 1" },
-					{ role: "user", content: "now" },
-				]),
-				concepts: [
-					{
-						conceptId: "decisions/caching",
-						text: "We cache.",
-						trust: "unverified",
-						sectionIndex: 0,
-						sectionCount: 1,
-						stale: false,
-						distance: 0,
-					},
-				],
-			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 2, graphSymbols: 0 }));
-
-		const view = inspectCall({
-			turnIndex: 1,
-			callIndex: 0,
-			parts: pack.parts.map(recordPart),
-		});
-
-		const curated = view.parts.find((part) => part.source === "curated");
-		const tail = view.parts.find((part) => part.source === "verbatim-tail");
-		expect(curated?.carried).toBe(1);
-		expect(curated?.conceptIds).toEqual(["decisions/caching"]);
-		// Separately: each part is charged its own tokens, and together with
-		// the Briefing's framing and marker they cover what the pack sent.
-		const total = view.parts.reduce(
-			(sum, part) => sum + part.approximateTokens,
-			0,
+describe("the system prompt in the inspector", () => {
+	/** One Call whose Turn started with a Pin and the Opening in its system prompt. */
+	async function recorded() {
+		const config = budgets({ tailTurns: 2, openingTokens: 400 });
+		const system = systemAdditions(
+			{ pins: [{ id: 1, text: "use tabs" }], opening: "build it", recallAvailable: true },
+			config,
 		);
-		expect(total).toBeLessThan(pack.approximateTokens);
-		expect(approximateTokens(pack.messages)).toBeLessThanOrEqual(pack.approximateTokens);
-		expect(tail?.approximateTokens).toBeGreaterThan(0);
+		const store = new MemoryAccounting();
+		await store.recordPack(
+			"conv-1",
+			{ turnIndex: 0, callIndex: 0 },
+			assemble({ turns: CONVERSATION, system }, config),
+			"harness",
+			"off",
+		);
+		return inspectCall((await store.readAccounting("conv-1"))[0]?.calls[0] ?? missing());
+	}
+
+	test("the pins and the opening are shown as sent in the system prompt", async () => {
+		const text = renderCall(await recorded());
+		const lineOf = (source: string) =>
+			text.split("\n").find((line) => line.trimStart().startsWith(source));
+
+		expect(lineOf("pinned")).toContain("in the system prompt");
+		expect(lineOf("opening")).toContain("in the system prompt");
+		expect(lineOf("opening")).toContain("turns 0");
+		expect(lineOf("verbatim-tail")).not.toContain("system prompt");
 	});
 
-	test("the report names the concepts a call carried", () => {
-		const view = inspectCall({
-			turnIndex: 1,
-			callIndex: 0,
-			parts: [
-				recordPart({
-					source: "curated",
-					approximateTokens: 40,
-					carried: 1,
-					conceptIds: ["decisions/caching"],
-					budget: { count: 2, tokens: UNBOUNDED },
-					candidates: 1,
-				}),
-			],
-		});
-
-		expect(renderCall(view)).toContain("decisions/caching");
-	});
-});
-
-describe("comparing packs that carried concepts", () => {
-	const callWith = (conceptIds: string[]) =>
-		inspectCall({
-			turnIndex: 1,
-			callIndex: 0,
-			parts: [
-				recordPart({
-					source: "curated",
-					approximateTokens: 40,
-					carried: conceptIds.length,
-					conceptIds,
-					budget: { count: 2, tokens: UNBOUNDED },
-				}),
-			],
-		});
-
-	test("a concept that entered and one that left are both visible", () => {
-		const diff = comparePacks(
-			callWith(["decisions/caching"]),
-			callWith(["decisions/sharding"]),
-		);
-
-		expect(diff.entered.map((item) => item.conceptId)).toEqual([
-			"decisions/sharding",
-		]);
-		expect(diff.left.map((item) => item.conceptId)).toEqual([
-			"decisions/caching",
-		]);
-	});
-
-	test("a concept carried by both calls is unchanged", () => {
-		const diff = comparePacks(
-			callWith(["decisions/caching"]),
-			callWith(["decisions/caching"]),
-		);
-
-		expect(diff.entered).toEqual([]);
-		expect(diff.unchanged.map((item) => item.conceptId)).toEqual([
-			"decisions/caching",
-		]);
+	test("a tail wholly from the harness's live history adds no line", async () => {
+		expect(renderCall(await recorded())).not.toMatch(/^ {2}tail /m);
 	});
 });
 
@@ -668,11 +493,12 @@ describe("comparing packs as the opening enters", () => {
 				parts: [
 					recordPart({
 						source: "opening",
+						placement: "system-prompt",
 						approximateTokens: opened ? 30 : 0,
 						carried: opened ? 1 : 0,
 						turnIndices: opened ? [0] : [],
 						budget: { count: 1, tokens: 1_000 },
-						absent: opened ? undefined : "carried",
+						absent: opened ? undefined : "unhooked",
 					}),
 				],
 			});
@@ -684,101 +510,9 @@ describe("comparing packs as the opening enters", () => {
 	});
 });
 
-describe("the doc budget in accounting", () => {
-	test("is recorded even when nothing relevant was found", () => {
-		const pack = assemble({
-				turns: reconstructTurns([{ role: "user", content: "now" }]),
-				concepts: [],
-			}, budgets({ tailTurns: 2, recallTurns: 0, docConcepts: 3, graphSymbols: 0 }));
-
-		// The part is accounted for whether or not it carried anything: a
-		// Call that found nothing must not read like one where the Store
-		// was switched off, and the cause is what tells them apart.
-		const curated = pack.parts.find((part) => part.source === "curated");
-		expect(curated?.carried).toBe(0);
-		expect(curated?.absent).toBe("none");
-		expect(pack.budgets.docs).toBe(3);
-	});
-});
-
-describe("the structure part in accounting", () => {
-	test("is attributed separately and names the symbols it carried", () => {
-		const view = inspectCall({
-			turnIndex: 1,
-			callIndex: 0,
-			parts: [
-				recordPart({
-					source: "structure",
-					approximateTokens: 63,
-					carried: 1,
-					symbols: ["assemble()"],
-					budget: { count: 3, tokens: UNBOUNDED },
-					candidates: 2,
-				}),
-				recordPart({
-					source: "verbatim-tail",
-					approximateTokens: 120,
-					carried: 2,
-					turnIndices: [1, 2],
-				}),
-			],
-		});
-
-		const structure = view.parts.find((part) => part.source === "structure");
-		expect(structure?.symbols).toEqual(["assemble()"]);
-		expect(renderCall(view)).toContain("symbols assemble()");
-		// Two candidates, one carried, a Budget of three: supply ran out,
-		// the Budget did not bind, and the inspector must not claim it did.
-		expect(structure?.trimmed).toBe(false);
-		expect(structure?.dropped).toBe(1);
-	});
-
-	test("a structure part the budget bound is reported as trimmed", () => {
-		const view = inspectCall({
-			turnIndex: 1,
-			callIndex: 0,
-			parts: [
-				recordPart({
-					source: "structure",
-					approximateTokens: 200,
-					carried: 2,
-					symbols: ["a()", "b()"],
-					budget: { count: 2, tokens: UNBOUNDED },
-					candidates: 4,
-				}),
-			],
-		});
-
-		const structure = view.parts.find((part) => part.source === "structure");
-		expect(structure?.trimmed).toBe(true);
-		expect(structure?.dropped).toBe(2);
-	});
-
-	test("a symbol that entered or left is visible in a diff", () => {
-		const callWith = (symbols: string[]) =>
-			inspectCall({
-				turnIndex: 1,
-				callIndex: 0,
-				parts: [
-					recordPart({
-						source: "structure",
-						approximateTokens: 63,
-						carried: symbols.length,
-						symbols,
-					}),
-				],
-			});
-
-		const diff = comparePacks(callWith(["assemble()"]), callWith(["recall()"]));
-
-		expect(diff.entered.map((item) => item.symbol)).toEqual(["recall()"]);
-		expect(diff.left.map((item) => item.symbol)).toEqual(["assemble()"]);
-	});
-});
-
 describe("degradation in the inspector", () => {
-	test("a tail served by the harness rather than the store is visible", () => {
-		const view = inspectCall({
+	const tailFrom = (tailSource: TailSource) =>
+		inspectCall({
 			turnIndex: 1,
 			callIndex: 0,
 			parts: [
@@ -789,8 +523,11 @@ describe("degradation in the inspector", () => {
 					turnIndices: [1, 2],
 				}),
 			],
-			tailSource: "harness-fallback",
+			tailSource,
 		});
+
+	test("a tail served by the harness rather than the store is visible", () => {
+		const view = tailFrom("harness-fallback");
 
 		// A session spent running without the store must be visible
 		// afterwards rather than mysterious.
@@ -798,22 +535,17 @@ describe("degradation in the inspector", () => {
 		expect(renderCall(view)).toContain("not the store");
 	});
 
-	test("a tail served by the store is not remarked upon", () => {
-		const view = inspectCall({
-			turnIndex: 1,
-			callIndex: 0,
-			parts: [
-				recordPart({
-					source: "verbatim-tail",
-					approximateTokens: 100,
-					carried: 2,
-					turnIndices: [1, 2],
-				}),
-			],
-			tailSource: "thread-store",
-		});
+	test("a tail holding the store's copies says so", () => {
+		expect(renderCall(tailFrom("thread-store"))).toContain(
+			"some tail Turns are the store's copies",
+		);
+	});
 
-		expect(renderCall(view)).not.toContain("not the store");
+	test("a tail from the harness's live history is not remarked upon", () => {
+		const text = renderCall(tailFrom("harness"));
+
+		expect(text).not.toContain("not the store");
+		expect(text).not.toContain("store's copies");
 	});
 });
 
@@ -825,10 +557,9 @@ describe("pins in the record", () => {
 		pinBudget = { pinCount: 8, pinTokens: 2_000 },
 	) {
 		const store = new MemoryAccounting();
-		const pack = assemble(
-			{ turns: CONVERSATION, pins },
-			budgets({ tailTurns: 2, ...pinBudget }),
-		);
+		const config = budgets({ tailTurns: 2, ...pinBudget });
+		const system = systemAdditions({ pins, recallAvailable: true }, config);
+		const pack = assemble({ turns: CONVERSATION, system }, config);
 		await store.recordPack(
 			"conv-1",
 			{ turnIndex: 0, callIndex },
@@ -848,7 +579,9 @@ describe("pins in the record", () => {
 		const pinned = view.parts.find((part) => part.source === "pinned");
 
 		expect(pinned?.pinIds).toEqual([1, 3]);
-		expect(renderCall(view)).toMatch(/pinned +~\d+ tokens \(2 of 8\) pins #1, #3/);
+		expect(renderCall(view)).toMatch(
+			/pinned +~\d+ tokens in the system prompt \(2 of 8\) pins #1, #3/,
+		);
 		expect(JSON.stringify(recorded)).not.toContain("never push to main");
 	});
 

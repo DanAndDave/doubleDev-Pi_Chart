@@ -1,5 +1,4 @@
 import type {
-	BriefingFigures,
 	CallAccounting,
 	MemoryBackendState,
 	RecordedPart,
@@ -19,14 +18,12 @@ export interface PartView {
 	source: PackSource;
 	/** Local estimate of what it contributed. Approximate by construction. */
 	approximateTokens: number;
+	/** Where it was sent; absent means among the messages. */
+	placement?: "system-prompt";
 	/** How many Turns it carried, known even when their positions are not. */
 	carried: number;
 	/** Their positions, where those are known. Identity, not count. */
 	turnIndices: number[];
-	/** Which Concepts it carried, by id, where it carried any. */
-	conceptIds: string[];
-	/** Which symbols it carried, by name, where it carried any. */
-	symbols: string[];
 	/** Which Pins it carried, by id, where it carried any. */
 	pinIds: number[];
 	/**
@@ -40,32 +37,19 @@ export interface PartView {
 	trimmed: boolean;
 	/** How many candidates the Budget excluded. */
 	dropped: number;
-	/** How many were refused as insufficiently relevant, before any Budget. */
-	irrelevant: number;
 	/**
-	 * Why it carried less than its candidates offered, by reason: relevance,
-	 * the count Budget, the size Budget, the tail's Eviction, or the pack
-	 * ceiling. A pack that
-	 * carried little for want of room reads differently from one that
-	 * carried little for want of anything relevant.
+	 * Why it carried less than its candidates offered, by reason: the count
+	 * Budget, the size Budget, the tail's Eviction, or the pack ceiling.
 	 */
 	excluded?: PartExclusion;
 	/**
-	 * Which candidates it did not carry, by identity, nearest first.
+	 * Which candidates it did not carry, by identity, bounded to the head.
 	 * Empty where nothing was excluded; empty *and* `explained: false`
 	 * where the Call was recorded before identities were retained.
 	 */
 	excludedCandidates: ExcludedCandidate[];
 	/** Whether this part's record names what it excluded at all. */
 	explained: boolean;
-	/** The relevance threshold it selected against, where it had one. */
-	threshold?: number;
-	/**
-	 * True where the part is recorded as having no relevance threshold. A
-	 * part that cannot refuse for irrelevance is not a part that refused
-	 * nothing, and `irrelevant: 0` alone cannot say which this is.
-	 */
-	unranked: boolean;
 	/** Why it contributed nothing, where it contributed nothing. */
 	absent?: AbsenceCause;
 	/** What it would have carried without the ceiling, where that bound. */
@@ -92,37 +76,10 @@ export interface CallView {
 	/** The Budgets in force, recorded even where a part carried nothing. */
 	budgets?: {
 		tail: number;
-		recall: number;
 		/** Absent from Calls recorded before the Opening existed. */
 		opening?: number;
-		docs: number;
-		graph?: number;
 		pins?: number;
 	};
-	/**
-	 * Candidates refused as not relevant enough. Reported on the Call, so it
-	 * survives the case where nothing was relevant and there is no recalled
-	 * part to carry it.
-	 */
-	rejected: number;
-	/**
-	 * Turns of the Conversation retrieval could not see, for want of a valid
-	 * vector. A recall thinned by re-embedding reads differently from one
-	 * where nothing was relevant.
-	 */
-	unsearched: number;
-	/**
-	 * Concepts the Doc Store could not rank, for want of a vector from the
-	 * model in use. Curated knowledge thinned by a model change reads
-	 * differently from a bundle with nothing relevant in it.
-	 */
-	conceptsUnsearched: number;
-	/**
-	 * The size of what preceded the Briefing — the tail and the Turn
-	 * in progress — which the harness caches through (ADR-0010). Absent on
-	 * records that predate it.
-	 */
-	leadingTokens?: number;
 	/** The Pack ceiling in force. Absent on records that predate it. */
 	ceiling?: number;
 	/** What the parts came to before the ceiling reduced them. */
@@ -172,11 +129,6 @@ export interface CallView {
 	 * the Floor has taken its share, over the Pack's own size.
 	 */
 	cachedPackShare?: number;
-	/**
-	 * How this Call sent its Briefing and what it sent again. Absent on
-	 * records that predate it, which is not a Call that re-sent nothing.
-	 */
-	briefing?: BriefingFigures;
 	/** Whether any part of this Call names what it excluded. */
 	explained: boolean;
 }
@@ -188,12 +140,10 @@ export interface PackDiff {
 	unchanged: PackItem[];
 }
 
-/** One thing a pack carried: a Turn by position, a Concept by id, a Pin by id. */
+/** One thing a pack carried: a Turn by position, or a Pin by id. */
 export interface PackItem {
 	source: PackSource;
 	turnIndex?: number;
-	conceptId?: string;
-	symbol?: string;
 	pinId?: number;
 }
 
@@ -224,25 +174,17 @@ export interface ConversationSummary {
 		callIndex: number;
 		state: MemoryBackendState;
 	}[];
-	/**
-	 * How many Calls sent their Briefing each way, and how many earlier
-	 * Briefings went missing across the Conversation. Absent where no Call
-	 * recorded the figures.
-	 */
-	briefings?: { kept: number; replaced: number; missing: number };
 	/** Per part: how much of its Budget it typically spent. */
 	budgetUse: {
 		source: PackSource;
 		averageCarried: number;
-		/** How many candidates were typically refused as irrelevant. */
-		averageIrrelevant: number;
 		budget?: number;
 		timesTrimmed: number;
 	}[];
 }
 
 /**
- * Reads recorded accounting back as something a person can judge.
+ * Reads recorded accounting back as something a person can weigh.
  *
  * Pure: every function here takes recorded accounting and returns a view of
  * it, so inspecting can never alter what it inspects.
@@ -283,10 +225,6 @@ export function inspectCall(call: CallAccounting): CallView {
 		unassembled: call.unassembled === true,
 		tailSource: call.tailSource,
 		budgets: call.budgets,
-		rejected: call.rejected ?? 0,
-		unsearched: call.unsearched ?? 0,
-		conceptsUnsearched: call.conceptsUnsearched ?? 0,
-		leadingTokens: call.leadingTokens,
 		ceiling: call.ceiling,
 		beforeCeiling: call.beforeCeiling,
 		compactionEpoch: call.compactionEpoch,
@@ -295,7 +233,6 @@ export function inspectCall(call: CallAccounting): CallView {
 		cacheWrite: call.cacheWrite,
 		inputTokens: call.inputTokens,
 		cachedPackShare,
-		briefing: call.briefing,
 		// Set by `inspectConversation`, which is the only place that can
 		// see the Call before this one: a compaction is a change of epoch,
 		// and one Call alone has nothing to have changed from.
@@ -316,8 +253,6 @@ export function inspectCall(call: CallAccounting): CallView {
 
 function viewPart(part: RecordedPart): PartView {
 	const turnIndices = part.turnIndices ?? [];
-	const conceptIds = part.conceptIds ?? [];
-	const symbols = part.symbols ?? [];
 	// Absent on every Call recorded before Pins existed: those read as
 	// carrying none, and nothing migrates them (ADR-0002).
 	const pinIds = part.pinIds ?? [];
@@ -331,24 +266,19 @@ function viewPart(part: RecordedPart): PartView {
 	const budget = budgetOf(part);
 	return {
 		source: part.source,
-		symbols,
-		pinIds,
 		approximateTokens: part.approximateTokens,
+		placement: part.placement,
 		carried,
 		turnIndices,
-		conceptIds,
+		pinIds,
 		budget,
 		candidates,
-		// Trimmed means the Budget bound it, not merely that supply ran out
-		// or that nothing was relevant enough to carry.
+		// Trimmed means the Budget bound it, not merely that supply ran out.
 		trimmed: dropped > 0 && budget !== undefined && carried >= budget.count,
 		dropped,
-		irrelevant: part.irrelevant ?? 0,
 		excluded: part.excluded,
 		excludedCandidates: part.excludedCandidates ?? [],
 		explained: part.excludedCandidates !== undefined,
-		threshold: part.threshold,
-		unranked: part.unranked === true,
 		absent: part.absent,
 		withoutCeiling: part.withoutCeiling,
 		shortened: part.shortened === true ? true : undefined,
@@ -380,9 +310,8 @@ export function inspectConversation(turns: TurnAccounting[]): CallView[] {
 /**
  * What entered, left, and stayed between two packs.
  *
- * Compared by what they carried rather than by size: a recollection that
- * flickers in and out between Calls is the most likely way recall fails, and
- * only content-level comparison makes that visible.
+ * Compared by what they carried rather than by size: a Turn the tail
+ * evicted, or a Pin added between Turns, is visible only as content.
  */
 export function comparePacks(before: CallView, after: CallView): PackDiff {
 	const beforeItems = itemsOf(before);
@@ -405,14 +334,6 @@ function itemsOf(view: CallView): Map<string, PackItem> {
 	for (const part of view.parts) {
 		for (const turnIndex of part.turnIndices) {
 			items.set(`${part.source}:${turnIndex}`, { source: part.source, turnIndex });
-		}
-		// Concepts flicker more than recollections, because the query
-		// changes every prompt — so the diff has to see them too.
-		for (const conceptId of part.conceptIds) {
-			items.set(`${part.source}:${conceptId}`, { source: part.source, conceptId });
-		}
-		for (const symbol of part.symbols) {
-			items.set(`${part.source}:${symbol}`, { source: part.source, symbol });
 		}
 		for (const pinId of part.pinIds) {
 			items.set(`${part.source}:#${pinId}`, { source: part.source, pinId });
@@ -458,15 +379,6 @@ export function summarise(
 		);
 	}
 
-	const briefed = calls.flatMap((call) => (call.briefing ? [call.briefing] : []));
-	if (briefed.length > 0) {
-		summary.briefings = {
-			kept: briefed.filter((briefing) => briefing.mode === "kept").length,
-			replaced: briefed.filter((briefing) => briefing.mode === "replaced").length,
-			missing: briefed.reduce((sum, briefing) => sum + briefing.missing, 0),
-		};
-	}
-
 	if (measured.length === 0) return summary;
 
 	summary.averagePackTokens = mean(measured.map((call) => call.packTokens ?? 0));
@@ -487,7 +399,6 @@ function budgetUse(calls: CallView[]): ConversationSummary["budgetUse"] {
 	return [...bySource.entries()].map(([source, parts]) => ({
 		source,
 		averageCarried: mean(parts.map((part) => part.carried)),
-		averageIrrelevant: mean(parts.map((part) => part.irrelevant)),
 		// The Budget most recently in force: an average across a mid-session
 		// change would describe a Budget that never existed.
 		budget: parts.findLast((part) => part.budget !== undefined)?.budget?.count,
@@ -576,47 +487,51 @@ export interface Explanation {
 	unexplainable: boolean;
 	/** Matching content the Call did carry, by identity. */
 	carried: PackItem[];
-	/** Matching candidates it excluded, nearest first. */
+	/** Matching candidates it excluded, in the order each part's ledger holds them. */
 	excluded: Considered[];
+	/** The named part, where it contributed nothing, with the reason. */
+	absent: { source: PackSource; cause: AbsenceCause }[];
 }
 
 /**
  * Why a Call did not carry what a user asks about.
  *
  * Matched against identities, because identities are all the record holds:
- * a Turn by its position, a Concept by its id, a symbol by its name. The
- * text of what was refused stays in the Journal and the bundle, which is
- * the point — Accounting explains, it does not replay.
+ * a Turn by its position (`4`, `turn 4`), a Pin by its id (`#2`, `pin 2`),
+ * or a part by name (`opening`, `pins`). The text of what was left out
+ * stays in the Journal, which is the point — Accounting explains, it does
+ * not replay.
  */
 export function explain(call: CallView, subject: string): Explanation {
 	const wanted = subject.trim().toLowerCase();
 	const asTurn = /^(?:turn\s+)?(\d+)$/.exec(wanted);
+	const asPin = /^(?:pins?\s*)?#(\d+)$|^pins?\s+(\d+)$/.exec(wanted);
 	const turnIndex = asTurn ? Number(asTurn[1]) : undefined;
+	const pinId = asPin ? Number(asPin[1] ?? asPin[2]) : undefined;
+	const named: PackSource | undefined =
+		wanted === "opening" || wanted === "the opening"
+			? "opening"
+			: asPin || /^(?:pins?|pinned)$/.test(wanted)
+				? "pinned"
+				: undefined;
 
-	// A number means a Turn and nothing else. Matching it as text too
-	// would answer "why not turn 0" with every Concept whose id happens
-	// to contain a zero, which is an answer about something else.
-	const matches = (item: { turnIndex?: number; conceptId?: string; symbol?: string }) =>
+	const matches = (item: PackItem) =>
 		turnIndex !== undefined
 			? item.turnIndex === turnIndex
-			: (item.conceptId !== undefined &&
-					item.conceptId.toLowerCase().includes(wanted)) ||
-				(item.symbol !== undefined && item.symbol.toLowerCase().includes(wanted));
+			: pinId !== undefined
+				? item.source === "pinned" && item.pinId === pinId
+				: item.source === named;
 
+	// In ledger order: each part already named its exclusions in the order
+	// it made them, and nothing here ranks one against another.
 	const excluded: Considered[] = [];
 	for (const part of call.parts) {
 		for (const candidate of part.excludedCandidates) {
-			if (matches(candidate)) excluded.push({ source: part.source, candidate });
+			if (matches({ source: part.source, turnIndex: candidate.turnIndex })) {
+				excluded.push({ source: part.source, candidate });
+			}
 		}
 	}
-	// Nearest first across the parts that considered it, so the answer
-	// reads as a ranking rather than as an order of assembly. A candidate
-	// with no distance at all leads: recall's Budget exclusions carry
-	// none — only the Store that ranked them knew it — and a candidate
-	// nobody can place is the one most worth looking at by hand.
-	excluded.sort(
-		(a, b) => (a.candidate.distance ?? -1) - (b.candidate.distance ?? -1),
-	);
 
 	return {
 		subject: subject.trim(),
@@ -625,5 +540,10 @@ export function explain(call: CallView, subject: string): Explanation {
 		unexplainable: !call.explained,
 		carried: [...itemsOf(call).values()].filter(matches),
 		excluded,
+		absent: call.parts.flatMap((part) =>
+			part.source === named && part.absent !== undefined
+				? [{ source: part.source, cause: part.absent }]
+				: [],
+		),
 	};
 }

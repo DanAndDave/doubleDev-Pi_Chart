@@ -8,10 +8,10 @@ import {
 	MemoryAccounting,
 	recordPart,
 	type MemoryBackendState,
+	type RecordedPart,
 	type TurnAccounting,
 } from "../src/accounting.ts";
-import { assemble } from "../src/assembler.ts";
-import type { ConceptHit } from "../src/doc-index.ts";
+import { assemble, systemAdditions } from "../src/assembler.ts";
 import {
 	explain,
 	inspectCall,
@@ -28,7 +28,6 @@ import {
 	renderExplanation,
 	renderSummary,
 } from "../src/report.ts";
-import type { RecalledTurn, TurnMiss } from "../src/thread-store.ts";
 import { budgets } from "./fixtures.ts";
 
 function turn(prompt: string, index?: number, body = `answer to ${prompt}`): Turn {
@@ -39,29 +38,6 @@ function turn(prompt: string, index?: number, body = `answer to ${prompt}`): Tur
 			{ role: "user", content: prompt },
 			{ role: "assistant", content: body },
 		],
-	};
-}
-
-function recalled(...indices: number[]): RecalledTurn[] {
-	return indices.map((turnIndex) => ({
-		turnIndex,
-		turn: turn(`older ${turnIndex}`, turnIndex),
-	}));
-}
-
-function misses(...pairs: [number, number][]): TurnMiss[] {
-	return pairs.map(([turnIndex, distance]) => ({ turnIndex, distance }));
-}
-
-function concept(conceptId: string, text: string, distance: number): ConceptHit {
-	return {
-		conceptId,
-		text,
-		trust: "unverified",
-		stale: false,
-		distance,
-		sectionIndex: 0,
-		sectionCount: 1,
 	};
 }
 
@@ -81,253 +57,126 @@ async function viewOf(
 	return inspectCall(call);
 }
 
+/** A Call whose Turn started with `pins` and `opening` in its system prompt. */
+function withSystem(
+	pins: { id: number; text: string }[],
+	opening: string | undefined,
+	config: Parameters<typeof assemble>[1],
+): Promise<CallView> {
+	const system = systemAdditions({ pins, opening, recallAvailable: true }, config);
+	return viewOf({ turns: CONVERSATION, system }, config);
+}
+
 function partOf(view: CallView, source: string) {
 	const part = view.parts.find((each) => each.source === source);
 	if (!part) throw new Error(`no ${source} part`);
 	return part;
 }
 
-describe("the rejected-candidate ledger", () => {
-	test("a refused turn reads back by position with its distance", async () => {
-		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				recalled: recalled(7),
-				rejected: 2,
-				recallMisses: misses([4, 0.61], [5, 0.58]),
-			},
-			budgets({ tailTurns: 2, recallTurns: 2, recallMaxDistance: 0.52 }),
-		);
+describe("the excluded-candidate ledger", () => {
+	test("an evicted turn reads back by position", async () => {
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1 }));
 
-		const refused = partOf(view, "recalled").excludedCandidates;
-		expect(refused).toEqual([
-			{ turnIndex: 5, reason: "irrelevant", distance: 0.58, threshold: 0.52 },
-			{ turnIndex: 4, reason: "irrelevant", distance: 0.61, threshold: 0.52 },
+		expect(partOf(view, "verbatim-tail").excludedCandidates).toEqual([
+			{ turnIndex: 1, reason: "evicted" },
 		]);
-	});
-
-	test("what excluded a candidate is distinguishable per candidate", async () => {
-		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				recalled: recalled(7, 8),
-				rejected: 1,
-				recallMisses: misses([4, 0.61]),
-			},
-			budgets({ tailTurns: 2, recallTurns: 1, recallMaxDistance: 0.52 }),
-		);
-
-		expect(partOf(view, "recalled").excludedCandidates).toEqual([
-			{ turnIndex: 8, reason: "count", tokens: undefined, budget: 1 },
-			{ turnIndex: 4, reason: "irrelevant", distance: 0.61, threshold: 0.52 },
-		]);
-	});
-
-	test("the nearest are kept to the bound and the rest survive as counts", async () => {
-		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				recalled: recalled(7),
-				rejected: 4,
-				recallMisses: misses([4, 0.71], [5, 0.55], [6, 0.61], [9, 0.9]),
-			},
-			budgets({
-				tailTurns: 2,
-				recallTurns: 2,
-				recallMaxDistance: 0.52,
-				explainCandidates: 2,
-			}),
-		);
-
-		const part = partOf(view, "recalled");
-		expect(part.excludedCandidates.map((each) => each.turnIndex)).toEqual([5, 6]);
-		// The two beyond the bound are not named, and not lost either.
-		expect(part.excluded?.irrelevant).toBe(4);
 	});
 
 	test("a bound of zero names nothing and still counts everything", async () => {
 		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				recalled: recalled(7),
-				rejected: 2,
-				recallMisses: misses([4, 0.61], [5, 0.58]),
-			},
-			budgets({ tailTurns: 2, recallTurns: 2, explainCandidates: 0 }),
+			{ turns: CONVERSATION },
+			budgets({ tailTurns: 1, explainCandidates: 0 }),
 		);
 
-		const part = partOf(view, "recalled");
+		const part = partOf(view, "verbatim-tail");
 		expect(part.excludedCandidates).toEqual([]);
 		// Named nothing, but the Call is still one that kept a ledger.
 		expect(part.explained).toBe(true);
-		expect(part.excluded?.irrelevant).toBe(2);
+		expect(part.excluded?.evicted).toBe(1);
 	});
 
-	test("no refused text is retained, for a turn or for a concept", async () => {
+	test("no excluded text is retained, for a turn, a pin or the opening", async () => {
 		const store = new MemoryAccounting();
-		const pack = assemble(
+		const config = budgets({ tailTurns: 1, openingTokens: 3 });
+		const system = systemAdditions(
 			{
-				turns: CONVERSATION,
-				recalled: recalled(7, 8),
-				concepts: [
-					concept("decisions/caching", "We cache parsed configuration.", 0.2),
-					concept("decisions/retention", "SECRET retention wording.", 0.31),
-				],
-				conceptMisses: [{ conceptId: "decisions/rejected", distance: 0.7 }],
-				conceptsRejected: 1,
+				pins: [{ id: 1, text: "SECRET pin wording" }],
+				opening: "SECRET opening wording that will not fit",
+				recallAvailable: true,
 			},
-			budgets({ tailTurns: 1, recallTurns: 1, docConcepts: 1, docTokens: 400 }),
+			config,
 		);
-		await store.recordPack("conv-1", { turnIndex: 0, callIndex: 0 }, pack, "thread-store", "off");
+		const conversation = [turn("older", 1, "SECRET answer"), turn("recent", 2), turn("current", 3)];
+		await store.recordPack(
+			"conv-1",
+			{ turnIndex: 0, callIndex: 0 },
+			assemble({ turns: conversation, system }, config),
+			"thread-store",
+			"off",
+		);
 
 		const [recordedTurn] = await store.readAccounting("conv-1");
 		const written = JSON.stringify(recordedTurn?.calls[0]?.parts);
-		expect(written).toContain("decisions/retention");
-		// The section that matched is in the bundle; the ledger holds its
-		// identity and nothing it said.
-		expect(written).not.toContain("SECRET retention wording");
-		expect(written).not.toContain("answer to older 8");
+		expect(written).toContain('"pinIds":[1]');
+		expect(written).not.toContain("SECRET");
 	});
 
 	test("a call recorded before the ledger existed is unexplainable", () => {
 		const view = inspectCall({
 			turnIndex: 4,
 			callIndex: 0,
-			// As `recordPart` wrote it before this slice: no ledger field.
+			// As `recordPart` wrote it before the ledger: no ledger field.
 			parts: [
 				{
-					source: "recalled",
+					source: "verbatim-tail",
 					approximateTokens: 120,
 					approximate: true,
 					carried: 1,
 					candidates: 4,
-					irrelevant: 3,
 				},
 			],
 		});
 
 		expect(view.explained).toBe(false);
-		expect(partOf(view, "recalled").excludedCandidates).toEqual([]);
+		expect(partOf(view, "verbatim-tail").excludedCandidates).toEqual([]);
 		expect(explain(view, "turn 9").unexplainable).toBe(true);
 	});
 });
 
 describe("a part that contributed nothing", () => {
-	const nothing = (
-		input: Parameters<typeof assemble>[0],
-		config: Parameters<typeof assemble>[1],
-		source: string,
-	) => assemble(input, config).parts.find((part) => part.source === source)?.absent;
+	test("each cause of an absent opening reads back distinctly", async () => {
+		const on = budgets({ tailTurns: 1, openingTokens: 400 });
+		const failed = systemAdditions(
+			{ pins: [], unavailable: "failed", recallAvailable: true },
+			on,
+		);
+		const views = [
+			await viewOf({ turns: CONVERSATION }, on),
+			await withSystem([], "", on),
+			await withSystem([], undefined, on),
+			await viewOf({ turns: CONVERSATION, system: failed }, on),
+			await withSystem([], "a prompt too long for a three-token budget", budgets({ tailTurns: 1, openingTokens: 3 })),
+			await withSystem([], "the request", budgets({ tailTurns: 1, openingTokens: 0 })),
+		];
 
-	test("each cause reads back distinctly", () => {
-		const base = { turns: CONVERSATION };
-		expect(
-			nothing(base, budgets({ tailTurns: 1, docConcepts: 0 }), "curated"),
-		).toBe("disabled");
-		expect(
-			nothing(
-				{ ...base, unavailable: { curated: "unconfigured" } },
-				budgets({ tailTurns: 1, docConcepts: 2 }),
-				"curated",
-			),
-		).toBe("unconfigured");
-		expect(
-			nothing(
-				{ ...base, unavailable: { curated: "failed" } },
-				budgets({ tailTurns: 1, docConcepts: 2 }),
-				"curated",
-			),
-		).toBe("failed");
-		expect(
-			nothing(base, budgets({ tailTurns: 1, docConcepts: 2 }), "curated"),
-		).toBe("none");
-		expect(
-			nothing(
-				{ ...base, conceptsRejected: 3 },
-				budgets({ tailTurns: 1, docConcepts: 2 }),
-				"curated",
-			),
-		).toBe("irrelevant");
-		expect(
-			nothing(
-				{ ...base, concepts: [concept("decisions/a", "x".repeat(4000), 0.2)] },
-				budgets({ tailTurns: 1, docConcepts: 2, docTokens: 10 }),
-				"curated",
-			),
-		).toBe("size");
+		expect(views.map((view) => partOf(view, "opening").absent)).toEqual([
+			"unhooked",
+			"empty",
+			"missing",
+			"failed",
+			"size",
+			"disabled",
+		]);
+		const lines = views.map((view) =>
+			renderCall(view).split("\n").find((line) => line.trimStart().startsWith("opening")),
+		);
+		expect(new Set(lines).size).toBe(views.length);
 	});
 
-	test("candidates that existed outrank refusals as the cause", () => {
-		// Some were refused by the threshold and what survived it did not
-		// fit. The part is absent because nothing fitted: telling the
-		// operator to loosen the threshold would not have carried it.
-		expect(
-			nothing(
-				{
-					turns: CONVERSATION,
-					concepts: [concept("decisions/a", "x".repeat(4000), 0.2)],
-					conceptsRejected: 3,
-				},
-				budgets({ tailTurns: 1, docConcepts: 2, docTokens: 10 }),
-				"curated",
-			),
-		).toBe("size");
-	});
+	test("pins the hook never reached are named, not hidden", async () => {
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1 }));
 
-	test("a part with no relevance threshold says so rather than refusing nothing", () => {
-		const pack = assemble(
-			{ turns: CONVERSATION },
-			budgets({ tailTurns: 1, recallTurns: 2 }),
-		);
-		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
-		const recall = pack.parts.find((part) => part.source === "recalled");
-
-		expect(tail?.unranked).toBe(true);
-		expect(tail?.threshold).toBeUndefined();
-		// Recall ranks by distance, so it has one and reports it.
-		expect(recall?.unranked).toBeUndefined();
-		expect(recall?.threshold).toBe(budgets({}).recallMaxDistance);
-	});
-
-	test("a tight threshold and an unwired store read differently", async () => {
-		const tight = await viewOf(
-			{ turns: CONVERSATION, conceptsRejected: 4 },
-			budgets({ tailTurns: 1, docConcepts: 2, docMaxDistance: 0.2 }),
-		);
-		const unwired = await viewOf(
-			{ turns: CONVERSATION, unavailable: { curated: "unconfigured" } },
-			budgets({ tailTurns: 1, docConcepts: 2 }),
-		);
-		const empty = await viewOf(
-			{ turns: CONVERSATION },
-			budgets({ tailTurns: 1, docConcepts: 2 }),
-		);
-
-		expect(renderCall(tight)).toContain("4 refused against the 0.2 threshold");
-		expect(renderCall(unwired)).toContain("no store configured");
-		expect(renderCall(empty)).toContain("no candidates");
-		expect(renderCall(tight)).not.toContain("no candidates");
-	});
-
-	test("a part with no threshold attributes its shortfall to its budget", async () => {
-		const around = (label: string) => ({
-			symbol: { id: label, label, file: "src/a.ts", position: "L10" },
-			edges: [],
-			dropped: 0,
-		});
-		const view = await viewOf(
-			{ turns: CONVERSATION, structure: [around("a()"), around("b()")] },
-			budgets({ tailTurns: 1, graphSymbols: 1 }),
-		);
-
-		const line = renderCall(view)
-			.split("\n")
-			.find((each) => each.includes("structure"));
-		// Its Budget kept the second symbol out; symbols carry no distance,
-		// so nothing here was refused for being too far away.
-		expect(line).toContain("1 over the count");
-		expect(line).toContain("no relevance threshold");
-		expect(line).not.toContain("not relevant enough");
+		expect(renderCall(view)).toContain("the harness never offered the system prompt");
 	});
 });
 
@@ -337,9 +186,6 @@ describe("addressing a call", () => {
 		callIndex,
 		parts: [],
 		unassembled: false,
-		rejected: 0,
-		conceptsUnsearched: 0,
-		unsearched: 0,
 		compacted: false,
 		explained: true,
 	});
@@ -370,67 +216,6 @@ describe("addressing a call", () => {
 });
 
 describe("explaining an absence", () => {
-	async function call(): Promise<CallView> {
-		return viewOf(
-			{
-				turns: CONVERSATION,
-				recalled: recalled(7, 8),
-				rejected: 2,
-				recallMisses: misses([4, 0.61], [12, 0.55]),
-				concepts: [concept("decisions/caching", "We cache.", 0.2)],
-			},
-			budgets({
-				tailTurns: 2,
-				recallTurns: 1,
-				docConcepts: 1,
-				recallMaxDistance: 0.52,
-			}),
-		);
-	}
-
-	test("a near miss is named with its distance", async () => {
-		const answer = explain(await call(), "4");
-
-		expect(answer.excluded).toHaveLength(1);
-		expect(answer.excluded[0]?.candidate).toMatchObject({
-			turnIndex: 4,
-			distance: 0.61,
-			threshold: 0.52,
-			reason: "irrelevant",
-		});
-		const text = renderExplanation(explain(await call(), "12"));
-		expect(text).toContain("turn 12");
-		expect(text).toContain("distance 0.55");
-		expect(text).toContain("beyond the 0.52 threshold");
-	});
-
-	test("several matching candidates are ranked nearest first", async () => {
-		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				conceptMisses: [
-					{ conceptId: "decisions/retention-age", distance: 0.71 },
-					{ conceptId: "decisions/retention-policy", distance: 0.55 },
-					{ conceptId: "decisions/retention-report", distance: 0.63 },
-				],
-				conceptsRejected: 3,
-			},
-			budgets({ tailTurns: 2, docConcepts: 2, docMaxDistance: 0.5 }),
-		);
-
-		const answer = explain(view, "retention");
-		expect(answer.excluded.map((each) => each.candidate.distance)).toEqual([
-			0.55, 0.63, 0.71,
-		]);
-	});
-
-	test("a budget exclusion is attributed to the budget, not to irrelevance", async () => {
-		const text = renderExplanation(explain(await call(), "8"));
-
-		expect(text).toContain("excluded by the 1 count budget");
-		expect(text).not.toContain("threshold");
-	});
-
 	test("an evicted turn is attributed to eviction", async () => {
 		// Turn 2 carried a one-Turn tail past its count, and Turn 1 went.
 		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1 }));
@@ -441,52 +226,91 @@ describe("explaining an absence", () => {
 		expect(text).not.toContain("budget");
 	});
 
-	test("a subject that was never a candidate says so", async () => {
-		const text = renderExplanation(explain(await call(), "docs/never-written"));
+	test("a tail with a zero budget attributes the turn to its count", async () => {
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 0 }));
+		const text = renderExplanation(explain(view, "turn 2"));
 
-		expect(text).toContain("nothing matching it was considered");
+		expect(text).toContain("excluded by the 0 count budget");
 	});
 
-	test("a subject the call carried is not reported as excluded", async () => {
-		const text = renderExplanation(explain(await call(), "decisions/caching"));
+	test("a turn the pack ceiling dropped is attributed to the ceiling", async () => {
+		const bulky = (prompt: string, index: number) => turn(prompt, index, "z".repeat(400));
+		const view = await viewOf(
+			{ turns: [bulky("a", 1), bulky("b", 2), bulky("c", 3), turn("current", 4)] },
+			budgets({ tailTurns: 8, packTokens: 200 }),
+		);
+		const text = renderExplanation(explain(view, "1"));
 
-		expect(text).toContain("carried by curated: decisions/caching");
+		expect(text).toContain("dropped for the pack ceiling");
+	});
+
+	test("an opening over its budget is explained with its size", async () => {
+		const view = await withSystem(
+			[],
+			"a prompt too long for a three-token budget",
+			budgets({ tailTurns: 1, openingTokens: 3 }),
+		);
+		const text = renderExplanation(explain(view, "turn 0"));
+
+		expect(text).toMatch(/opening +turn 0 +~\d+ tokens +excluded by the 3 token budget/);
+	});
+
+	test("the opening and the pins the hook never reached say so by name", async () => {
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1, openingTokens: 400 }));
+
+		for (const subject of ["opening", "pins", "#2"]) {
+			const text = renderExplanation(explain(view, subject));
+			expect(text).toContain("the harness never offered the system prompt");
+			expect(text).not.toContain("nothing matching it was considered");
+		}
+	});
+
+	test("a pin the call carried is named as carried", async () => {
+		const view = await withSystem(
+			[{ id: 2, text: "use tabs" }],
+			undefined,
+			budgets({ tailTurns: 1 }),
+		);
+
+		expect(renderExplanation(explain(view, "pin 2"))).toContain("carried by pinned: #2");
+		expect(renderExplanation(explain(view, "#5"))).toContain(
+			"nothing matching it was considered",
+		);
+	});
+
+	test("a subject that was never a candidate says so", async () => {
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1 }));
+
+		expect(renderExplanation(explain(view, "docs/never-written"))).toContain(
+			"nothing matching it was considered",
+		);
+	});
+
+	test("a turn the call carried is not reported as excluded", async () => {
+		const view = await viewOf({ turns: CONVERSATION }, budgets({ tailTurns: 1 }));
+		const text = renderExplanation(explain(view, "2"));
+
+		expect(text).toContain("carried by verbatim-tail: turn 2");
 		expect(text).not.toContain("nothing matching it was considered");
 	});
 
-	test("a turn number does not match a concept whose id contains it", async () => {
-		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				conceptMisses: [
-					{ conceptId: "decisions/0001-settlement-window", distance: 0.26 },
-				],
-				conceptsRejected: 1,
-			},
-			budgets({ tailTurns: 2, docConcepts: 2, docMaxDistance: 0.05 }),
-		);
+	test("a call recorded with retrieval parts still explains", () => {
+		// An earlier version's record: a recalled part whose ledger holds a
+		// reason and fields this version no longer writes.
+		const older = {
+			source: "recalled",
+			approximateTokens: 40,
+			approximate: true,
+			carried: 1,
+			turnIndices: [7],
+			excludedCandidates: [{ turnIndex: 4, reason: "irrelevant", distance: 0.61, threshold: 0.52 }],
+		} as unknown as RecordedPart;
+		const view = inspectCall({ turnIndex: 3, callIndex: 0, parts: [older] });
 
-		// Asked about a Turn, answered about a Turn: a Concept id holding
-		// a zero is not an answer to "why was turn 0 not carried".
-		expect(explain(view, "0").excluded).toEqual([]);
-		expect(explain(view, "settlement").excluded).toHaveLength(1);
-	});
-
-	test("a distance is rendered at reading precision", async () => {
-		const view = await viewOf(
-			{
-				turns: CONVERSATION,
-				conceptMisses: [
-					{ conceptId: "decisions/settlement", distance: 0.25701083117529655 },
-				],
-				conceptsRejected: 1,
-			},
-			budgets({ tailTurns: 2, docConcepts: 2, docMaxDistance: 0.05 }),
-		);
-
-		const text = renderExplanation(explain(view, "settlement"));
-		expect(text).toContain("distance 0.26");
-		expect(text).not.toContain("0.25701083117529655");
+		const text = renderExplanation(explain(view, "4"));
+		expect(text).toContain("turn 4");
+		expect(text).toContain("excluded: irrelevant");
+		expect(renderExplanation(explain(view, "7"))).toContain("carried by recalled: turn 7");
 	});
 
 	test("a call holding only counts says it is unexplainable, naming the call", () => {
@@ -504,7 +328,7 @@ describe("explaining an absence", () => {
 
 /** A part as it was recorded before identities were retained. */
 function recordPartWithoutLedger() {
-	const part = recordPart({ source: "recalled", approximateTokens: 10, carried: 0 });
+	const part = recordPart({ source: "verbatim-tail", approximateTokens: 10, carried: 0 });
 	const { excludedCandidates: _dropped, ...older } = part;
 	return older;
 }

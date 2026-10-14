@@ -17,46 +17,31 @@ const ABSENCE: Record<AbsenceCause, string> = {
 	unconfigured: "absent: no store configured for it",
 	failed: "absent: retrieval failed",
 	none: "absent: no candidates",
-	irrelevant: "absent: nothing met the threshold",
 	size: "absent: nothing fitted the budget",
-	carried: "absent: the turns carry it",
 	empty: "absent: Turn 0's prompt is empty",
 	missing: "absent: the first turn is no longer stored",
+	unhooked: "absent: the harness never offered the system prompt",
 };
 
 /**
+ * An absence in words. A record written by an earlier version may hold a
+ * cause this one no longer records; it is named as recorded rather than
+ * failing or reading as another cause.
+ */
+function absenceOf(cause: AbsenceCause): string {
+	return ABSENCE[cause] ?? `absent: ${cause}`;
+}
+
+/**
  * Why a part carried less than it could have, in the order a reader wants
- * them: what was never relevant, then what each Budget refused, then what
- * the pack ceiling took, then what had to be shortened.
+ * them: what each Budget refused, then what the tail evicted, then what the
+ * pack ceiling took, then what had to be shortened.
  *
  * A table rather than a cascade of conditionals, because every entry answers
  * the same question and a reader comparing two parts should be comparing one
  * list, not tracing eight branches.
  */
 const REASONS: ((part: PartView) => string | undefined)[] = [
-	// Reported against the threshold in force wherever one was applied, so
-	// a part that refused nothing and a part measured against a threshold
-	// set too tight are not the same line. A part that never ran — no
-	// Budget, no Store, a failed retrieval — measured nothing against its
-	// threshold, and "0 refused" there would read as a corpus with
-	// nothing near when the cause says otherwise.
-	(part) => {
-		const measured =
-			part.absent === undefined ||
-			part.absent === "irrelevant" ||
-			part.absent === "none" ||
-			part.absent === "size";
-		const irrelevant = part.excluded?.irrelevant ?? part.irrelevant;
-		if (part.threshold !== undefined && measured) {
-			return `${irrelevant} refused against the ${part.threshold} threshold`;
-		}
-		return irrelevant > 0 ? `${irrelevant} not relevant enough` : undefined;
-	},
-	// Said where a shortfall might otherwise be read as irrelevance: a
-	// part selected by recency or by name cannot refuse anything for being
-	// too distant, and silence there invites the wrong remedy. An absent
-	// part already carries its cause, so it does not need this too.
-	(part) => (part.unranked && part.dropped > 0 ? "no relevance threshold" : undefined),
 	(part) =>
 		(part.excluded?.count ?? 0) > 0
 			? `${part.excluded?.count} over the count`
@@ -130,19 +115,15 @@ function wrap(inside: string[]): string {
 	return inside.length > 0 ? ` (${inside.join(", ")})` : "";
 }
 
-/** Which Turns, Concepts, symbols or Pins the part carried, where it names any. */
+/** Which Turns or Pins the part carried, where it names any. */
 function identities(part: PartView): string {
 	const turns =
 		part.turnIndices.length > 0 ? ` turns ${part.turnIndices.join(", ")}` : "";
-	const concepts =
-		part.conceptIds.length > 0 ? ` concepts ${part.conceptIds.join(", ")}` : "";
-	const symbols =
-		part.symbols.length > 0 ? ` symbols ${part.symbols.join(", ")}` : "";
 	const pins =
 		part.pinIds.length > 0
 			? ` pins ${part.pinIds.map((id) => `#${id}`).join(", ")}`
 			: "";
-	return `${turns}${concepts}${symbols}${pins}`;
+	return `${turns}${pins}`;
 }
 
 /** Renders an inspection as text, which is the shape a pack actually has. */
@@ -154,19 +135,33 @@ export function renderCall(view: CallView): string {
 	for (const part of view.parts) {
 		// A Conversation holding no Pins is the usual case, and a line on
 		// every Call saying so would bury the parts that did something.
-		if (part.source === "pinned" && part.carried === 0) continue;
+		// Pins the hook never reached, or failed to build, are another
+		// matter: the Conversation may hold some, and silence would read as
+		// holding none.
+		if (
+			part.source === "pinned" &&
+			part.carried === 0 &&
+			part.absent !== "unhooked" &&
+			part.absent !== "failed"
+		) {
+			continue;
+		}
 		// An absent part still gets a line, with the cause where the record
-		// holds one: "curated carried nothing" and "no doc store is
-		// configured" are different problems with different remedies, and
-		// omitting the part entirely reads as neither.
+		// holds one: "no store is configured" and "the harness never offered
+		// the system prompt" are different problems with different
+		// remedies, and omitting the part entirely reads as neither.
 		if (part.absent !== undefined) {
 			lines.push(
-				`  ${part.source.padEnd(14)} ${ABSENCE[part.absent]}${reasonsOf(part)}`,
+				`  ${part.source.padEnd(14)} ${absenceOf(part.absent)}${reasonsOf(part)}`,
 			);
 			continue;
 		}
+		// The Pins and the Opening ride the system prompt (ADR-0015); a
+		// reader must not take them for messages. Older records, sent as
+		// messages, carry no placement and no mark.
+		const placed = part.placement === "system-prompt" ? " in the system prompt" : "";
 		lines.push(`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
-			`${carriedOf(part)}${identities(part)}`);
+			`${placed}${carriedOf(part)}${identities(part)}`);
 	}
 
 	// Where the harness rewrote the Conversation behind this Call: every
@@ -199,54 +194,14 @@ export function renderCall(view: CallView): string {
 		);
 	}
 
-	// Said once, on the Call, because a Call that recalled nothing has no
-	// part to say it on — and that is the case worth explaining.
-	if (view.rejected > 0 && !view.parts.some((part) => part.source === "recalled")) {
-		lines.push(
-			`  recalled       nothing (${view.rejected} not relevant enough)`,
-		);
-	}
-
-	// A recall the store could not complete is a different fact from one
-	// that found nothing worth carrying, and the difference is repairable:
-	// those Turns come back once embedding catches up.
-	if (view.unsearched > 0) {
-		lines.push(
-			`  recall        searched all but ${view.unsearched} turns of this ` +
-				`conversation (awaiting embedding)`,
-		);
-	}
-
-	// Same repairable fact on the curated side, and a separate line
-	// because the two Stores re-embed independently: curated knowledge can
-	// be mid-repair while recall is whole.
-	if (view.conceptsUnsearched > 0) {
-		lines.push(
-			`  curated       searched all but ${view.conceptsUnsearched} concepts ` +
-				`of the bundle (awaiting embedding)`,
-		);
-	}
-
-	// Said only when it is news: a session spent running without the store
-	// should be visible afterwards rather than mysterious.
-	if (view.tailSource === "harness-fallback") {
+	// Said only when it is news: a tail sent wholly from the harness's live
+	// history is the normal case. Store copies stand in for Turns the live
+	// history no longer holds, and a session spent running without the
+	// store's sizes should be visible afterwards rather than mysterious.
+	if (view.tailSource === "thread-store") {
+		lines.push("  tail          some tail Turns are the store's copies");
+	} else if (view.tailSource === "harness-fallback") {
 		lines.push("  tail          from the harness's own history, not the store");
-	}
-
-	// How the Briefing went out, said only where it was recorded: a Call
-	// from before Briefings were kept has no figures, and zeros would claim
-	// a count nobody made.
-	if (view.briefing?.mode === "replaced") {
-		lines.push(
-			"  briefing      sent as a user message, replaced on the next call",
-		);
-	} else if (view.briefing !== undefined) {
-		const { mode, resent, resentBytes, missing } = view.briefing;
-		lines.push(
-			`  briefing      ${mode === "kept" ? "sent cleared and kept" : "none of its own"}; ` +
-				`${resent} earlier briefing${resent === 1 ? "" : "s"} sent again ` +
-				`(${resentBytes} bytes), ${missing} missing`,
-		);
 	}
 
 	if (view.floorTokens === undefined || view.packTokens === undefined) {
@@ -298,16 +253,6 @@ export function renderCall(view: CallView): string {
 				`(${cached}% of the pack read from cache)`,
 		);
 	}
-
-	// What the cache figure above can be explained by: the harness caches
-	// through the Turn in progress (ADR-0010), so what precedes the
-	// Briefing is what a Call could read back when the tail did not slide.
-	if (view.leadingTokens !== undefined) {
-		lines.push(
-			`  prefix        ~${view.leadingTokens} tokens the harness sent, ` +
-				`ahead of the assembled parts`,
-		);
-	}
 	return lines.join("\n");
 }
 
@@ -323,23 +268,13 @@ export function renderDiff(diff: PackDiff): string {
 }
 
 /**
- * What a pack carried or refused, named: a Turn by position, a Concept by
- * id, a symbol by name. One renderer, because a diff, an explanation and a
- * near miss all name the same three kinds of thing and a reader comparing
- * them should not be comparing three spellings.
+ * What a pack carried or left out, named: a Turn by position, a Pin by id.
+ * One renderer, because a diff and an explanation name the same things and
+ * a reader comparing them should not be comparing two spellings.
  */
-function nameOf(identity: {
-	turnIndex?: number;
-	conceptId?: string;
-	symbol?: string;
-	pinId?: number;
-}): string {
+function nameOf(identity: { turnIndex?: number; pinId?: number }): string {
 	if (identity.pinId !== undefined) return `#${identity.pinId}`;
-	return (
-		identity.conceptId ??
-		identity.symbol ??
-		`turn ${identity.turnIndex ?? "?"}`
-	);
+	return `turn ${identity.turnIndex ?? "?"}`;
 }
 
 /** A diffed item, with the part that carried it. */
@@ -402,24 +337,11 @@ export function renderSummary(summary: ConversationSummary): string {
 		);
 	}
 
-	if (summary.briefings !== undefined) {
-		const { kept, replaced, missing } = summary.briefings;
-		lines.push(
-			`  briefing      ${kept} call${kept === 1 ? "" : "s"} kept it, ` +
-				`${replaced} sent it as a user message; ${missing} earlier ` +
-				`briefing${missing === 1 ? "" : "s"} missing`,
-		);
-	}
-
 	for (const use of summary.budgetUse) {
 		const budget = use.budget === undefined ? "" : ` of ${use.budget}`;
-		const irrelevant =
-			use.averageIrrelevant > 0
-				? `, ${use.averageIrrelevant} rejected as irrelevant on average`
-				: "";
 		lines.push(
 			`  ${use.source.padEnd(14)} carried ${use.averageCarried}${budget} on average` +
-				`, trimmed ${use.timesTrimmed} times${irrelevant}`,
+				`, trimmed ${use.timesTrimmed} times`,
 		);
 	}
 
@@ -429,13 +351,19 @@ export function renderSummary(summary: ConversationSummary): string {
 /**
  * Why a Call did not carry what someone asked about.
  *
- * Ranked, named, and explicit about what it cannot answer: a Call whose
- * record predates the ledger says so rather than reporting that nothing
- * was excluded, which would be the same lie in a new place.
+ * Named, and explicit about what it cannot answer: a Call whose record
+ * predates the ledger says so rather than reporting that nothing was
+ * excluded, which would be the same lie in a new place.
  */
 export function renderExplanation(answer: Explanation): string {
 	const where = `turn ${answer.turnIndex}, call ${answer.callIndex}`;
 	const lines = [`Why "${answer.subject}" was not carried by ${where}:`];
+
+	// Said before the ledger is consulted: a part the harness never offered
+	// a place for is explained by that, whatever else the record holds.
+	for (const { source, cause } of answer.absent) {
+		lines.push(`  ${source.padEnd(14)} ${absenceOf(cause)}`);
+	}
 
 	if (answer.unexplainable) {
 		lines.push(
@@ -453,34 +381,40 @@ export function renderExplanation(answer: Explanation): string {
 		lines.push(`  ${source.padEnd(14)} ${describeCandidate(candidate)}`);
 	}
 
-	if (answer.carried.length === 0 && answer.excluded.length === 0) {
-		// Never considered and considered-then-refused are different
-		// answers: one is about the threshold, the other about the corpus.
+	if (
+		answer.carried.length === 0 &&
+		answer.excluded.length === 0 &&
+		answer.absent.length === 0
+	) {
+		// Never considered and considered-then-excluded are different
+		// answers: one is about the Conversation, the other about a Budget.
 		lines.push("  nothing matching it was considered for this call");
 	}
 	return lines.join("\n");
 }
 
-/** One excluded candidate: what it was, how far, and what kept it out. */
+/** One excluded candidate: what it was, its size, and what kept it out. */
 function describeCandidate(candidate: ExcludedCandidate): string {
-	const what = nameOf(candidate);
-	// Two decimals: a distance is a ranking signal, and sixteen digits of
-	// float precision in a line someone reads is noise.
-	const distance =
-		candidate.distance === undefined
-			? ""
-			: `  distance ${candidate.distance.toFixed(2)}`;
 	const size = candidate.tokens === undefined ? "" : `  ~${candidate.tokens} tokens`;
-	const why =
-		candidate.reason === "irrelevant"
-			? `  beyond the ${candidate.threshold ?? "?"} threshold`
-			: candidate.reason === "ceiling"
-				? "  dropped for the pack ceiling"
-				: candidate.reason === "evicted"
-					? "  evicted from the tail"
-					: `  excluded by the ${candidate.budget ?? "?"} ` +
-						`${candidate.reason === "count" ? "count" : "token"} budget`;
-	return `${what}${distance}${size}${why}`;
+	let why: string;
+	switch (candidate.reason) {
+		case "ceiling":
+			why = "  dropped for the pack ceiling";
+			break;
+		case "evicted":
+			why = "  evicted from the tail";
+			break;
+		case "count":
+		case "size":
+			why =
+				`  excluded by the ${candidate.budget ?? "?"} ` +
+				`${candidate.reason === "count" ? "count" : "token"} budget`;
+			break;
+		default:
+			// A reason an earlier version recorded and this one does not.
+			why = `  excluded: ${candidate.reason}`;
+	}
+	return `${nameOf(candidate)}${size}${why}`;
 }
 
 /** A Level as the agent reads it: where to walk next, and what to open. */
@@ -495,7 +429,7 @@ export function renderLevel(level: Level): string {
 	for (const entry of level.concepts) {
 		const description = entry.description ? ` — ${entry.description}` : "";
 		// A Concept the listing omits is reported rather than hidden, and
-		// said to be missing from it: the listing is the author's judgement
+		// said to be missing from it: the listing is the author's view
 		// about what matters, and a file nothing names is invisible.
 		const unlisted = entry.unlisted ? " (not in this level's listing)" : "";
 		// Broken, not absent: a Concept that cannot be read is something to
@@ -552,49 +486,15 @@ export function renderConcept(concept: Concept): string {
 }
 
 /**
- * What a relevance judge made of a search: how many Turns distance admitted
- * and it refused, or why it was not asked for a verdict at all.
- */
-export interface SearchJudgement {
-	refused?: number;
-	unjudged?: string;
-}
-
-/**
  * Renders a cross-Conversation search as a tool result.
  *
  * Each hit says where it came from: a recollection from another project is
- * only useful if the agent can tell that is what it is. A judged search says
- * what the judge refused, and an unjudged one why, so the agent knows which
- * standard the hits met.
+ * only useful if the agent can tell that is what it is.
  */
-export function renderSearch(
-	found: FoundTurn[],
-	judgement: SearchJudgement = {},
-): string {
-	const notes: string[] = [];
-	if (judgement.unjudged !== undefined) {
-		notes.push(`(Relevance not judged: ${judgement.unjudged}. Ranked by distance alone.)`);
-	}
-	const refused = judgement.refused ?? 0;
-	if (found.length === 0) {
-		// Distance admitted something here, so "nothing relevant" would hide
-		// that the judge is what said so.
-		const empty =
-			refused > 0
-				? `No conversation holds anything relevant to that: the relevance judge ` +
-					`refused ${refused} ${refused === 1 ? "turn" : "turns"} that distance admitted.`
-				: "No conversation holds anything relevant to that.";
-		return [empty, ...notes].join("\n\n");
-	}
-	if (refused > 0) {
-		notes.push(
-			`(The relevance judge refused ${refused} more ` +
-				`${refused === 1 ? "turn" : "turns"} that distance admitted.)`,
-		);
-	}
+export function renderSearch(found: FoundTurn[]): string {
+	if (found.length === 0) return "No conversation holds anything relevant to that.";
 
-	const hits = found
+	return found
 		.map((hit) => {
 			const where = hit.codebase ? `${hit.codebase} ` : "";
 			// Filtered on the text, before it is decorated with a role: a tool
@@ -614,5 +514,4 @@ export function renderSearch(
 			);
 		})
 		.join("\n\n");
-	return [hits, ...notes].join("\n\n");
 }

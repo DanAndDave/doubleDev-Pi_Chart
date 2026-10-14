@@ -1,5 +1,7 @@
 # Packs carry the Conversation's Opening
 
+Partly superseded by ADR-0015: the Opening sits in the system prompt from Turn 1, framed as context rather than a new instruction, not after the Briefing's marker once the tail evicts it. Its Budget, its Elision and the rule that it is always the Turn at index 0 stand. The Ceiling no longer reduces it.
+
 The 2026-10-13 benchmark's memory check asked at turn 12 for a codeword given at turn 1. By then turn 1 had left the verbatim tail, so only recall could bring it back, and recall depends on the question sounding like the prompt that held the answer. A Conversation's first prompt usually states its goal and constraints, and every later Turn is read against them. Whether the model sees it should not depend on how relevant it looks to the current query.
 
 **Every Pack carries the Opening: the prompt of the Conversation's first Turn, once the verbatim tail no longer carries that Turn.** It contains the user's prompt only, labelled as turn 0, the index recollections use for that Turn. The reply to that prompt stays reachable through recall. Recall itself does not change.

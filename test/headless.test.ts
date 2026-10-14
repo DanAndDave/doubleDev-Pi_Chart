@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { readBundle } from "../src/doc-store.ts";
 import { LocalEmbedder } from "../src/embedder.ts";
 import { GraphStore } from "../src/graph-store.ts";
-import { inspectConversation } from "../src/inspection.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import { journalText, runHeadless } from "./harness.ts";
 
@@ -29,15 +28,15 @@ const TIMEOUT = 240_000;
 /**
  * A two-turn conversation whose second turn cannot see the first.
  *
- * Recall is switched off deliberately: it exists to bring exactly this
- * content back, so leaving it on would test the opposite of the claim here,
- * which is that content the pack omits does not reach the model.
+ * The second prompt forbids tools deliberately: `recall_earlier_turns`
+ * exists to bring exactly this content back, so letting the model call it
+ * would test the opposite of the claim here, which is that content the
+ * pack omits does not reach the model.
  */
 async function forgetfulConversation() {
 	const cwd = await mkdtemp(join(tmpdir(), "cm-live-"));
 	const env: Record<string, string> = {
 		PICHART_TAIL_TURNS: "0",
-		PICHART_RECALL_TURNS: "0",
 	};
 	if (databaseUrl) env.PICHART_DATABASE_URL = databaseUrl;
 
@@ -51,7 +50,9 @@ async function forgetfulConversation() {
 		cwd,
 		continueSession: true,
 		prompt:
-			"What was the codeword I gave you? If you do not know it, reply with exactly: UNKNOWN",
+			"What was the codeword I gave you? Answer only from what is already in " +
+			"your context: do not call any tool. If you do not know it, reply with " +
+			"exactly: UNKNOWN",
 		extensions: [EXTENSION],
 		env,
 	});
@@ -171,7 +172,6 @@ describeStore("curated knowledge against a live model", () => {
 			const env: Record<string, string> = {
 				PICHART_DATABASE_URL: databaseUrl ?? "",
 				PICHART_DOC_BUNDLE: bundle,
-				PICHART_RECALL_TURNS: "0",
 			};
 			if (process.env.PICHART_BUN) env.PICHART_BUN = process.env.PICHART_BUN;
 
@@ -189,15 +189,16 @@ describeStore("curated knowledge against a live model", () => {
 			}
 
 			// Control first, in its own empty Codebase, with both routes to
-			// the bundle closed: the Budget at zero and no bundle to walk.
-			// Walking is deliberately unbudgeted, so closing only the Budget
-			// would leave the agent a second way in — which it took.
+			// the bundle closed: no Concept index to search and no bundle to
+			// walk. The index lives in the Thread Store's Postgres, so the
+			// Store is declined; closing only the bundle would leave the
+			// agent `search_documentation` as a second way in.
 			const withoutDocs = await runHeadless({
 				prompt: question,
 				extensions: [EXTENSION],
 				env: {
 					...env,
-					PICHART_DOC_CONCEPTS: "0",
+					PICHART_DATABASE_URL: "",
 					PICHART_DOC_BUNDLE: await mkdtemp(join(tmpdir(), "cm-live-nobundle-")),
 				},
 			});
@@ -211,31 +212,9 @@ describeStore("curated knowledge against a live model", () => {
 
 			expect(withDocs.stdout).toContain(secret);
 
-			// And the Call says where it came from: the curated part, named,
-			// inside its Budget.
-			const conversationId = withDocs.journalPath
-				.split("/")
-				.pop()
-				?.replace(/\.jsonl$/, "")
-				.split("_")
-				.pop();
-			const store = PostgresStore.connect(databaseUrl ?? "");
-			try {
-				const calls = inspectConversation(
-					await store.readAccounting(conversationId ?? ""),
-				);
-				const curated = calls
-					.flatMap((call) => call.parts)
-					.filter((part) => part.source === "curated");
-
-				expect(curated.length).toBeGreaterThan(0);
-				expect(curated[0]?.conceptIds).toContain(
-					"decisions/0001-settlement-window",
-				);
-				expect(curated[0]?.carried).toBeLessThanOrEqual(curated[0]?.budget?.count ?? 0);
-			} finally {
-				await store.close();
-			}
+			// And the answer came from the bundle, pulled with a tool: a tool
+			// result in the Journal carries the Concept's fact.
+			expect(journalText(withDocs, "toolResult").join(" ")).toContain(secret);
 		},
 		TIMEOUT,
 	);
@@ -265,8 +244,6 @@ describeGraph("codebase structure against a live model", () => {
 			const cwd = await freshCodebase();
 			const env: Record<string, string> = {
 				PICHART_DATABASE_URL: databaseUrl ?? "",
-				PICHART_RECALL_TURNS: "0",
-				PICHART_DOC_CONCEPTS: "0",
 			};
 			if (process.env.PICHART_BUN) env.PICHART_BUN = process.env.PICHART_BUN;
 
@@ -278,8 +255,8 @@ describeGraph("codebase structure against a live model", () => {
 				cwd,
 				prompt:
 					"Which functions call parseConcept, and in which file do they live? " +
-					"Answer only from what is already in your context: do not read, " +
-					"grep, or list any files. If context does not say, reply UNKNOWN.",
+					"Use the codebase_structure tool; do not read, grep, or list any " +
+					"files. If it does not say, reply UNKNOWN.",
 				extensions: [EXTENSION],
 				env,
 			});
@@ -290,30 +267,10 @@ describeGraph("codebase structure against a live model", () => {
 			expect(run.stdout).toContain("doc-store.ts");
 			expect(run.stdout).not.toContain("UNKNOWN");
 
-			const conversationId = run.journalPath
-				.split("/")
-				.pop()
-				?.replace(/\.jsonl$/, "")
-				.split("_")
-				.pop();
-			const store = PostgresStore.connect(databaseUrl ?? "");
-			try {
-				const structure = inspectConversation(
-					await store.readAccounting(conversationId ?? ""),
-				)
-					.flatMap((call) => call.parts)
-					.filter((part) => part.source === "structure");
-
-				expect(structure.length).toBeGreaterThan(0);
-				expect(structure[0]?.symbols?.join(" ")).toContain(
-					"parseConcept() (src/concept.ts",
-				);
-				expect(structure[0]?.carried).toBeLessThanOrEqual(
-					structure[0]?.budget?.count ?? 0,
-				);
-			} finally {
-				await store.close();
-			}
+			// Pulled, not carried: the edges arrived as a tool result.
+			expect(journalText(run, "toolResult").join(" ")).toContain(
+				"parseConcept() (src/concept.ts",
+			);
 		},
 		TIMEOUT,
 	);
