@@ -104,7 +104,7 @@ The system SHALL allow any Call the Conversation has recorded to be examined by 
 
 ### Requirement: An absence can be explained by name
 
-The system SHALL answer, for a subject a user names, why content matching it was not carried by a Call: a ranked list of the candidates that were excluded, each named by identity, with its distance or size and the threshold or Budget that excluded it, nearest first. Where a Call's record holds only a count of exclusions and no identities, the answer SHALL say so rather than report that nothing was excluded. Where the named subject matched no recorded candidate at all, the answer SHALL distinguish that from a candidate that was considered and refused.
+The system SHALL answer, for a subject a user names, why content matching it was not carried by a Call: a ranked list of the candidates that were excluded, each named by identity, with its distance or size and the threshold, Budget or Eviction that excluded it, nearest first. Where a Call's record holds only a count of exclusions and no identities, the answer SHALL say so rather than report that nothing was excluded. Where the named subject matched no recorded candidate at all, the answer SHALL distinguish that from a candidate that was considered and refused.
 
 #### Scenario: A near miss is named with its distance
 
@@ -115,6 +115,11 @@ The system SHALL answer, for a subject a user names, why content matching it was
 
 - **WHEN** a candidate was relevant enough but excluded because a Budget was exhausted
 - **THEN** the answer SHALL name it and attribute its exclusion to that Budget rather than to irrelevance
+
+#### Scenario: An evicted turn is attributed to eviction
+
+- **WHEN** a user asks about a Turn the verbatim tail evicted
+- **THEN** the answer SHALL name that Turn and say the tail evicted it, and SHALL NOT attribute its absence to a Budget
 
 #### Scenario: A subject that was never a candidate says so
 
