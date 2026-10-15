@@ -114,7 +114,7 @@ _Avoid_: folder, directory, section, index
 
 **Measure**:
 A judgement of whether a Call's Context Window held what its next action needed, made from Conversations already recorded. Sits beside Accounting, which records what the window held.
-_Avoid_: metric, stat, score, eval
+_Avoid_: metric, stat, eval
 
 **Utilisation**:
 The share of a Call's Context Window, by tokens, that its next action Used. Cheap and correlational.
@@ -133,7 +133,7 @@ The Ablation verdict on a part: the next action changes without it. Never interc
 _Avoid_: necessary, required, load-bearing
 
 **Lapse**:
-A Call whose next action needed content its Context Window did not carry. Seen only through a recall Pull of an evicted Turn, a Re-fetch of a result that had left the window, or a failed Probe; the first two are recovered Lapses.
+A Call whose next action needed content its Context Window did not carry. Seen only through a recall Pull of an evicted Turn, a Re-fetch of a result that had left the window, or a failed Probe: a wrong Score with an evicted Position and no Source. The first two are recovered Lapses.
 _Avoid_: miss, gap, shortfall
 
 **Re-fetch**:
@@ -144,17 +144,49 @@ _Avoid_: re-read, redundant call, repeat
 A tool call that brings content into a Turn from outside it: `recall_earlier_turns`, `recall_across_conversations`, `search_documentation`, `walk_documentation` or `codebase_structure`. Writing to the bundle is not a Pull. A recall Pull is one whose result holds a Turn of the same Conversation that the Context Window did not carry, whichever tool returned it.
 _Avoid_: fetch, retrieval, lookup
 
+**Distance**:
+The number of Turns from the one where content entered a Conversation to the one that needed it: a Plant's Turn to its Probe's, an earlier result's to its Re-fetch's. Lapses and Retention are counted in bands of it.
+_Avoid_: age, gap, lag
+
 **Plant**:
-A fact stated in an early Turn so a later Probe can ask for it.
+A fact stated in an early Turn, in a prompt or in a file a tool reads, so a later Probe can ask for it. A literal Plant is a value to repeat, a superseded Plant replaces an earlier value, and a constraint Plant is a value a later tool call must carry.
 _Avoid_: needle, codeword, planted fact
 
 **Probe**:
-A prompt that asks for one or more Plants, scored separately for each.
+A prompt that asks for one or more Plants, scored separately for each. It may forbid tools.
 _Avoid_: question, check, test prompt
 
+**Score**:
+One Plant judged right or wrong at one Probe Turn. The verdict Retention is counted from, never a Measure itself.
+_Avoid_: verdict, answer, grade
+
 **Retention**:
-The share of Plants their Probes answered correctly.
+The share of complete Runs whose Score for a Plant at a Probe was right.
 _Avoid_: recall rate, memory score, accuracy
+
+**Position**:
+Where a Plant sat in the Context Window of its Probe's first Call: the Opening, a Pin, the verbatim tail, a compaction summary, or evicted. Says what the window carried, not what the answer drew on.
+_Avoid_: location, placement, slot
+
+**Source**:
+The first thing that held a Plant's value for a Score: a part of the Probe's first Context Window, a Pull result, another tool result of the Probe Turn, or none. It can differ from Position: a value repeated in a later Turn has an evicted Position and a tail Source.
+_Avoid_: origin, provenance, evidence
+
+**Leak**:
+A right Score with no Source: the value came from nothing the Run gave the model.
+_Avoid_: hallucination, lucky guess, contamination
+
+**Stale**:
+A wrong Score of a superseded Plant whose answer gave the earlier value.
+_Avoid_: outdated, old value
+
+**Breach**:
+A Score whose Probe forbade tools and whose Turn called one anyway. It still counts.
+_Avoid_: violation, cheat
+
+**Unplanted**:
+A Score whose Plant no prompt or tool result stated before its Probe. Neither a Lapse nor unknown.
+_Avoid_: missing Plant, unstated
 
 **Graded Task**:
 One step of a Workload: its prompts plus a check, run after the last of them, that decides whether the step is a Pass or a Fail.
