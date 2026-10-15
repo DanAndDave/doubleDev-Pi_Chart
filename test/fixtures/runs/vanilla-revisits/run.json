@@ -1,0 +1,104 @@
+{
+	"arm": "vanilla",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-vanilla-revisits",
+	"sessionId": "01a1f000-0000-7000-8000-000000000031",
+	"plants": [],
+	"revisits": [
+		{
+			"id": "a",
+			"file": "notes/a.md",
+			"earlier": "s1",
+			"step": "s3"
+		},
+		{
+			"id": "b",
+			"file": "notes/b.md",
+			"earlier": "s2",
+			"step": "s7"
+		},
+		{
+			"id": "a2",
+			"file": "notes/a.md",
+			"earlier": "s1",
+			"step": "s8"
+		}
+	],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Start.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "Read notes/a.md.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "Read notes/b.md.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "Use notes/a.md again.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Look at E.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Look at F.",
+			"probes": []
+		},
+		{
+			"step": "s6",
+			"text": "Look at G.",
+			"probes": []
+		},
+		{
+			"step": "s7",
+			"text": "What does the b note say?",
+			"probes": []
+		},
+		{
+			"step": "s8",
+			"text": "Use the a note once more.",
+			"probes": []
+		}
+	],
+	"checks": [
+		{
+			"step": "s3",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		},
+		{
+			"step": "s7",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		},
+		{
+			"step": "s8",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		}
+	]
+}

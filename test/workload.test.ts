@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { buildWorkspace, gradedSteps, loadWorkload } from "../scripts/workload.ts";
+import { buildWorkspace, editedFiles, gradedSteps, loadWorkload } from "../scripts/workload.ts";
 
 /** A commit of this repository, so a Workload pinned to it resolves. */
 const PINNED = "c6fe51651936bdcb29d9dd5dc3d46609ad02c359";
@@ -55,6 +55,12 @@ async function rejection(dir: string): Promise<string> {
 		return (error as Error).message;
 	}
 	throw new Error("the Workload was accepted");
+}
+
+/** Whether some line of a rejection holds every fragment. */
+function namedIn(message: string): (...fragments: string[]) => boolean {
+	const lines = message.split("\n");
+	return (...fragments) => lines.some((line) => fragments.every((fragment) => line.includes(fragment)));
 }
 
 describe("loadWorkload", () => {
@@ -239,9 +245,7 @@ describe("loadWorkload", () => {
 			},
 		);
 
-		const lines = (await rejection(dir)).split("\n");
-		const named = (...fragments: string[]) =>
-			lines.some((line) => fragments.every((fragment) => line.includes(fragment)));
+		const named = namedIn(await rejection(dir));
 
 		const expected = [
 			["oddkind", "fuzzy"],
@@ -261,6 +265,74 @@ describe("loadWorkload", () => {
 			["ask", "rule", "tools"],
 		];
 		expect(expected.filter((fragments) => !named(...fragments))).toEqual([]);
+	});
+
+	test("a Workload that declares no Revisits makes none", async () => {
+		const workload = await loadWorkload(await workloadDir(WELL_FORMED));
+
+		expect(workload.revisits).toEqual([]);
+	});
+
+	const SCALE_STEPS = [
+		{ id: "add-scale", prompts: ["Read notes/scale.md and add scale()."] },
+		{ id: "probe", prompts: ["Read src/pins.ts."] },
+		{ id: "add-shift", prompts: ["Add shift() using the offset."] },
+	];
+
+	test("a Revisit whose earlier step names its file, comes first, and whose step is graded loads", async () => {
+		const revisit = { id: "offset", file: "notes/scale.md", earlier: "add-scale", step: "add-shift" };
+		const dir = await workloadDir(
+			{ ...WELL_FORMED, plants: [], steps: SCALE_STEPS, revisits: [revisit] },
+			["add-shift.check.ts"],
+			{ "notes/scale.md": "offset: 413\n" },
+		);
+
+		expect((await loadWorkload(dir)).revisits).toEqual([revisit]);
+	});
+
+	test("every problem with the Revisits is named in one rejection", async () => {
+		const dir = await workloadDir(
+			{
+				...WELL_FORMED,
+				plants: [],
+				steps: SCALE_STEPS,
+				revisits: [
+					{ file: "notes/scale.md", earlier: "add-scale", step: "add-shift" },
+					{ id: "nofile", earlier: "add-scale", step: "add-shift" },
+					{ id: "noearlier", file: "notes/scale.md", step: "add-shift" },
+					{ id: "nostep", file: "notes/scale.md", earlier: "add-scale" },
+					{ id: "twin", file: "notes/scale.md", earlier: "add-scale", step: "add-shift" },
+					{ id: "twin", file: "notes/scale.md", earlier: "add-scale", step: "add-shift" },
+					{ id: "stranger", file: "notes/scale.md", earlier: "add-scale", step: "ghost" },
+					{ id: "backwards", file: "notes/scale.md", earlier: "add-shift", step: "add-scale" },
+					{ id: "itself", file: "notes/scale.md", earlier: "add-shift", step: "add-shift" },
+					{ id: "ungraded", file: "notes/scale.md", earlier: "add-scale", step: "probe" },
+					{ id: "absent", file: "notes/absent.md", earlier: "add-scale", step: "add-shift" },
+					{ id: "unnamed", file: "notes/other.md", earlier: "add-scale", step: "add-shift" },
+				],
+			},
+			["add-scale.check.ts", "add-shift.check.ts"],
+			{ "notes/scale.md": "offset: 413\n", "notes/other.md": "other\n" },
+		);
+
+		const named = namedIn(await rejection(dir));
+
+		const expected = [
+			["revisit 0", "id"],
+			["revisit 1", "file"],
+			["revisit 2", "earlier"],
+			["revisit 3", "step"],
+			["twin", "twice"],
+			["stranger", "ghost"],
+			["backwards", "add-shift", "add-scale", "before"],
+			["itself", "add-shift", "before"],
+			["ungraded", "probe", "check"],
+			["absent", "notes/absent.md", "missing"],
+			["unnamed", "notes/other.md", "add-scale"],
+		];
+		expect(expected.filter((fragments) => !named(...fragments))).toEqual([]);
+		// A well-formed Revisit sharing the file is not reported.
+		expect(named("notes/scale.md", "missing")).toBe(false);
 	});
 });
 
@@ -324,5 +396,30 @@ describe("buildWorkspace", () => {
 		} finally {
 			await Promise.all([first, second, dir].map((path) => rm(path, { recursive: true, force: true })));
 		}
+	});
+});
+
+describe("editedFiles", () => {
+	test("names the files whose workspace copy no longer matches the overlay, or is gone", async () => {
+		const overlay = await mkdtemp(join(tmpdir(), "pichart-overlay-"));
+		const workspace = await mkdtemp(join(tmpdir(), "pichart-workspace-"));
+		for (const root of [overlay, workspace]) {
+			await mkdir(join(root, "notes"));
+			for (const name of ["kept", "changed", "deleted"]) await writeFile(join(root, "notes", `${name}.md`), `${name}\n`);
+		}
+		await writeFile(join(workspace, "notes", "changed.md"), "changed by the agent\n");
+		await rm(join(workspace, "notes", "deleted.md"));
+
+		const edited = await editedFiles(workspace, overlay, ["notes/kept.md", "notes/changed.md", "notes/deleted.md"]);
+
+		expect(edited).toEqual(["notes/changed.md", "notes/deleted.md"]);
+	});
+
+	test("names nothing when every file still matches", async () => {
+		const overlay = await mkdtemp(join(tmpdir(), "pichart-overlay-"));
+		const workspace = await mkdtemp(join(tmpdir(), "pichart-workspace-"));
+		for (const root of [overlay, workspace]) await writeFile(join(root, "scale.md"), "offset: 413\n");
+
+		expect(await editedFiles(workspace, overlay, ["scale.md"])).toEqual([]);
 	});
 });

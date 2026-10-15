@@ -10,6 +10,7 @@
 		{ "id": "codeword", "value": "PLUM-17" },
 		{ "id": "build", "value": "7341" }
 	],
+	"revisits": [{ "id": "late", "file": "notes/x.md", "earlier": "one", "step": "two" }],
 	"prompts": [
 		{ "step": "one", "text": "Remember PLUM-17. Add src/one.ts.", "probes": [] },
 		{ "step": "two", "text": "Build number 7341. Add src/two.ts.", "probes": [] },

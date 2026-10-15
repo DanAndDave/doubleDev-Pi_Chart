@@ -22,7 +22,7 @@ import { readBranch, readJournal, type Compaction, type JournalTurn, type Messag
 import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
 import { pinTexts } from "../src/pins.ts";
 import { approximateTokens } from "../src/tokens.ts";
-import type { Plant, PlantKind, Turn, WorkloadId } from "./workload.ts";
+import type { Plant, PlantKind, Revisit, Turn, WorkloadId } from "./workload.ts";
 
 export const READ_RATE = 0.1;
 export const WRITE_RATE = 1.25;
@@ -61,6 +61,10 @@ export interface RunRecord {
 	/** Every prompt the Run was to send, in Turn order. */
 	prompts: Omit<Turn, "turn">[];
 	checks: CheckOutcome[];
+	/** As declared; absent on a record written before Revisits existed. */
+	revisits?: Revisit[];
+	/** Revisit file → the first Turn after which the workspace's copy no longer matched `overlay/`; only edited files. */
+	edited?: Record<string, number>;
 	/** The first Turn that did not complete; the Run sent nothing after it. */
 	failedTurn?: number;
 }
@@ -215,6 +219,35 @@ export function probeKey(probe: { id: string; turn: number }): string {
 	return `${probe.id}@${probe.turn}`;
 }
 
+/**
+ * What a Revisit's step did with the file, first that applies: never read
+ * before the step; changed by then; fetched again while the window held the
+ * earlier read, after it had left, or where the window cannot tell; not fetched.
+ */
+export type RevisitClass = "held" | "left" | "unknown" | "unfetched" | "edited" | "unread";
+/** Where the earlier read sat in the window of the step's first Call. */
+export type RevisitPosition = "tail" | "summary" | "evicted" | "unknown" | "unread";
+
+/** One Revisit of a step the Run completed. */
+export interface RevisitScore {
+	id: string;
+	file: string;
+	step: string;
+	/** The step's first Turn. */
+	turn: number;
+	/** The Turn of the most recent result concerning the file before the step; absent when unread. */
+	read?: number;
+	/** `turn` − `read`. */
+	distance?: number;
+	/** The Turn of the step's first result concerning the file. */
+	fetched?: number;
+	position: RevisitPosition;
+	class: RevisitClass;
+	/** The recall Pull of the step whose result held the earlier read's Turn. */
+	pull?: PullTool;
+	outcome: Outcome;
+}
+
 export interface RunMeasures {
 	arm: string;
 	index: number;
@@ -248,6 +281,8 @@ export interface RunMeasures {
 	recalls?: RecallPull[];
 	/** Recall Pulls per class by distance band: Lapses recovered, never added to Re-fetches; pi-chart only. */
 	recall?: Record<RecallClass, Banded>;
+	/** One score per Revisit whose step the Run completed; a `bench.json` written before Revisits were scored lacks it. */
+	revisits: RevisitScore[];
 }
 
 export async function readRecord(dir: string): Promise<RunRecord> {
@@ -317,6 +352,7 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		refetches,
 		refetch: { held: banded("held"), left: banded("left"), unknown: banded("unknown") },
 		...(record.arm === "pi-chart" ? pullsOf(turns, windowAt, record.sessionId) : { compactions: compactions.length }),
+		revisits: revisitsOf(record, turns, completed, windowAt, steps),
 	};
 }
 
@@ -337,8 +373,7 @@ function scoresOf(
 	for (const [turn, prompt] of record.prompts.entries()) {
 		if (turn >= completed || prompt.probes.length === 0) continue;
 		const messages = turns[turn]?.messages ?? [];
-		const first = messages.findIndex((message) => message.role === "assistant" && message.usage);
-		const window = first === -1 ? "unknown" : windowAt({ turn, message: first }, turns[turn]?.calls[first] ?? 0);
+		const window = firstWindow(turns, turn, windowAt);
 		const replyAt = messages.findLastIndex((message) => message.role === "assistant");
 		const reply = replyAt === -1 ? "" : messageText(messages[replyAt] as HarnessMessage);
 		const breach =
@@ -457,6 +492,101 @@ function plantedAt(turns: JournalTurn[], value: string, before: number): Message
 	return undefined;
 }
 
+/** The window of Turn `turn`'s first Call: its first assistant message with `usage`. */
+function firstWindow(
+	turns: JournalTurn[],
+	turn: number,
+	windowAt: (at: MessageAddress, call: number) => Window,
+): Window {
+	const messages = turns[turn]?.messages ?? [];
+	const first = messages.findIndex((message) => message.role === "assistant" && message.usage);
+	return first === -1 ? "unknown" : windowAt({ turn, message: first }, turns[turn]?.calls[first] ?? 0);
+}
+
+/**
+ * One score per Revisit whose step's Turns all fall below `completed`, in
+ * declaration order. A result concerns the file when it is no error and its
+ * tool call names the file in some argument: its text does not matter, so a
+ * ranged read counts and a search that never names the file does not.
+ */
+function revisitsOf(
+	record: RunRecord,
+	turns: JournalTurn[],
+	completed: number,
+	windowAt: (at: MessageAddress, call: number) => Window,
+	steps: RunMeasures["steps"],
+): RevisitScore[] {
+	const scores: RevisitScore[] = [];
+	for (const revisit of record.revisits ?? []) {
+		const stepTurns = record.prompts.flatMap((prompt, turn) => (prompt.step === revisit.step ? [turn] : []));
+		const first = stepTurns[0];
+		const last = stepTurns.at(-1);
+		if (first === undefined || last === undefined || last >= completed) continue;
+
+		// The caller of each result concerning the file, by address, oldest first.
+		const concerning: { at: MessageAddress; caller: number }[] = [];
+		for (const turn of turns.slice(0, last + 1)) {
+			for (const [index, message] of turn.messages.entries()) {
+				if (message.role !== "toolResult" || message.isError) continue;
+				const caller = callerOf(turn, index);
+				if (caller === undefined) continue;
+				const call = toolCalls(turn.messages[caller] as HarnessMessage).find((each) => each.id === message.toolCallId);
+				if (!call || !stringLeaves(call.arguments).some((leaf) => leaf.includes(revisit.file))) continue;
+				concerning.push({ at: { turn: turn.turnIndex, message: index }, caller });
+			}
+		}
+		const earlier = concerning.findLast(({ at }) => at.turn < first)?.at;
+		const fetch = concerning.find(({ at }) => at.turn >= first);
+		const outcome = steps.find((step) => step.id === revisit.step)?.outcome ?? "not graded";
+		const base = { id: revisit.id, file: revisit.file, step: revisit.step, turn: first };
+		if (!earlier) {
+			scores.push({ ...base, position: "unread", class: "unread", outcome });
+			continue;
+		}
+
+		const window = firstWindow(turns, first, windowAt);
+		let position: RevisitPosition;
+		if (window === "unknown") position = "unknown";
+		else if (inTail(window, earlier)) position = window.tail.partial ? "unknown" : "tail";
+		// A compaction's summary is sent only with the tail it kept, so the read came before its cut.
+		else if (window.summary !== undefined) position = "summary";
+		else position = "evicted";
+
+		const edited = record.edited?.[revisit.file];
+		let revisitClass: RevisitClass;
+		if (edited !== undefined && edited <= last) revisitClass = "edited";
+		else if (fetch) {
+			const turn = turns[fetch.at.turn] as JournalTurn;
+			revisitClass = classify(windowAt({ turn: fetch.at.turn, message: fetch.caller }, turn.calls[fetch.caller] ?? 0), earlier);
+		} else revisitClass = "unfetched";
+
+		// A recall Pull: a Pull that held the earlier read's Turn after its Call's window let it go.
+		const pull = stepTurns
+			.flatMap((at) => {
+				const turn = turns[at];
+				if (!turn) return [];
+				return turn.messages.flatMap((message, index) => {
+					const tool = message.role === "toolResult" ? PULL_TOOLS.find((name) => name === message.toolName) : undefined;
+					if (!tool) return [];
+					const recalled = recallOf(tool, message, at, () => callerWindow(turn, index, windowAt), record.sessionId);
+					return recalled?.class === "recall" && recalled.turns.includes(earlier.turn) ? [tool] : [];
+				});
+			})[0];
+
+		scores.push({
+			...base,
+			read: earlier.turn,
+			distance: first - earlier.turn,
+			...(fetch ? { fetched: fetch.at.turn } : {}),
+			position,
+			class: revisitClass,
+			...(pull ? { pull } : {}),
+			outcome,
+		});
+	}
+	return scores;
+}
+
 /** Whether a message's text, or a string anywhere in its tool calls' arguments, holds `value`. */
 function holds(message: HarnessMessage, value: string): boolean {
 	return (
@@ -511,12 +641,12 @@ function pullsOf(
 			pulls[tool].calls++;
 			pulls[tool].tokens += approximateTokens([message]);
 
-			const caller = callerOf(turn, index);
-			const call = turn.calls[caller ?? index] ?? 0;
-			const window = (): Window =>
-				caller === undefined ? "unknown" : windowAt({ turn: turn.turnIndex, message: caller }, call);
-			const recalled = recallOf(tool, message, turn.turnIndex, window, own);
-			if (recalled) recalls.push({ turn: turn.turnIndex, call, tool, ...recalled });
+			const call = turn.calls[callerOf(turn, index) ?? index] ?? 0;
+			const recalled = recallOf(tool, message, turn.turnIndex, () => callerWindow(turn, index, windowAt), own);
+			if (recalled) {
+				const distance = recalled.turns.length > 0 ? { distance: turn.turnIndex - Math.max(...recalled.turns) } : {};
+				recalls.push({ turn: turn.turnIndex, call, tool, ...distance, class: recalled.class });
+			}
 		}
 	}
 	const banded = (kind: RecallClass) =>
@@ -524,10 +654,20 @@ function pullsOf(
 	return { pulls, writes, recalls, recall: { recall: banded("recall"), unknown: banded("unknown") } };
 }
 
+/** The window of the Call whose tool call the result at `index` answers; unknown when no Call made it. */
+function callerWindow(
+	turn: JournalTurn,
+	index: number,
+	windowAt: (at: MessageAddress, call: number) => Window,
+): Window {
+	const caller = callerOf(turn, index);
+	return caller === undefined ? "unknown" : windowAt({ turn: turn.turnIndex, message: caller }, turn.calls[caller] ?? 0);
+}
+
 /**
- * Whether a Pull's result held a Turn of the Run, `own`, that the window of
- * the Call at Turn `current` did not carry, and how far back the nearest is.
- * None when it is no recall Pull at all.
+ * Whether a Pull's result held Turns of the Run, `own`, that the window of
+ * the Call at Turn `current` did not carry, and which. None when it is no
+ * recall Pull at all; an unknown one may not say which Turns it held.
  */
 function recallOf(
 	tool: PullTool,
@@ -535,32 +675,44 @@ function recallOf(
 	current: number,
 	window: () => Window,
 	own: string | undefined,
-): Pick<RecallPull, "distance" | "class"> | undefined {
-	const details = (result.details ?? {}) as { turnIndices?: unknown; turns?: unknown; results?: unknown };
-	const nearest = (indices: number[]) => ({ distance: current - Math.max(...indices) });
+): { turns: number[]; class: RecallClass } | undefined {
+	const details = (result.details ?? {}) as { turns?: unknown; results?: unknown };
 	if (tool === "recall_earlier_turns") {
 		// The tool returns only Turns from before the tail of the very Call
 		// that made it: the window it would be checked against.
-		const indices = Array.isArray(details.turnIndices) ? (details.turnIndices as number[]) : [];
-		return indices.length > 0 ? { ...nearest(indices), class: "recall" } : undefined;
+		const turns = recalledTurns(tool, result, own);
+		return turns.length > 0 ? { turns, class: "recall" } : undefined;
 	}
 	if (tool !== "recall_across_conversations") return undefined;
 
 	if (!Array.isArray(details.turns)) {
 		// Recorded before results named their Turns: some came back, whose is unsaid.
-		return typeof details.results === "number" && details.results > 0 ? { class: "unknown" } : undefined;
+		return typeof details.results === "number" && details.results > 0 ? { turns: [], class: "unknown" } : undefined;
 	}
-	const found = details.turns as { conversationId: string; turnIndex: number }[];
 	// Without the Run's id, no result can be told for the Run's own.
-	if (own === undefined) return found.length > 0 ? { class: "unknown" } : undefined;
+	if (own === undefined) return details.turns.length > 0 ? { turns: [], class: "unknown" } : undefined;
 	// The Call's own Turn is always in its window.
-	const owned = found.filter((each) => each.conversationId === own && each.turnIndex !== current).map((each) => each.turnIndex);
+	const owned = recalledTurns(tool, result, own).filter((turn) => turn !== current);
 	if (owned.length === 0) return undefined;
 	const held = window();
-	if (held === "unknown") return { ...nearest(owned), class: "unknown" };
+	if (held === "unknown") return { turns: owned, class: "unknown" };
 	// The Opening carries only its Turn's prompt; a Pull returns the whole Turn.
 	const left = owned.filter((turn) => !held.tail.turns.includes(turn));
-	return left.length > 0 ? { ...nearest(left), class: "recall" } : undefined;
+	return left.length > 0 ? { turns: left, class: "recall" } : undefined;
+}
+
+/**
+ * The Turns of the Run's own Conversation, `own`, a recall Pull's result
+ * names; none for another tool, or a result that names no Turn or whose own
+ * cannot be told.
+ */
+function recalledTurns(tool: PullTool, result: HarnessMessage, own: string | undefined): number[] {
+	const details = (result.details ?? {}) as { turnIndices?: unknown; turns?: unknown };
+	if (tool === "recall_earlier_turns") return Array.isArray(details.turnIndices) ? (details.turnIndices as number[]) : [];
+	if (tool !== "recall_across_conversations" || own === undefined || !Array.isArray(details.turns)) return [];
+	return (details.turns as { conversationId: string; turnIndex: number }[])
+		.filter((each) => each.conversationId === own)
+		.map((each) => each.turnIndex);
 }
 
 function callOf(message: HarnessMessage, turn: number, subagent: boolean): Call | undefined {
@@ -787,10 +939,22 @@ export interface ArmAggregate {
 	byPosition?: Record<Position, { right: number; of: number }>;
 	sources?: Record<Source, { right: number; wrong: number }>;
 	counts?: { leak: number; despite: number; stale: number; breach: number };
+	/**
+	 * Over every Revisit score of the complete Runs: per Revisit, the scores
+	 * in each class; per class and position, Passes of the graded scores.
+	 * Absent when a complete Run was measured before Revisits were scored.
+	 */
+	revisits?: {
+		each: { id: string; file: string; step: string; classes: Record<RevisitClass, number> }[];
+		byClass: Record<RevisitClass, { pass: number; of: number }>;
+		byPosition: Record<RevisitPosition, { pass: number; of: number }>;
+	};
 }
 
 export const POSITIONS: Position[] = ["opening", "pin", "tail", "summary", "evicted", "unplanted", "unknown"];
 export const SOURCES: Source[] = ["opening", "pin", "tail", "summary", "pull", "result", "none", "unknown"];
+export const REVISIT_CLASSES: RevisitClass[] = ["held", "left", "unknown", "unfetched", "edited", "unread"];
+export const REVISIT_POSITIONS: RevisitPosition[] = ["tail", "summary", "evicted", "unknown", "unread"];
 
 /** The figures a report states per Arm, over complete Runs only. */
 export function aggregate(runs: RunMeasures[]): Map<string, ArmAggregate> {
@@ -858,9 +1022,48 @@ export function aggregate(runs: RunMeasures[]): Map<string, ArmAggregate> {
 				}
 			: {};
 
-		result.set(arm, { arm, complete, excluded: all.length - complete.length, costPerPass, retention, ...breakdown });
+		result.set(arm, {
+			arm,
+			complete,
+			excluded: all.length - complete.length,
+			costPerPass,
+			retention,
+			...breakdown,
+			...revisitBreakdown(complete),
+		});
 	}
 	return result;
+}
+
+/** The Revisit figures over `complete`; none when a Run was measured before Revisits were scored. */
+function revisitBreakdown(complete: RunMeasures[]): Pick<ArmAggregate, "revisits"> {
+	if (complete.some((run) => run.revisits === undefined)) return {};
+	const scores = complete.flatMap((run) => run.revisits);
+	const passes = (of: RevisitScore[]) => {
+		const graded = of.filter((score) => score.outcome !== "not graded");
+		return { pass: graded.filter((score) => score.outcome === "Pass").length, of: graded.length };
+	};
+	const each = new Map<string, NonNullable<ArmAggregate["revisits"]>["each"][number]>();
+	for (const score of scores) {
+		let revisit = each.get(score.id);
+		if (!revisit) {
+			const classes = Object.fromEntries(REVISIT_CLASSES.map((revisitClass) => [revisitClass, 0])) as Record<RevisitClass, number>;
+			revisit = { id: score.id, file: score.file, step: score.step, classes };
+			each.set(score.id, revisit);
+		}
+		revisit.classes[score.class]++;
+	}
+	return {
+		revisits: {
+			each: [...each.values()],
+			byClass: Object.fromEntries(
+				REVISIT_CLASSES.map((revisitClass) => [revisitClass, passes(scores.filter((score) => score.class === revisitClass))]),
+			) as Record<RevisitClass, { pass: number; of: number }>,
+			byPosition: Object.fromEntries(
+				REVISIT_POSITIONS.map((position) => [position, passes(scores.filter((score) => score.position === position))]),
+			) as Record<RevisitPosition, { pass: number; of: number }>,
+		},
+	};
 }
 
 export const usd = (x: number) => (Number.isFinite(x) ? `$${x.toFixed(4)}` : "—");
@@ -889,6 +1092,20 @@ export function scoreLine(score: Score): string {
 		...(score.breach ? ["called a tool the Probe forbade"] : []),
 	];
 	return parts.join(", ") + (score.class ? ` (${CLASS_LABEL[score.class]})` : "");
+}
+
+/** One Revisit score as a line: `scale (notes/scale.md, step use-scale): left, fetched at Turn 7, read at Turn 2, 5 Turns back, evicted, Pass`. */
+export function revisitLine(score: RevisitScore): string {
+	const parts = [
+		score.class,
+		...(score.fetched === undefined ? [] : [`fetched at Turn ${score.fetched + 1}`]),
+		...(score.read === undefined ? [] : [`read at Turn ${score.read + 1}`]),
+		...(score.distance === undefined ? [] : [`${score.distance} Turn${score.distance === 1 ? "" : "s"} back`]),
+		...(score.position === "unread" ? [] : [score.position]),
+		...(score.pull ? [`pulled by ${score.pull}`] : []),
+		score.outcome,
+	];
+	return `${score.id} (${score.file}, step ${score.step}): ${parts.join(", ")}`;
 }
 
 if (import.meta.main) {
@@ -923,6 +1140,7 @@ if (import.meta.main) {
 		);
 		if (measures.plants.length === 0) console.log("Retention: no Probe reached");
 		for (const score of measures.plants) console.log(scoreLine(score));
+		for (const score of measures.revisits) console.log(revisitLine(score));
 		const banded = (name: string, count: Banded) =>
 			console.log(
 				`${name}: ${count.total} (${BANDS.map((band, at) => `${bandLabel(band)} ${count.bands[at]}`).join(", ")})`,

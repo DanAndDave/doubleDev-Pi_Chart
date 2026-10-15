@@ -1,0 +1,169 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-pi-chart-revisits",
+	"sessionId": "s-own",
+	"plants": [],
+	"revisits": [
+		{
+			"id": "table",
+			"file": "notes/table.md",
+			"earlier": "s2",
+			"step": "s4"
+		},
+		{
+			"id": "edit",
+			"file": "notes/edit.md",
+			"earlier": "s1",
+			"step": "s5"
+		},
+		{
+			"id": "scale",
+			"file": "notes/scale.md",
+			"earlier": "s1",
+			"step": "s6"
+		},
+		{
+			"id": "grid",
+			"file": "notes/grid.md",
+			"earlier": "s3",
+			"step": "s7"
+		},
+		{
+			"id": "never",
+			"file": "notes/never.md",
+			"earlier": "s0",
+			"step": "s8"
+		},
+		{
+			"id": "spec",
+			"file": "notes/spec.md",
+			"earlier": "s0",
+			"step": "s9"
+		},
+		{
+			"id": "table2",
+			"file": "notes/table.md",
+			"earlier": "s2",
+			"step": "s10"
+		}
+	],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Read notes/spec.md.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "Read notes/scale.md and notes/edit.md.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "Read notes/table.md.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "Read notes/grid.md.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Use the table again.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Use the edit note again.",
+			"probes": []
+		},
+		{
+			"step": "s6",
+			"text": "Use the offset from the scale note.",
+			"probes": []
+		},
+		{
+			"step": "s7",
+			"text": "How big is the grid?",
+			"probes": []
+		},
+		{
+			"step": "s8",
+			"text": "What does the never note say?",
+			"probes": []
+		},
+		{
+			"step": "s9",
+			"text": "What did the spec say?",
+			"probes": []
+		},
+		{
+			"step": "s10",
+			"text": "Use the table once more.",
+			"probes": []
+		}
+	],
+	"checks": [
+		{
+			"step": "s4",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		},
+		{
+			"step": "s5",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		},
+		{
+			"step": "s6",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		},
+		{
+			"step": "s7",
+			"pass": false,
+			"exitCode": 1,
+			"durationMs": 800,
+			"output": "1 fail"
+		},
+		{
+			"step": "s8",
+			"pass": false,
+			"exitCode": 1,
+			"durationMs": 800,
+			"output": "1 fail"
+		},
+		{
+			"step": "s9",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		},
+		{
+			"step": "s10",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 800,
+			"output": "1 pass"
+		}
+	],
+	"edited": {
+		"notes/edit.md": 2
+	}
+}

@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { aggregate, measureRun, type RunMeasures, type Score } from "../scripts/measures.ts";
+import { aggregate, measureRun, type RevisitScore, type RunMeasures, type Score } from "../scripts/measures.ts";
 import { readBranch } from "../src/journal.ts";
 import { approximateTokens } from "../src/tokens.ts";
 
@@ -385,6 +385,53 @@ describe("recall Pulls", () => {
 	});
 });
 
+describe("Revisit scores", () => {
+	test("each class on a pi-chart Run, judged by whether a call named the file and where the window held the earlier read", async () => {
+		const measures = await measureRun(fixture("pi-chart-revisits"));
+
+		expect(measures.revisits).toEqual([
+			// Fetched again while the tail still carried Turn 2.
+			{ id: "table", file: "notes/table.md", step: "s4", turn: 4, read: 2, distance: 2, fetched: 4, position: "tail", class: "held", outcome: "Pass" },
+			// Changed at Turn 2: whatever the step did, it is not scored by the window.
+			{ id: "edit", file: "notes/edit.md", step: "s5", turn: 5, read: 1, distance: 4, position: "evicted", class: "edited", outcome: "Pass" },
+			// A ranged read with different text is still a fetch, and the tail had let Turn 1 go.
+			{ id: "scale", file: "notes/scale.md", step: "s6", turn: 6, read: 1, distance: 5, fetched: 6, position: "evicted", class: "left", outcome: "Pass" },
+			// The read failed, and the search that found the file never named it.
+			{ id: "grid", file: "notes/grid.md", step: "s7", turn: 7, read: 3, distance: 4, position: "evicted", class: "unfetched", outcome: "Fail" },
+			{ id: "never", file: "notes/never.md", step: "s8", turn: 8, position: "unread", class: "unread", outcome: "Fail" },
+			{
+				id: "spec",
+				file: "notes/spec.md",
+				step: "s9",
+				turn: 9,
+				read: 0,
+				distance: 9,
+				position: "evicted",
+				class: "unfetched",
+				pull: "recall_earlier_turns",
+				outcome: "Pass",
+			},
+			// The most recent read is Turn 4's; Turn 10 has no Accounting.
+			{ id: "table2", file: "notes/table.md", step: "s10", turn: 10, read: 4, distance: 6, fetched: 10, position: "unknown", class: "unknown", outcome: "Pass" },
+		]);
+	});
+
+	test("a plain-omp Revisit is held before a compaction, and sits in the summary after its cut", async () => {
+		const measures = await measureRun(fixture("vanilla-revisits"));
+
+		expect(measures.revisits).toEqual([
+			{ id: "a", file: "notes/a.md", step: "s3", turn: 3, read: 1, distance: 2, fetched: 3, position: "tail", class: "held", outcome: "Pass" },
+			{ id: "b", file: "notes/b.md", step: "s7", turn: 7, read: 2, distance: 5, position: "summary", class: "unfetched", outcome: "Pass" },
+			{ id: "a2", file: "notes/a.md", step: "s8", turn: 8, read: 3, distance: 5, fetched: 8, position: "summary", class: "left", outcome: "Pass" },
+		]);
+	});
+
+	test("a Revisit whose step the Run never finished is not scored, nor is a record without Revisits", async () => {
+		expect((await measureRun(fixture("failed-early"))).revisits).toEqual([]);
+		expect((await measureRun(fixture("complete"))).revisits).toEqual([]);
+	});
+});
+
 /** A Run's Measures with only what `aggregate` reads set; the rest are inert. */
 function run(arm: string, cost: number, outcomes: ("Pass" | "Fail")[], extra: Partial<RunMeasures> = {}): RunMeasures {
 	const steps = outcomes.map((outcome, at) => ({ id: `s${at}`, outcome }));
@@ -416,6 +463,7 @@ function run(arm: string, cost: number, outcomes: ("Pass" | "Fail")[], extra: Pa
 		probe: { lapse: none, unknown: none },
 		refetches: [],
 		refetch: { held: none, left: none, unknown: none },
+		revisits: [],
 		...extra,
 	};
 }
@@ -510,5 +558,70 @@ describe("aggregate", () => {
 		expect(piChart?.sources?.none).toEqual({ right: 1, wrong: 3 });
 		expect(piChart?.sources?.tail).toEqual({ right: 1, wrong: 0 });
 		expect(piChart?.counts).toEqual({ leak: 1, despite: 0, stale: 0, breach: 0 });
+	});
+
+	const revisit = (extra: Partial<RevisitScore> = {}): RevisitScore => ({
+		id: "offset",
+		file: "notes/scale.md",
+		step: "add-shift",
+		turn: 9,
+		read: 1,
+		distance: 8,
+		position: "evicted",
+		class: "unfetched",
+		outcome: "Pass",
+		...extra,
+	});
+	const revisited = (scores: RevisitScore[], complete = true) => run("pi-chart", 1, [], { complete, revisits: scores });
+	const classes = (counts: Partial<Record<RevisitScore["class"], number>>) => ({
+		held: 0,
+		left: 0,
+		unknown: 0,
+		unfetched: 0,
+		edited: 0,
+		unread: 0,
+		...counts,
+	});
+
+	test("Revisits are judged by the step's check whether the agent fetched the file or answered directly", () => {
+		const arms = aggregate([
+			revisited([revisit({ class: "left", fetched: 9 })]),
+			revisited([revisit()]),
+			revisited([revisit({ outcome: "Fail" })]),
+			revisited([revisit({ class: "left", fetched: 9 })], false),
+		]);
+
+		const revisits = arms.get("pi-chart")?.revisits;
+		expect(revisits?.each).toEqual([
+			{ id: "offset", file: "notes/scale.md", step: "add-shift", classes: classes({ left: 1, unfetched: 2 }) },
+		]);
+		expect(revisits?.byClass.left).toEqual({ pass: 1, of: 1 });
+		expect(revisits?.byClass.unfetched).toEqual({ pass: 1, of: 2 });
+		expect(revisits?.byPosition.evicted).toEqual({ pass: 2, of: 3 });
+	});
+
+	test("a Revisit whose step was not graded is counted, but in no Pass figure", () => {
+		const arms = aggregate([revisited([revisit({ outcome: "not graded" })]), revisited([revisit({ position: "tail" })])]);
+
+		const revisits = arms.get("pi-chart")?.revisits;
+		expect(revisits?.each[0]?.classes).toEqual(classes({ unfetched: 2 }));
+		expect(revisits?.byClass.unfetched).toEqual({ pass: 1, of: 1 });
+		expect(revisits?.byPosition).toEqual({
+			tail: { pass: 1, of: 1 },
+			summary: { pass: 0, of: 0 },
+			evicted: { pass: 0, of: 0 },
+			unknown: { pass: 0, of: 0 },
+			unread: { pass: 0, of: 0 },
+		});
+	});
+
+	test("Revisits have no figure, not zero, when a complete Run was measured before Revisits were scored", () => {
+		const { revisits: _absent, ...rest } = revisited([]);
+		// A `bench.json` written before Revisits were scored has Measures without the field.
+		const old = rest as RunMeasures;
+
+		const arms = aggregate([revisited([revisit()]), old]);
+
+		expect(arms.get("pi-chart")?.revisits).toBeUndefined();
 	});
 });

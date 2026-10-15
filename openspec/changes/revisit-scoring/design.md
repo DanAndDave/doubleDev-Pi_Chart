@@ -98,7 +98,7 @@ RunMeasures.revisits: RevisitScore[];   // [] when the record declares none
   - **summary**: `window.summary` is set. `branchWindow` sets it only when the read came before `firstKept`, so nothing more is needed. pi-chart windows never have a summary.
   - **evicted**: otherwise.
   - The summary text is not searched, because there is no single value to search a file for. That is why the spec says "kept only what followed it" rather than "holds it".
-- **Pull**: `recallOf`'s parsing of turn indices is split into `recalledTurns(tool, result, own): number[]`, shared with `recallOf`. The first recall-tool result in the step's Turns whose turns include `read` names the tool.
+- **Pull**: `recallOf`'s parsing of turn indices is split into `recalledTurns(tool, result, own): number[]`, and `recallOf` returns the Turns a recall Pull held beyond its Call's window. The first recall Pull in the step's Turns whose Turns include `read` names the tool, so a `recall_across_conversations` result returning a Turn the window still carried names none.
 - **Class order** follows the spec: unread, edited, fetched (held, left or unknown), unfetched.
 - **Distance** is measured from the step's first Turn, not the fetch's Turn. A step is usually one prompt, and a fixed origin lets fetched and unfetched scores share bands.
 

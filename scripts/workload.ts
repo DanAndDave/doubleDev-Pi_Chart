@@ -54,6 +54,18 @@ export interface Step {
 	check?: string;
 }
 
+/**
+ * A Workload file a Graded Task needs again: `earlier` is the step whose
+ * prompts first send the agent to `file`, and `step` the Graded Task that needs it again.
+ */
+export interface Revisit {
+	id: string;
+	/** Path under `overlay/`, as prompts name it. */
+	file: string;
+	earlier: string;
+	step: string;
+}
+
 export interface Workload {
 	/** The folder the Workload was loaded from. */
 	dir: string;
@@ -62,6 +74,8 @@ export interface Workload {
 	/** The full sha the workspace is built from. */
 	commit: string;
 	plants: Plant[];
+	/** `workload.json` may omit the list: none. */
+	revisits: Revisit[];
 	steps: Step[];
 }
 
@@ -202,6 +216,28 @@ export async function loadWorkload(dir: string): Promise<Workload> {
 		step.check = join(checksDir, entry);
 	}
 
+	const revisits: Revisit[] = [];
+	if (spec.revisits !== undefined && !Array.isArray(spec.revisits)) problems.push("revisits is not a list");
+	for (const [at, revisit] of ((spec.revisits ?? []) as unknown[]).entries()) {
+		const { id, file, earlier, step } = (revisit ?? {}) as Record<string, unknown>;
+		if (
+			typeof id !== "string" ||
+			id === "" ||
+			typeof file !== "string" ||
+			file === "" ||
+			typeof earlier !== "string" ||
+			earlier === "" ||
+			typeof step !== "string" ||
+			step === ""
+		) {
+			problems.push(`revisit ${at} needs a string id, file, earlier and step`);
+			continue;
+		}
+		if (revisits.some((known) => known.id === id)) problems.push(`revisit ${id} is declared twice`);
+		revisits.push({ id, file, earlier, step });
+	}
+	problems.push(...(await revisitProblems(dir, revisits, steps)));
+
 	if (problems.length > 0) {
 		throw new Error(`Workload ${dir} is malformed:\n- ${problems.join("\n- ")}`);
 	}
@@ -211,6 +247,7 @@ export async function loadWorkload(dir: string): Promise<Workload> {
 		version: version as number,
 		commit: commit as string,
 		plants,
+		revisits,
 		steps,
 	};
 }
@@ -309,6 +346,33 @@ async function plantProblems(dir: string, plants: Plant[], flawed: Set<string>, 
 	return problems;
 }
 
+/**
+ * Everything wrong with the Revisits: each Graded Task needs again an overlay
+ * file its earlier step's prompts name. Run once checks are attached.
+ */
+async function revisitProblems(dir: string, revisits: Revisit[], steps: Step[]): Promise<string[]> {
+	const problems: string[] = [];
+	const order = (id: string) => steps.findIndex((step) => step.id === id);
+	for (const revisit of revisits) {
+		const earlier = order(revisit.earlier);
+		const step = order(revisit.step);
+		if (earlier === -1) problems.push(`revisit ${revisit.id} names step ${revisit.earlier}, which the Workload does not declare`);
+		if (step === -1) problems.push(`revisit ${revisit.id} names step ${revisit.step}, which the Workload does not declare`);
+		if (earlier !== -1 && step !== -1 && earlier >= step) {
+			problems.push(`revisit ${revisit.id}'s earlier step ${revisit.earlier} does not come before its step ${revisit.step}`);
+		}
+		if (step !== -1 && steps[step]?.check === undefined) {
+			problems.push(`revisit ${revisit.id}'s step ${revisit.step} has no check`);
+		}
+		const file = await stat(join(dir, "overlay", revisit.file)).catch(() => undefined);
+		if (!file?.isFile()) problems.push(`revisit ${revisit.id}'s file ${revisit.file} is missing from overlay/`);
+		if (earlier !== -1 && !steps[earlier]?.prompts.some((prompt) => prompt.text.includes(revisit.file))) {
+			problems.push(`revisit ${revisit.id}'s file ${revisit.file} is named by no prompt of its earlier step ${revisit.earlier}`);
+		}
+	}
+	return problems;
+}
+
 async function resolveCommit(commit: string): Promise<string | undefined> {
 	const proc = Bun.spawn(["git", "-C", REPO, "rev-parse", "--verify", "--quiet", `${commit}^{commit}`], {
 		stdout: "pipe",
@@ -369,6 +433,22 @@ export async function buildWorkspace(workload: Workload, dir: string): Promise<v
 	const graph = join(workload.dir, "graphify-out");
 	if (await isDirectory(graph)) await run(["cp", "-a", graph, join(dir, "graphify-out")]);
 	await run(["git", "init", "-q"], dir);
+}
+
+/**
+ * The `files` (paths under `overlay`) whose copy in `workspace` no longer
+ * matches the overlay's bytes, a missing copy included, in the order given.
+ */
+export async function editedFiles(workspace: string, overlay: string, files: string[]): Promise<string[]> {
+	const edited: string[] = [];
+	for (const file of files) {
+		const [now, was] = await Promise.all([
+			readFile(join(workspace, file)).catch(() => undefined),
+			readFile(join(overlay, file)),
+		]);
+		if (now === undefined || !now.equals(was)) edited.push(file);
+	}
+	return edited;
 }
 
 /** Installs the workspace's dependencies from its own lockfile. */

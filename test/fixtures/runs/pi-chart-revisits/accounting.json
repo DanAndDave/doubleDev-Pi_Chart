@@ -1,0 +1,823 @@
+{
+	"s-own": [
+		{
+			"conversationId": "s-own",
+			"turnIndex": 0,
+			"calls": [
+				{
+					"turnIndex": 0,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 0,
+							"turnIndices": [],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 0,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 0,
+							"turnIndices": [],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 1,
+			"calls": [
+				{
+					"turnIndex": 1,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 1,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 1,
+					"callIndex": 2,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 2,
+			"calls": [
+				{
+					"turnIndex": 2,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								0,
+								1
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 2,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								0,
+								1
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 3,
+			"calls": [
+				{
+					"turnIndex": 3,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								0,
+								1,
+								2
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 3,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								0,
+								1,
+								2
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 4,
+			"calls": [
+				{
+					"turnIndex": 4,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								1,
+								2,
+								3
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 4,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								1,
+								2,
+								3
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 5,
+			"calls": [
+				{
+					"turnIndex": 5,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								2,
+								3,
+								4
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 6,
+			"calls": [
+				{
+					"turnIndex": 6,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								4,
+								5
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 6,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								4,
+								5
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 7,
+			"calls": [
+				{
+					"turnIndex": 7,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								5,
+								6
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 7,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								5,
+								6
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 7,
+					"callIndex": 2,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								5,
+								6
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 8,
+			"calls": [
+				{
+					"turnIndex": 8,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								5,
+								6,
+								7
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"conversationId": "s-own",
+			"turnIndex": 9,
+			"calls": [
+				{
+					"turnIndex": 9,
+					"callIndex": 0,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								6,
+								7,
+								8
+							],
+							"excludedCandidates": []
+						}
+					]
+				},
+				{
+					"turnIndex": 9,
+					"callIndex": 1,
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 20,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 400,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								6,
+								7,
+								8
+							],
+							"excludedCandidates": []
+						}
+					]
+				}
+			]
+		}
+	]
+}

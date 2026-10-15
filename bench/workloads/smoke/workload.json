@@ -1,13 +1,14 @@
 {
 	"name": "smoke",
-	"version": 1,
+	"version": 2,
 	"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359",
 	"plants": [{ "id": "codeword", "value": "PLUM-17" }],
+	"revisits": [{ "id": "offset", "file": "notes/scale.md", "earlier": "add-scale", "step": "add-shift" }],
 	"steps": [
 		{
-			"id": "add-double",
+			"id": "add-scale",
 			"prompts": [
-				"Remember this codeword for later: PLUM-17. Then create src/smoke.ts exporting a function `double(n: number): number` that returns twice n. Do not modify any other file and do not spawn subagents."
+				"Remember this codeword for later: PLUM-17. Then read notes/scale.md and create src/smoke.ts exporting a function `scale(n: number): number` that returns n times the factor it gives. Do not modify any other file and do not spawn subagents."
 			]
 		},
 		{
@@ -19,6 +20,12 @@
 					"probes": ["codeword"],
 					"tools": false
 				}
+			]
+		},
+		{
+			"id": "add-shift",
+			"prompts": [
+				"Add to src/smoke.ts an exported function `shift(n: number): number` that returns n plus the offset notes/scale.md gives. Keep `scale` as it is. Do not modify any other file and do not spawn subagents."
 			]
 		}
 	]

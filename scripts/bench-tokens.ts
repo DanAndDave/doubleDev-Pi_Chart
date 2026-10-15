@@ -68,6 +68,8 @@ import {
 	probeKey,
 	PULL_TOOLS,
 	READ_RATE,
+	REVISIT_CLASSES,
+	REVISIT_POSITIONS,
 	type Banded,
 	type CheckOutcome,
 	type RecallClass,
@@ -81,6 +83,7 @@ import {
 } from "./measures.ts";
 import {
 	buildWorkspace,
+	editedFiles,
 	gradedSteps,
 	installDependencies,
 	loadWorkload,
@@ -298,9 +301,11 @@ async function runOne(arm: Arm, index: number, ctx: Context): Promise<{ record: 
 		omp: options.omp,
 		cwd,
 		plants: workload.plants,
+		revisits: workload.revisits,
 		prompts: turns.map(({ step, text, probes, tools }) => ({ step, text, probes, ...(tools === false ? { tools } : {}) })),
 		checks: [],
 	};
+	const unedited = new Set(workload.revisits.map((revisit) => revisit.file));
 	// Named before it is created, so a migration that fails still drops it.
 	const database = arm === "pi-chart" ? `bench_${ctx.stamp}_${arm.replace("-", "_")}_${index}` : undefined;
 	let url: string | undefined;
@@ -335,6 +340,12 @@ async function runOne(arm: Arm, index: number, ctx: Context): Promise<{ record: 
 				break;
 			}
 			log(`${arm}#${index} Turn ${turn + 1}/${turns.length}`);
+
+			// Before the check, which may touch the workspace.
+			for (const file of await editedFiles(cwd, join(workload.dir, "overlay"), [...unedited])) {
+				(record.edited ??= {})[file] = turn;
+				unedited.delete(file);
+			}
 
 			const ending = stepEndingAt(workload, turn);
 			const graded = ending && ctx.graded.get(ending.id);
@@ -574,6 +585,21 @@ function report(bench: Bench): void {
 		console.log(`- ${arm}: ${typeof value === "string" ? value : usd(value.usd)}`);
 	}
 
+	// An Arm whose `bench.json` predates a breakdown has no figures for it: "—".
+	type Tally = { right: number; of: number } | undefined;
+	const ratio = (tally: Tally) => (tally ? `${tally.right}/${tally.of}` : "—");
+	const breakdown = (title: string, column: string, rows: [string, (arm: Arm) => Tally][]) => {
+		console.log(`\n${title}:\n`);
+		console.log(`| ${column} | ${present.join(" | ")} |`);
+		console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
+		for (const [label, pick] of rows) {
+			const tallies = present.map(pick);
+			// A row only where some Arm scored; "—" from an older record keeps its row.
+			if (tallies.every((tally) => tally?.of === 0)) continue;
+			console.log(`| ${label} | ${tallies.map(ratio).join(" | ")} |`);
+		}
+	};
+
 	const probes = [
 		...new Map(present.flatMap((arm) => arms.get(arm)?.retention ?? []).map((probe) => [probeKey(probe), probe])).values(),
 	].sort((a, b) => a.turn - b.turn);
@@ -594,20 +620,6 @@ function report(bench: Bench): void {
 			);
 		}
 
-		// A score recorded before Scores had positions leaves its Arm without these: "—".
-		type Tally = { right: number; of: number } | undefined;
-		const ratio = (tally: Tally) => (tally ? `${tally.right}/${tally.of}` : "—");
-		const breakdown = (title: string, column: string, rows: [string, (arm: Arm) => Tally][]) => {
-			console.log(`\n${title}:\n`);
-			console.log(`| ${column} | ${present.join(" | ")} |`);
-			console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
-			for (const [label, pick] of rows) {
-				const tallies = present.map(pick);
-				// A row only where some Arm scored; "—" from an older record keeps its row.
-				if (tallies.every((tally) => tally?.of === 0)) continue;
-				console.log(`| ${label} | ${tallies.map(ratio).join(" | ")} |`);
-			}
-		};
 		breakdown(
 			"Retention by distance band",
 			"Distance, Turns",
@@ -636,6 +648,48 @@ function report(bench: Bench): void {
 				: `${arm} —`;
 		});
 		console.log(`\n${tallied.join("; ")}.`);
+	}
+
+	const revisitFigures = (arm: Arm) => arms.get(arm)?.revisits;
+	const revisits = [
+		...new Map(present.flatMap((arm) => revisitFigures(arm)?.each ?? []).map((each) => [each.id, each])).values(),
+	];
+	console.log("\nRevisit scores (complete Runs per class):\n");
+	if (!present.some((arm) => revisitFigures(arm))) {
+		console.log("— Revisits were not scored for these Runs.");
+	} else if (revisits.length === 0) {
+		console.log("No Revisit within the Turns sent.");
+	} else {
+		console.log(`| Revisit | File | Step | Class | ${present.join(" | ")} |`);
+		console.log(`| --- | --- | --- | --- | ${present.map(() => "---:").join(" | ")} |`);
+		for (const { id, file, step } of revisits) {
+			for (const revisitClass of REVISIT_CLASSES) {
+				const counts = present.map((arm) => {
+					const figures = revisitFigures(arm);
+					return figures ? (figures.each.find((each) => each.id === id)?.classes[revisitClass] ?? 0) : undefined;
+				});
+				if (!counts.some((count) => count !== undefined && count > 0)) continue;
+				const cells = counts.map((count) => (count === undefined ? "—" : String(count)));
+				console.log(`| ${id} | ${file} | ${step} | ${revisitClass} | ${cells.join(" | ")} |`);
+			}
+		}
+		const passes = (tally: { pass: number; of: number } | undefined): Tally =>
+			tally && { right: tally.pass, of: tally.of };
+		breakdown(
+			"Revisit Passes by class (graded scores)",
+			"Class",
+			REVISIT_CLASSES.map((revisitClass) => [revisitClass, (arm) => passes(revisitFigures(arm)?.byClass[revisitClass])]),
+		);
+		breakdown(
+			"Revisit Passes by position of the earlier read (graded scores)",
+			"Position",
+			REVISIT_POSITIONS.map((position) => [position, (arm) => passes(revisitFigures(arm)?.byPosition[position])]),
+		);
+		console.log(
+			"\nA left Revisit is a recovered Lapse: the step fetched the file after the earlier read had left the window. " +
+				"It is reported apart from Re-fetch Lapses, recall Pulls and failed Probes, and never added to them, " +
+				"since the same fetch can also be a Re-fetch.",
+		);
 	}
 
 	console.log("\nWindow size per Turn (median prompt tokens of the Turn's last Call):\n");
