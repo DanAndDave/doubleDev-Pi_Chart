@@ -21,13 +21,13 @@ Invocation: Matt's skills are `/skill:<name>` (they are user-invoked, so the age
 
 ## Phases
 
-Each phase ends where the next one's input exists. Work one change per session; reach for `handoff` when context runs short mid-slice.
+Each phase ends where the next one's input exists.
 
-### 1. Chart the fog (multi-session efforts only)
+### 1. Chart the fog
 
-`/skill:wayfinder`. Use it when the way to the destination isn't visible from here, which is most greenfield work. It charts decision tickets and resolves **one per session**. Physical layout for this repo is in `issue-tracker.md` under "Per-skill mapping".
+`/skill:wayfinder`. Use it when the way to the destination isn't visible from here, which is most greenfield work. It charts decision tickets; resolve them back to back while the frontier has work, ignoring the skill's one-ticket-per-session rule (pi-chart manages the context window). Physical layout for this repo is in `issue-tracker.md` under "Per-skill mapping".
 
-When breadth-first grilling surfaces no fog, the effort fits one session: go straight to phase 2.
+When breadth-first grilling surfaces no fog, go straight to phase 2.
 
 ### 2. Decide what to build
 
@@ -39,7 +39,7 @@ Greenfield leverage: every term is still up for grabs, so `CONTEXT.md` written n
 
 ### 3. Slice it
 
-`/skill:to-tickets`. Each slice is a **tracer bullet**: a complete vertical path through every layer, demoable on its own, sized to one fresh context window.
+`/skill:to-tickets`. Each slice is a **tracer bullet**: a complete vertical path through every layer, demoable on its own.
 
 - One independently shippable slice → one change folder.
 - Slices that only ship together → numbered items in one change's `tasks.md`.

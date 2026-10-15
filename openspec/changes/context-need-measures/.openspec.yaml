@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-14
+# A wayfinder effort: the map and its decision tickets, no spec delta.
+# Each slice it hands off becomes its own change folder.
+skip_specs: true

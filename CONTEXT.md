@@ -7,11 +7,11 @@ A context manager for coding agents. Four durable stores hold what the agent kno
 ### The window and what fills it
 
 **Context Window**:
-The messages sent to the model for a single turn. It is rebuilt each turn rather than grown.
+The messages one Call sends to the model, whichever harness assembled them: under pi-chart a Context Pack, under plain omp the accumulated history since the last compaction plus its summary.
 _Avoid_: context, context memory, memory
 
 **Context Pack**:
-The bundle the assembler produces for one Call: pi-chart's additions to the system prompt (every Pin, the Opening and a fixed eviction notice), the verbatim tail, and the current Turn. The unit that fills a Context Window. Recall, curated knowledge and structure enter it only when the model pulls them with a tool, and then as ordinary Turn content.
+The bundle the assembler produces for one Call: pi-chart's additions to the system prompt (every Pin, the Opening and a fixed eviction notice), the verbatim tail, and the current Turn. The unit that fills a Context Window, rebuilt each Call rather than grown. Recall, curated knowledge and structure enter it only when the model pulls them with a tool, and then as ordinary Turn content.
 _Avoid_: payload, bundle, prompt context
 
 **Assembler**:
@@ -109,3 +109,73 @@ _Avoid_: document, note, entry
 **Level**:
 One directory of the Doc Store, listing the Concepts and sub-Levels directly beneath it. The unit of progressive disclosure: read a Level, decide what to open.
 _Avoid_: folder, directory, section, index
+
+### Measuring
+
+**Measure**:
+A judgement of whether a Call's Context Window held what its next action needed, made from Conversations already recorded. Sits beside Accounting, which records what the window held.
+_Avoid_: metric, stat, score, eval
+
+**Utilisation**:
+The share of a Call's Context Window, by tokens, that its next action Used. Cheap and correlational.
+_Avoid_: relevance, hit rate, coverage
+
+**Used**:
+The Utilisation verdict on a part: the next action refers to it, by path, by a copied span, or by shared rare identifiers. Never interchanged with Needed.
+_Avoid_: relevant, consulted, read
+
+**Ablation**:
+Re-sending a Call with one part of its Context Window removed, to see whether the next action changes. Causal, and a lower bound on need when parts are redundant.
+_Avoid_: leave-one-out, knockout, removal test
+
+**Needed**:
+The Ablation verdict on a part: the next action changes without it. Never interchanged with Used.
+_Avoid_: necessary, required, load-bearing
+
+**Lapse**:
+A Call whose next action needed content its Context Window did not carry. Seen only through a recall Pull of an evicted Turn, a Re-fetch of a result that had left the window, or a failed Probe; the first two are recovered Lapses.
+_Avoid_: miss, gap, shortfall
+
+**Re-fetch**:
+A tool call whose result is identical to one an earlier Turn of the same Conversation already received. A Lapse only when that earlier result had left the window; one made while it is still held is model redundancy.
+_Avoid_: re-read, redundant call, repeat
+
+**Pull**:
+A tool call that brings content into a Turn from outside it: `recall_earlier_turns`, `recall_across_conversations`, `search_documentation`, `walk_documentation` or `codebase_structure`. Writing to the bundle is not a Pull. A recall Pull is one whose result holds a Turn of the same Conversation that the Context Window did not carry, whichever tool returned it.
+_Avoid_: fetch, retrieval, lookup
+
+**Plant**:
+A fact stated in an early Turn so a later Probe can ask for it.
+_Avoid_: needle, codeword, planted fact
+
+**Probe**:
+A prompt that asks for one or more Plants, scored separately for each.
+_Avoid_: question, check, test prompt
+
+**Retention**:
+The share of Plants their Probes answered correctly.
+_Avoid_: recall rate, memory score, accuracy
+
+**Graded Task**:
+One step of a Workload: its prompts plus a check, run after the last of them, that decides whether the step is a Pass or a Fail.
+_Avoid_: solved task, benchmark task, success
+
+**Cost per Pass**:
+An Arm's total spend over its Graded Tasks divided by the number that passed.
+_Avoid_: cost per solved task, success rate
+
+**Arm**:
+One configuration under comparison, such as pi-chart or plain omp.
+_Avoid_: variant, condition, side
+
+**Workload**:
+The fixed sequence of prompts an Arm is given.
+_Avoid_: script, scenario, prompt set
+
+**Run**:
+One Conversation of one Arm over one Workload.
+_Avoid_: trial, session, attempt
+
+**Gate**:
+The check a change to pi-chart passes before it is archived: Runs of the change paired with Runs of the commit before it, ending in pass, fail or inconclusive.
+_Avoid_: regression test, CI, baseline run

@@ -2,7 +2,7 @@
 
 ## Workflow
 
-Planning and building follow a fixed pipeline: chart the fog (`wayfinder`) → decide (`grill-with-docs`) → slice into tracer bullets (`to-tickets`) → plan the slice (`/opsx-propose`) → build it (`/opsx-apply` + `tdd`) → close it (`code-review`, `/opsx-archive`). One change per session.
+Planning and building follow a fixed pipeline: chart the fog (`wayfinder`) → decide (`grill-with-docs`) → slice into tracer bullets (`to-tickets`) → plan the slice (`/opsx-propose`) → build it (`/opsx-apply` + `tdd`) → close it (`code-review`, `/opsx-archive`).
 
 Each artifact has a single writer: Matt Pocock's skills own alignment, vocabulary, and slicing; OpenSpec owns `proposal.md`, delta specs, `design.md`, `tasks.md`, and `openspec/specs/`. `/opsx-propose` writes the spec, so `to-spec` and `implement` are not used here.
 

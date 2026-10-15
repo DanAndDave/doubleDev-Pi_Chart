@@ -1,0 +1,118 @@
+{
+ "summary": {
+  "journal": "/home/zero/.omp/agent/sessions/-tmp-pichart-bench-wGejU5/2026-10-15T02-11-15-594Z_01a13d53-f80a-77ef-888e-8f8d1265e595.jsonl",
+  "calls": 9,
+  "rebuilt": 9,
+  "tokenMatches": "0/9",
+  "withinOracleBand": "9/9 (band 43..46)",
+  "deltas": [
+   44,
+   45,
+   46
+  ],
+  "accounting": "9 original, 9 replayed",
+  "tailMismatches": 0,
+  "oracleMatches": "0/9",
+  "oracleOffsets": [
+   44,
+   45,
+   46
+  ],
+  "bytesEqual": "9/9",
+  "countVsRecorded": [
+   0
+  ]
+ },
+ "rows": [
+  {
+   "call": 0,
+   "truth": 13978,
+   "rebuilt": 14022,
+   "delta": 44,
+   "recorded": 14022,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 1,
+   "truth": 15387,
+   "rebuilt": 15432,
+   "delta": 45,
+   "recorded": 15432,
+   "oracle": 45,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 2,
+   "truth": 15738,
+   "rebuilt": 15783,
+   "delta": 45,
+   "recorded": 15783,
+   "oracle": 45,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 3,
+   "truth": 15973,
+   "rebuilt": 16019,
+   "delta": 46,
+   "recorded": 16019,
+   "oracle": 46,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 4,
+   "truth": 18894,
+   "rebuilt": 18938,
+   "delta": 44,
+   "recorded": 18938,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 5,
+   "truth": 19861,
+   "rebuilt": 19905,
+   "delta": 44,
+   "recorded": 19905,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 6,
+   "truth": 20127,
+   "rebuilt": 20172,
+   "delta": 45,
+   "recorded": 20172,
+   "oracle": 45,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 7,
+   "truth": 20573,
+   "rebuilt": 20617,
+   "delta": 44,
+   "recorded": 20617,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 8,
+   "truth": 20812,
+   "rebuilt": 20856,
+   "delta": 44,
+   "recorded": 20856,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  }
+ ]
+}

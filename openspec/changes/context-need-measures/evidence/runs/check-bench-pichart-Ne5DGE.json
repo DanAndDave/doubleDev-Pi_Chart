@@ -1,0 +1,769 @@
+{
+ "summary": {
+  "journal": "/home/zero/.omp/agent/sessions/-tmp-pichart-bench-Ne5DGE/2026-10-14T23-07-53-101Z_01a13cac-158d-71ba-bc80-610db611daa0.jsonl",
+  "calls": 125,
+  "rebuilt": 125,
+  "tokenMatches": "0/125",
+  "withinOracleBand": "125/125 (band 43..46)",
+  "deltas": [
+   43,
+   44,
+   45,
+   46
+  ],
+  "accounting": "125 original, 125 replayed",
+  "tailMismatches": 0
+ },
+ "rows": [
+  {
+   "call": 0,
+   "truth": 13982,
+   "rebuilt": 14026,
+   "delta": 44
+  },
+  {
+   "call": 1,
+   "truth": 15391,
+   "rebuilt": 15434,
+   "delta": 43
+  },
+  {
+   "call": 2,
+   "truth": 15734,
+   "rebuilt": 15777,
+   "delta": 43
+  },
+  {
+   "call": 3,
+   "truth": 15938,
+   "rebuilt": 15982,
+   "delta": 44
+  },
+  {
+   "call": 4,
+   "truth": 18859,
+   "rebuilt": 18903,
+   "delta": 44
+  },
+  {
+   "call": 5,
+   "truth": 19803,
+   "rebuilt": 19846,
+   "delta": 43
+  },
+  {
+   "call": 6,
+   "truth": 20110,
+   "rebuilt": 20154,
+   "delta": 44
+  },
+  {
+   "call": 7,
+   "truth": 26568,
+   "rebuilt": 26612,
+   "delta": 44
+  },
+  {
+   "call": 8,
+   "truth": 27904,
+   "rebuilt": 27948,
+   "delta": 44
+  },
+  {
+   "call": 9,
+   "truth": 28144,
+   "rebuilt": 28188,
+   "delta": 44
+  },
+  {
+   "call": 10,
+   "truth": 28901,
+   "rebuilt": 28946,
+   "delta": 45
+  },
+  {
+   "call": 11,
+   "truth": 29410,
+   "rebuilt": 29454,
+   "delta": 44
+  },
+  {
+   "call": 12,
+   "truth": 30434,
+   "rebuilt": 30480,
+   "delta": 46
+  },
+  {
+   "call": 13,
+   "truth": 31426,
+   "rebuilt": 31470,
+   "delta": 44
+  },
+  {
+   "call": 14,
+   "truth": 16510,
+   "rebuilt": 16556,
+   "delta": 46
+  },
+  {
+   "call": 15,
+   "truth": 17253,
+   "rebuilt": 17299,
+   "delta": 46
+  },
+  {
+   "call": 16,
+   "truth": 18035,
+   "rebuilt": 18080,
+   "delta": 45
+  },
+  {
+   "call": 17,
+   "truth": 19798,
+   "rebuilt": 19843,
+   "delta": 45
+  },
+  {
+   "call": 18,
+   "truth": 24102,
+   "rebuilt": 24148,
+   "delta": 46
+  },
+  {
+   "call": 19,
+   "truth": 24571,
+   "rebuilt": 24616,
+   "delta": 45
+  },
+  {
+   "call": 20,
+   "truth": 25607,
+   "rebuilt": 25651,
+   "delta": 44
+  },
+  {
+   "call": 21,
+   "truth": 26992,
+   "rebuilt": 27037,
+   "delta": 45
+  },
+  {
+   "call": 22,
+   "truth": 31084,
+   "rebuilt": 31128,
+   "delta": 44
+  },
+  {
+   "call": 23,
+   "truth": 20376,
+   "rebuilt": 20421,
+   "delta": 45
+  },
+  {
+   "call": 24,
+   "truth": 21262,
+   "rebuilt": 21306,
+   "delta": 44
+  },
+  {
+   "call": 25,
+   "truth": 21786,
+   "rebuilt": 21830,
+   "delta": 44
+  },
+  {
+   "call": 26,
+   "truth": 22343,
+   "rebuilt": 22387,
+   "delta": 44
+  },
+  {
+   "call": 27,
+   "truth": 23655,
+   "rebuilt": 23699,
+   "delta": 44
+  },
+  {
+   "call": 28,
+   "truth": 26657,
+   "rebuilt": 26701,
+   "delta": 44
+  },
+  {
+   "call": 29,
+   "truth": 28532,
+   "rebuilt": 28576,
+   "delta": 44
+  },
+  {
+   "call": 30,
+   "truth": 30914,
+   "rebuilt": 30960,
+   "delta": 46
+  },
+  {
+   "call": 31,
+   "truth": 31331,
+   "rebuilt": 31374,
+   "delta": 43
+  },
+  {
+   "call": 32,
+   "truth": 32243,
+   "rebuilt": 32288,
+   "delta": 45
+  },
+  {
+   "call": 33,
+   "truth": 24857,
+   "rebuilt": 24901,
+   "delta": 44
+  },
+  {
+   "call": 34,
+   "truth": 26436,
+   "rebuilt": 26479,
+   "delta": 43
+  },
+  {
+   "call": 35,
+   "truth": 28498,
+   "rebuilt": 28542,
+   "delta": 44
+  },
+  {
+   "call": 36,
+   "truth": 29234,
+   "rebuilt": 29278,
+   "delta": 44
+  },
+  {
+   "call": 37,
+   "truth": 30452,
+   "rebuilt": 30497,
+   "delta": 45
+  },
+  {
+   "call": 38,
+   "truth": 33863,
+   "rebuilt": 33909,
+   "delta": 46
+  },
+  {
+   "call": 39,
+   "truth": 19462,
+   "rebuilt": 19505,
+   "delta": 43
+  },
+  {
+   "call": 40,
+   "truth": 20643,
+   "rebuilt": 20687,
+   "delta": 44
+  },
+  {
+   "call": 41,
+   "truth": 23167,
+   "rebuilt": 23211,
+   "delta": 44
+  },
+  {
+   "call": 42,
+   "truth": 24545,
+   "rebuilt": 24589,
+   "delta": 44
+  },
+  {
+   "call": 43,
+   "truth": 25331,
+   "rebuilt": 25377,
+   "delta": 46
+  },
+  {
+   "call": 44,
+   "truth": 26472,
+   "rebuilt": 26515,
+   "delta": 43
+  },
+  {
+   "call": 45,
+   "truth": 27338,
+   "rebuilt": 27382,
+   "delta": 44
+  },
+  {
+   "call": 46,
+   "truth": 31364,
+   "rebuilt": 31410,
+   "delta": 46
+  },
+  {
+   "call": 47,
+   "truth": 33953,
+   "rebuilt": 33996,
+   "delta": 43
+  },
+  {
+   "call": 48,
+   "truth": 35390,
+   "rebuilt": 35434,
+   "delta": 44
+  },
+  {
+   "call": 49,
+   "truth": 24873,
+   "rebuilt": 24919,
+   "delta": 46
+  },
+  {
+   "call": 50,
+   "truth": 25631,
+   "rebuilt": 25675,
+   "delta": 44
+  },
+  {
+   "call": 51,
+   "truth": 28285,
+   "rebuilt": 28330,
+   "delta": 45
+  },
+  {
+   "call": 52,
+   "truth": 29304,
+   "rebuilt": 29348,
+   "delta": 44
+  },
+  {
+   "call": 53,
+   "truth": 33984,
+   "rebuilt": 34030,
+   "delta": 46
+  },
+  {
+   "call": 54,
+   "truth": 19903,
+   "rebuilt": 19947,
+   "delta": 44
+  },
+  {
+   "call": 55,
+   "truth": 20772,
+   "rebuilt": 20817,
+   "delta": 45
+  },
+  {
+   "call": 56,
+   "truth": 25256,
+   "rebuilt": 25300,
+   "delta": 44
+  },
+  {
+   "call": 57,
+   "truth": 26474,
+   "rebuilt": 26517,
+   "delta": 43
+  },
+  {
+   "call": 58,
+   "truth": 27260,
+   "rebuilt": 27304,
+   "delta": 44
+  },
+  {
+   "call": 59,
+   "truth": 28562,
+   "rebuilt": 28606,
+   "delta": 44
+  },
+  {
+   "call": 60,
+   "truth": 29524,
+   "rebuilt": 29568,
+   "delta": 44
+  },
+  {
+   "call": 61,
+   "truth": 38156,
+   "rebuilt": 38200,
+   "delta": 44
+  },
+  {
+   "call": 62,
+   "truth": 38439,
+   "rebuilt": 38484,
+   "delta": 45
+  },
+  {
+   "call": 63,
+   "truth": 39583,
+   "rebuilt": 39627,
+   "delta": 44
+  },
+  {
+   "call": 64,
+   "truth": 39956,
+   "rebuilt": 40002,
+   "delta": 46
+  },
+  {
+   "call": 65,
+   "truth": 40487,
+   "rebuilt": 40532,
+   "delta": 45
+  },
+  {
+   "call": 66,
+   "truth": 25851,
+   "rebuilt": 25897,
+   "delta": 46
+  },
+  {
+   "call": 67,
+   "truth": 27520,
+   "rebuilt": 27564,
+   "delta": 44
+  },
+  {
+   "call": 68,
+   "truth": 34706,
+   "rebuilt": 34750,
+   "delta": 44
+  },
+  {
+   "call": 69,
+   "truth": 35311,
+   "rebuilt": 35355,
+   "delta": 44
+  },
+  {
+   "call": 70,
+   "truth": 24168,
+   "rebuilt": 24212,
+   "delta": 44
+  },
+  {
+   "call": 71,
+   "truth": 25015,
+   "rebuilt": 25061,
+   "delta": 46
+  },
+  {
+   "call": 72,
+   "truth": 25840,
+   "rebuilt": 25884,
+   "delta": 44
+  },
+  {
+   "call": 73,
+   "truth": 26265,
+   "rebuilt": 26309,
+   "delta": 44
+  },
+  {
+   "call": 74,
+   "truth": 27311,
+   "rebuilt": 27354,
+   "delta": 43
+  },
+  {
+   "call": 75,
+   "truth": 27923,
+   "rebuilt": 27967,
+   "delta": 44
+  },
+  {
+   "call": 76,
+   "truth": 28684,
+   "rebuilt": 28727,
+   "delta": 43
+  },
+  {
+   "call": 77,
+   "truth": 31103,
+   "rebuilt": 31147,
+   "delta": 44
+  },
+  {
+   "call": 78,
+   "truth": 31775,
+   "rebuilt": 31819,
+   "delta": 44
+  },
+  {
+   "call": 79,
+   "truth": 33402,
+   "rebuilt": 33446,
+   "delta": 44
+  },
+  {
+   "call": 80,
+   "truth": 34255,
+   "rebuilt": 34300,
+   "delta": 45
+  },
+  {
+   "call": 81,
+   "truth": 36353,
+   "rebuilt": 36399,
+   "delta": 46
+  },
+  {
+   "call": 82,
+   "truth": 16959,
+   "rebuilt": 17005,
+   "delta": 46
+  },
+  {
+   "call": 83,
+   "truth": 20086,
+   "rebuilt": 20131,
+   "delta": 45
+  },
+  {
+   "call": 84,
+   "truth": 21054,
+   "rebuilt": 21099,
+   "delta": 45
+  },
+  {
+   "call": 85,
+   "truth": 22126,
+   "rebuilt": 22171,
+   "delta": 45
+  },
+  {
+   "call": 86,
+   "truth": 25248,
+   "rebuilt": 25293,
+   "delta": 45
+  },
+  {
+   "call": 87,
+   "truth": 27815,
+   "rebuilt": 27861,
+   "delta": 46
+  },
+  {
+   "call": 88,
+   "truth": 28788,
+   "rebuilt": 28832,
+   "delta": 44
+  },
+  {
+   "call": 89,
+   "truth": 29269,
+   "rebuilt": 29314,
+   "delta": 45
+  },
+  {
+   "call": 90,
+   "truth": 30771,
+   "rebuilt": 30815,
+   "delta": 44
+  },
+  {
+   "call": 91,
+   "truth": 31307,
+   "rebuilt": 31352,
+   "delta": 45
+  },
+  {
+   "call": 92,
+   "truth": 32387,
+   "rebuilt": 32431,
+   "delta": 44
+  },
+  {
+   "call": 93,
+   "truth": 32641,
+   "rebuilt": 32685,
+   "delta": 44
+  },
+  {
+   "call": 94,
+   "truth": 34707,
+   "rebuilt": 34753,
+   "delta": 46
+  },
+  {
+   "call": 95,
+   "truth": 20419,
+   "rebuilt": 20464,
+   "delta": 45
+  },
+  {
+   "call": 96,
+   "truth": 20938,
+   "rebuilt": 20981,
+   "delta": 43
+  },
+  {
+   "call": 97,
+   "truth": 23076,
+   "rebuilt": 23119,
+   "delta": 43
+  },
+  {
+   "call": 98,
+   "truth": 23961,
+   "rebuilt": 24005,
+   "delta": 44
+  },
+  {
+   "call": 99,
+   "truth": 24784,
+   "rebuilt": 24830,
+   "delta": 46
+  },
+  {
+   "call": 100,
+   "truth": 28871,
+   "rebuilt": 28915,
+   "delta": 44
+  },
+  {
+   "call": 101,
+   "truth": 29980,
+   "rebuilt": 30025,
+   "delta": 45
+  },
+  {
+   "call": 102,
+   "truth": 30794,
+   "rebuilt": 30838,
+   "delta": 44
+  },
+  {
+   "call": 103,
+   "truth": 34256,
+   "rebuilt": 34301,
+   "delta": 45
+  },
+  {
+   "call": 104,
+   "truth": 34965,
+   "rebuilt": 35011,
+   "delta": 46
+  },
+  {
+   "call": 105,
+   "truth": 20035,
+   "rebuilt": 20081,
+   "delta": 46
+  },
+  {
+   "call": 106,
+   "truth": 20807,
+   "rebuilt": 20852,
+   "delta": 45
+  },
+  {
+   "call": 107,
+   "truth": 21428,
+   "rebuilt": 21472,
+   "delta": 44
+  },
+  {
+   "call": 108,
+   "truth": 21842,
+   "rebuilt": 21886,
+   "delta": 44
+  },
+  {
+   "call": 109,
+   "truth": 22944,
+   "rebuilt": 22988,
+   "delta": 44
+  },
+  {
+   "call": 110,
+   "truth": 23533,
+   "rebuilt": 23577,
+   "delta": 44
+  },
+  {
+   "call": 111,
+   "truth": 24303,
+   "rebuilt": 24348,
+   "delta": 45
+  },
+  {
+   "call": 112,
+   "truth": 25183,
+   "rebuilt": 25228,
+   "delta": 45
+  },
+  {
+   "call": 113,
+   "truth": 25645,
+   "rebuilt": 25688,
+   "delta": 43
+  },
+  {
+   "call": 114,
+   "truth": 27864,
+   "rebuilt": 27907,
+   "delta": 43
+  },
+  {
+   "call": 115,
+   "truth": 28668,
+   "rebuilt": 28712,
+   "delta": 44
+  },
+  {
+   "call": 116,
+   "truth": 30995,
+   "rebuilt": 31039,
+   "delta": 44
+  },
+  {
+   "call": 117,
+   "truth": 31545,
+   "rebuilt": 31589,
+   "delta": 44
+  },
+  {
+   "call": 118,
+   "truth": 32024,
+   "rebuilt": 32069,
+   "delta": 45
+  },
+  {
+   "call": 119,
+   "truth": 14922,
+   "rebuilt": 14966,
+   "delta": 44
+  },
+  {
+   "call": 120,
+   "truth": 16163,
+   "rebuilt": 16208,
+   "delta": 45
+  },
+  {
+   "call": 121,
+   "truth": 22540,
+   "rebuilt": 22585,
+   "delta": 45
+  },
+  {
+   "call": 122,
+   "truth": 23495,
+   "rebuilt": 23539,
+   "delta": 44
+  },
+  {
+   "call": 123,
+   "truth": 23949,
+   "rebuilt": 23994,
+   "delta": 45
+  },
+  {
+   "call": 124,
+   "truth": 24274,
+   "rebuilt": 24318,
+   "delta": 44
+  }
+ ]
+}

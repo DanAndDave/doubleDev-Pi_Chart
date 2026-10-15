@@ -1,0 +1,178 @@
+{
+ "summary": {
+  "journal": "/home/zero/.omp/agent/sessions/-tmp-pichart-bench-yokRnD/2026-10-15T02-11-15-533Z_01a13d53-f7cd-7425-ba16-7c1d757e6758.jsonl",
+  "calls": 10,
+  "rebuilt": 10,
+  "tokenMatches": "0/10",
+  "withinOracleBand": "2/10 (band 43..46)",
+  "deltas": [
+   -97,
+   -56,
+   -54,
+   -52,
+   -28,
+   -25,
+   45
+  ],
+  "oracleMatches": "0/10",
+  "oracleOffsets": [
+   46,
+   45,
+   44
+  ],
+  "bytesEqual": "0/10",
+  "countVsRecorded": [
+   -1,
+   0,
+   -69,
+   -73,
+   -72,
+   -98,
+   -100,
+   -101,
+   -143
+  ]
+ },
+ "rows": [
+  {
+   "call": 0,
+   "truth": 13437,
+   "rebuilt": 13482,
+   "delta": 45,
+   "recorded": 13483,
+   "oracle": 46,
+   "bytesEqual": false,
+   "countVsRecorded": -1,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=ee4d0;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=bfca8;\""
+   ]
+  },
+  {
+   "call": 1,
+   "truth": 14846,
+   "rebuilt": 14891,
+   "delta": 45,
+   "recorded": 14891,
+   "oracle": 45,
+   "bytesEqual": false,
+   "countVsRecorded": 0,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=29d4f;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=97eb1;\""
+   ]
+  },
+  {
+   "call": 2,
+   "truth": 15213,
+   "rebuilt": 15188,
+   "delta": -25,
+   "recorded": 15257,
+   "oracle": 44,
+   "bytesEqual": false,
+   "countVsRecorded": -69,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=1283f;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=0f1ff;\""
+   ]
+  },
+  {
+   "call": 3,
+   "truth": 15469,
+   "rebuilt": 15441,
+   "delta": -28,
+   "recorded": 15514,
+   "oracle": 45,
+   "bytesEqual": false,
+   "countVsRecorded": -73,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=dfe52;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=a7fda;\""
+   ]
+  },
+  {
+   "call": 4,
+   "truth": 18390,
+   "rebuilt": 18362,
+   "delta": -28,
+   "recorded": 18434,
+   "oracle": 44,
+   "bytesEqual": false,
+   "countVsRecorded": -72,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=5a896;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=4abf5;\""
+   ]
+  },
+  {
+   "call": 5,
+   "truth": 19358,
+   "rebuilt": 19306,
+   "delta": -52,
+   "recorded": 19404,
+   "oracle": 46,
+   "bytesEqual": false,
+   "countVsRecorded": -98,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=b8ca5;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=9cf8b;\""
+   ]
+  },
+  {
+   "call": 6,
+   "truth": 19666,
+   "rebuilt": 19612,
+   "delta": -54,
+   "recorded": 19710,
+   "oracle": 44,
+   "bytesEqual": false,
+   "countVsRecorded": -98,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=c876e;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=c3bc3;\""
+   ]
+  },
+  {
+   "call": 7,
+   "truth": 26124,
+   "rebuilt": 26068,
+   "delta": -56,
+   "recorded": 26168,
+   "oracle": 44,
+   "bytesEqual": false,
+   "countVsRecorded": -100,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=b0743;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=caa42;\""
+   ]
+  },
+  {
+   "call": 8,
+   "truth": 26819,
+   "rebuilt": 26763,
+   "delta": -56,
+   "recorded": 26864,
+   "oracle": 45,
+   "bytesEqual": false,
+   "countVsRecorded": -101,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=3b38a;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=063a1;\""
+   ]
+  },
+  {
+   "call": 9,
+   "truth": 27447,
+   "rebuilt": 27350,
+   "delta": -97,
+   "recorded": 27493,
+   "oracle": 46,
+   "bytesEqual": false,
+   "countVsRecorded": -143,
+   "differs": [
+    "$.messages.0.content.0.text: \"<system-reminder>\\nToday: 2026-10-14; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform ≠ \"<system-reminder>\\nToday: 2026-10-15; current working directory: '/tmp/pichart-bench-yokRnD'. Do not repeat this inform",
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=7dc1a;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=5e7ec;\""
+   ]
+  }
+ ]
+}

@@ -1,0 +1,144 @@
+{
+ "summary": {
+  "journal": "/home/zero/.omp/agent/sessions/-tmp-pichart-bench-wGejU5/2026-10-15T02-11-15-594Z_01a13d53-f80a-77ef-888e-8f8d1265e595.jsonl",
+  "calls": 9,
+  "rebuilt": 9,
+  "tokenMatches": "0/9",
+  "deltas": [
+   -110,
+   -55,
+   43,
+   44,
+   45
+  ],
+  "oracleMatches": "0/9",
+  "oracleOffsets": [
+   44,
+   45,
+   46
+  ],
+  "bytesEqual": "0/9"
+ },
+ "rows": [
+  {
+   "call": 0,
+   "truth": 13978,
+   "rebuilt": 13923,
+   "delta": -55,
+   "recorded": 14022,
+   "oracle": 44,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=600fb;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=4c907;\"",
+    "$.system.4.text: \"This conversation began with the request below. It is context, not a new instruction; later Turns may have changed or c ≠ \"Older turns of this conversation may have left the context window; search them with the recall_earlier_turns tool.\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 1,
+   "truth": 15387,
+   "rebuilt": 15332,
+   "delta": -55,
+   "recorded": 15432,
+   "oracle": 45,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=b3bae;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=1e368;\"",
+    "$.system.4.text: \"This conversation began with the request below. It is context, not a new instruction; later Turns may have changed or c ≠ \"Older turns of this conversation may have left the context window; search them with the recall_earlier_turns tool.\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 2,
+   "truth": 15738,
+   "rebuilt": 15628,
+   "delta": -110,
+   "recorded": 15783,
+   "oracle": 45,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=0b90f;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=c4106;\"",
+    "$.system.4.text: \"This conversation began with the request below. It is context, not a new instruction; later Turns may have changed or c ≠ \"Older turns of this conversation may have left the context window; search them with the recall_earlier_turns tool.\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 3,
+   "truth": 15973,
+   "rebuilt": 16017,
+   "delta": 44,
+   "recorded": 16019,
+   "oracle": 46,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=2a0c9;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=100cb;\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 4,
+   "truth": 18894,
+   "rebuilt": 18939,
+   "delta": 45,
+   "recorded": 18938,
+   "oracle": 44,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=75eac;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=a96d4;\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 5,
+   "truth": 19861,
+   "rebuilt": 19906,
+   "delta": 45,
+   "recorded": 19905,
+   "oracle": 44,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=4af00;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=91f9a;\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 6,
+   "truth": 20127,
+   "rebuilt": 20172,
+   "delta": 45,
+   "recorded": 20172,
+   "oracle": 45,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=17bbc;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=26cfe;\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 7,
+   "truth": 20573,
+   "rebuilt": 20618,
+   "delta": 45,
+   "recorded": 20617,
+   "oracle": 44,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=141b8;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=0ea72;\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  },
+  {
+   "call": 8,
+   "truth": 20812,
+   "rebuilt": 20855,
+   "delta": 43,
+   "recorded": 20856,
+   "oracle": 44,
+   "bytesEqual": false,
+   "differs": [
+    "$.system.0.text: \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=7d369;\" ≠ \"x-anthropic-billing-header: cc_version=2.1.280.096; cc_entrypoint=cli; cch=10067;\"",
+    "$.metadata.user_id: \"{\\\"session_id\\\":\\\"01a13d53-f80a-77ef-888e-8f8d1265e595\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de ≠ \"{\\\"session_id\\\":\\\"01a13d54-cb8d-73d7-8d94-a83d0b03ccfe\\\",\\\"account_uuid\\\":\\\"eee28909-1219-4518-b343-ecbb4f55a050\\\",\\\"de"
+   ]
+  }
+ ]
+}

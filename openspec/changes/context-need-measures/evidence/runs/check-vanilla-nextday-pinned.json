@@ -1,0 +1,126 @@
+{
+ "summary": {
+  "journal": "/home/zero/.omp/agent/sessions/-tmp-pichart-bench-yokRnD/2026-10-15T02-11-15-533Z_01a13d53-f7cd-7425-ba16-7c1d757e6758.jsonl",
+  "calls": 10,
+  "rebuilt": 10,
+  "tokenMatches": "0/10",
+  "withinOracleBand": "10/10 (band 43..46)",
+  "deltas": [
+   44,
+   45,
+   46
+  ],
+  "oracleMatches": "0/10",
+  "oracleOffsets": [
+   46,
+   45,
+   44
+  ],
+  "bytesEqual": "10/10",
+  "countVsRecorded": [
+   0
+  ]
+ },
+ "rows": [
+  {
+   "call": 0,
+   "truth": 13437,
+   "rebuilt": 13483,
+   "delta": 46,
+   "recorded": 13483,
+   "oracle": 46,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 1,
+   "truth": 14846,
+   "rebuilt": 14891,
+   "delta": 45,
+   "recorded": 14891,
+   "oracle": 45,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 2,
+   "truth": 15213,
+   "rebuilt": 15257,
+   "delta": 44,
+   "recorded": 15257,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 3,
+   "truth": 15469,
+   "rebuilt": 15514,
+   "delta": 45,
+   "recorded": 15514,
+   "oracle": 45,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 4,
+   "truth": 18390,
+   "rebuilt": 18434,
+   "delta": 44,
+   "recorded": 18434,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 5,
+   "truth": 19358,
+   "rebuilt": 19404,
+   "delta": 46,
+   "recorded": 19404,
+   "oracle": 46,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 6,
+   "truth": 19666,
+   "rebuilt": 19710,
+   "delta": 44,
+   "recorded": 19710,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 7,
+   "truth": 26124,
+   "rebuilt": 26168,
+   "delta": 44,
+   "recorded": 26168,
+   "oracle": 44,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 8,
+   "truth": 26819,
+   "rebuilt": 26864,
+   "delta": 45,
+   "recorded": 26864,
+   "oracle": 45,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  },
+  {
+   "call": 9,
+   "truth": 27447,
+   "rebuilt": 27493,
+   "delta": 46,
+   "recorded": 27493,
+   "oracle": 46,
+   "bytesEqual": true,
+   "countVsRecorded": 0
+  }
+ ]
+}
