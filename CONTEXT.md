@@ -133,12 +133,16 @@ The Ablation verdict on a part: the next action changes without it. Never interc
 _Avoid_: necessary, required, load-bearing
 
 **Lapse**:
-A Call whose next action needed content its Context Window did not carry. Seen only through a recall Pull of an evicted Turn, a Re-fetch of a result that had left the window, or a failed Probe: a wrong Score with an evicted Position and no Source. The first two are recovered Lapses.
+A Call whose next action needed content its Context Window did not carry. Seen only through a recall Pull of an evicted Turn, a Re-fetch of a result that had left the window, a Revisit that fetched its file after the earlier read had left the window, or a failed Probe: a wrong Score with an evicted Position and no Source. All but the last are recovered Lapses, each counted apart.
 _Avoid_: miss, gap, shortfall
 
 **Re-fetch**:
 A tool call whose result is identical to one an earlier Turn of the same Conversation already received. A Lapse only when that earlier result had left the window; one made while it is still held is model redundancy.
 _Avoid_: re-read, redundant call, repeat
+
+**Revisit**:
+A Graded Task that needs again a Workload file an earlier step sent the agent to. Scored by whether a tool call of the step named the file, whether the window still held the earlier read when it did, and the step's Pass or Fail, so a direct answer and a fetch are judged alike. Excluded when the file was edited by then.
+_Avoid_: re-read point, return, callback
 
 **Pull**:
 A tool call that brings content into a Turn from outside it: `recall_earlier_turns`, `recall_across_conversations`, `search_documentation`, `walk_documentation` or `codebase_structure`. Writing to the bundle is not a Pull. A recall Pull is one whose result holds a Turn of the same Conversation that the Context Window did not carry, whichever tool returned it.
