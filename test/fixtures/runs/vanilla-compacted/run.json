@@ -1,0 +1,67 @@
+{
+	"arm": "vanilla",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-vanilla-compacted",
+	"sessionId": "01a1f000-0000-7000-8000-000000000011",
+	"plants": [],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Start.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "Look at F.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "Look at D.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "Change D and look at E.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Look at D again.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Look at F again.",
+			"probes": []
+		},
+		{
+			"step": "s6",
+			"text": "Look at G and H.",
+			"probes": []
+		},
+		{
+			"step": "s7",
+			"text": "Summarise.",
+			"probes": []
+		},
+		{
+			"step": "s8",
+			"text": "Carry on.",
+			"probes": []
+		},
+		{
+			"step": "s9",
+			"text": "Look at E and H again.",
+			"probes": []
+		}
+	],
+	"checks": []
+}

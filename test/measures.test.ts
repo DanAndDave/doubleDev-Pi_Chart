@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { aggregate, measureRun, type RunMeasures } from "../scripts/measures.ts";
 
@@ -46,6 +49,121 @@ describe("measureRun", () => {
 	});
 });
 
+/** The windows of the main Calls answering `turn`, in Call order. */
+async function windows(name: string, turn: number) {
+	const measures = await measureRun(fixture(name));
+	return measures.calls.filter((call) => !call.subagent && call.turn === turn).map((call) => call.window);
+}
+
+describe("the window each Call sent", () => {
+	test("a pi-chart Call's tail, Opening and Pins are what Accounting says it carried", async () => {
+		const [first] = await windows("pi-chart-evicted", 5);
+
+		expect(first).toEqual({ opening: 0, pins: [1], tail: { turns: [4] }, current: 5 });
+	});
+
+	test("a pi-chart Call with no Accounting has an unknown window, not an empty one", async () => {
+		const turn5 = await windows("pi-chart-evicted", 5);
+
+		expect(turn5).toHaveLength(4);
+		expect(turn5[2]).toBe("unknown");
+		expect(turn5[3]).toEqual({ opening: 0, pins: [1], tail: { turns: [4] }, current: 5 });
+	});
+
+	test("a pi-chart Call that went unassembled sent the whole branch", async () => {
+		const [unassembled, assembled] = await windows("pi-chart-evicted", 3);
+
+		expect(unassembled).toEqual({ pins: [], tail: { turns: [0, 1, 2] }, current: 3 });
+		expect(assembled).toEqual({ opening: 0, pins: [], tail: { turns: [1, 2] }, current: 3 });
+	});
+
+	test("a plain-omp Call after a compaction holds its summary and the tail from what it kept", async () => {
+		const [first] = await windows("vanilla-compacted", 9);
+
+		expect(first).toEqual({ pins: [], summary: "k1", tail: { turns: [6, 7, 8], from: { turn: 6, message: 3 } }, current: 9 });
+	});
+
+	test("a plain-omp Call before every compaction holds the whole branch", async () => {
+		const [first] = await windows("vanilla-compacted", 5);
+
+		expect(first).toEqual({ pins: [], tail: { turns: [0, 1, 2, 3, 4] }, current: 5 });
+	});
+
+	test("a pi-chart Run whose Accounting is missing gives unknown windows, and subagent Calls none", async () => {
+		const measures = await measureRun(fixture("complete"));
+
+		expect(measures.calls.filter((call) => !call.subagent).map((call) => call.window)).toEqual([
+			"unknown",
+			"unknown",
+			"unknown",
+			"unknown",
+		]);
+		expect(measures.calls.filter((call) => call.subagent).map((call) => call.window)).toEqual([undefined, undefined]);
+	});
+});
+
+const none = { total: 0, bands: [0, 0, 0, 0, 0] };
+
+describe("Re-fetches", () => {
+	test("a pi-chart Run's Re-fetches are held, left or unknown by the window of the Call that made them", async () => {
+		const measures = await measureRun(fixture("pi-chart-evicted"));
+
+		// Not Re-fetches: Turn 4's second read of B (same Turn), the error
+		// at Turns 2 and 5, the empty result at Turns 2 and 3.
+		expect(measures.refetches).toEqual([
+			{ turn: 4, call: 0, earlierTurn: 3, distance: 1, tool: "read", class: "held" },
+			{ turn: 5, call: 0, earlierTurn: 1, distance: 4, tool: "read", class: "left" },
+			{ turn: 5, call: 2, earlierTurn: 0, distance: 5, tool: "read", class: "unknown" },
+		]);
+		expect(measures.refetch).toEqual({
+			held: { total: 1, bands: [1, 0, 0, 0, 0] },
+			left: { total: 1, bands: [1, 0, 0, 0, 0] },
+			unknown: { total: 1, bands: [1, 0, 0, 0, 0] },
+		});
+	});
+
+	test("a plain-omp Run's Re-fetch from before a compaction's cut is left, and one from the cut on held", async () => {
+		const measures = await measureRun(fixture("vanilla-compacted"));
+
+		// D read at Turn 2, edited at Turn 3, read again with new text at Turn 4: not a Re-fetch.
+		// The cut is Turn 6's message 3 (H): G, message 2 of the same Turn, is before it.
+		expect(measures.refetches).toEqual([
+			{ turn: 5, call: 0, earlierTurn: 1, distance: 4, tool: "read", class: "held" },
+			{ turn: 9, call: 0, earlierTurn: 3, distance: 6, tool: "read", class: "left" },
+			{ turn: 9, call: 1, earlierTurn: 6, distance: 3, tool: "read", class: "held" },
+			{ turn: 9, call: 1, earlierTurn: 6, distance: 3, tool: "read", class: "left" },
+		]);
+		expect(measures.refetch).toEqual({
+			held: { total: 2, bands: [2, 0, 0, 0, 0] },
+			left: { total: 2, bands: [1, 1, 0, 0, 0] },
+			unknown: none,
+		});
+	});
+});
+
+describe("compactions per Run", () => {
+	test("count the compactions on a plain-omp Run's branch", async () => {
+		expect((await measureRun(fixture("vanilla-compacted"))).compactions).toBe(1);
+	});
+
+	test("are absent on pi-chart, which suppresses compaction", async () => {
+		expect((await measureRun(fixture("pi-chart-evicted"))).compactions).toBeUndefined();
+	});
+
+	test("are zero, not absent, on a plain-omp Run that never compacted, which counts zero Re-fetches", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "measures-vanilla-"));
+		await cp(fixture("complete"), dir, { recursive: true });
+		const record = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
+		await writeFile(join(dir, "run.json"), JSON.stringify({ ...record, arm: "vanilla" }));
+
+		const measures = await measureRun(dir);
+
+		expect(measures.compactions).toBe(0);
+		expect(measures.refetches).toEqual([]);
+		expect(measures.refetch).toEqual({ held: none, left: none, unknown: none });
+	});
+});
+
 /** A Run's Measures with only what `aggregate` reads set; the rest are inert. */
 function run(arm: string, cost: number, outcomes: ("Pass" | "Fail")[], extra: Partial<RunMeasures> = {}): RunMeasures {
 	const steps = outcomes.map((outcome, at) => ({ id: `s${at}`, outcome }));
@@ -74,6 +192,8 @@ function run(arm: string, cost: number, outcomes: ("Pass" | "Fail")[], extra: Pa
 		passes: outcomes.filter((outcome) => outcome === "Pass").length,
 		firstFail: steps.find((step) => step.outcome === "Fail")?.id,
 		plants: [],
+		refetches: [],
+		refetch: { held: none, left: none, unknown: none },
 		...extra,
 	};
 }

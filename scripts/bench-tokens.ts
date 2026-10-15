@@ -57,16 +57,19 @@ import { SESSION_ROOT } from "../src/journal.ts";
 import { PostgresStore } from "../src/postgres-store.ts";
 import {
 	aggregate,
+	BANDS,
+	bandLabel,
 	EARLY_TURNS,
 	int,
 	measureRun,
 	median,
 	percent,
 	READ_RATE,
+	type Banded,
 	type CheckOutcome,
+	type RefetchClass,
 	type RunMeasures,
 	type RunRecord,
-	type Totals,
 	usd,
 	WRITE_RATE,
 } from "./measures.ts";
@@ -430,33 +433,68 @@ function report(bench: Bench): void {
 		console.log(`| --- | ${present.map(() => "---:").join(" | ")} |${both ? " ---: |" : ""}`);
 	};
 
-	const rows: [string, (t: Totals) => number, (x: number) => string][] = [
-		["Calls", (t) => t.calls, int],
-		["Prompt tokens sent (input + cache read + cache write)", (t) => t.prompt, int],
-		["Uncached input", (t) => t.input, int],
-		["Cache read", (t) => t.cacheRead, int],
-		["Cache write", (t) => t.cacheWrite, int],
-		["Output", (t) => t.output, int],
-		[`Effective input (read ×${READ_RATE}, write ×${WRITE_RATE})`, (t) => t.effective, int],
-		["Cost per Run, USD (harness pricing)", (t) => t.cost, usd],
-		["Peak window, tokens", (t) => t.peak, int],
-		["Floor, tokens", (t) => t.floor, int],
-		[`Cache write, Turns 1–${EARLY_TURNS}`, (t) => t.earlyWrite, int],
-		[`Prefix held, Turns 1–${EARLY_TURNS} (next Call read all the last read or wrote)`, (t) => t.prefixHeld, percent],
+	// A pick gives `undefined` for a Measure the Run's Arm does not have:
+	// that Arm reads "n/a", and the row has no ratio. NaN is a figure
+	// the record lacks, as in a `bench.json` older than the Measure.
+	const rows: [string, (run: RunMeasures) => number | undefined, (x: number) => string][] = [
+		["Calls", (r) => r.totals.calls, int],
+		["Prompt tokens sent (input + cache read + cache write)", (r) => r.totals.prompt, int],
+		["Uncached input", (r) => r.totals.input, int],
+		["Cache read", (r) => r.totals.cacheRead, int],
+		["Cache write", (r) => r.totals.cacheWrite, int],
+		["Output", (r) => r.totals.output, int],
+		[`Effective input (read ×${READ_RATE}, write ×${WRITE_RATE})`, (r) => r.totals.effective, int],
+		["Cost per Run, USD (harness pricing)", (r) => r.totals.cost, usd],
+		["Peak window, tokens", (r) => r.totals.peak, int],
+		["Floor, tokens", (r) => r.totals.floor, int],
+		[`Cache write, Turns 1–${EARLY_TURNS}`, (r) => r.totals.earlyWrite, int],
+		[`Prefix held, Turns 1–${EARLY_TURNS} (next Call read all the last read or wrote)`, (r) => r.totals.prefixHeld, percent],
+		// Absent on pi-chart and in an older `bench.json` alike; `refetch`,
+		// which came with it on every Arm, tells the older record apart.
+		["Compactions", (r) => (r.refetch === undefined ? Number.NaN : r.compactions), int],
 	];
 	console.log("\nPer Conversation, median over complete Runs:\n");
 	header("Measure");
 	for (const [label, pick, show] of rows) {
-		const values = present.map((arm) => median(complete(arm).map((run) => pick(run.totals))));
-		const cells = values.map(show).join(" | ");
+		const values = present.map((arm) => {
+			const picked = complete(arm).map(pick);
+			return picked.length > 0 && picked.every((value) => value === undefined)
+				? "n/a"
+				: median(picked.map((value) => value ?? Number.NaN));
+		});
+		const cells = values.map((value) => (value === "n/a" ? value : show(value))).join(" | ");
 		if (!both) {
 			console.log(`| ${label} | ${cells} |`);
 			continue;
 		}
-		const [v, p] = values as [number, number];
-		const ratio = v > 0 && Number.isFinite(p) ? `${(p / v).toFixed(2)}×` : "—";
+		const [v, p] = values;
+		const ratio =
+			v === "n/a" || p === "n/a"
+				? "n/a"
+				: v !== undefined && p !== undefined && v > 0 && Number.isFinite(p)
+					? `${(p / v).toFixed(2)}×`
+					: "—";
 		console.log(`| ${label} | ${cells} | ${ratio} |`);
 	}
+
+	const classes: [RefetchClass, string][] = [
+		["held", "held"],
+		["left", "Lapses"],
+		["unknown", "unknown"],
+	];
+	console.log("\nRe-fetches per Run by distance band, median over complete Runs:\n");
+	const columns = present.flatMap((arm) => classes.map(([kind, name]) => ({ arm, kind, name })));
+	console.log(`| Distance, Turns | ${columns.map(({ arm, name }) => `${arm} ${name}`).join(" | ")} |`);
+	console.log(`| --- | ${columns.map(() => "---:").join(" | ")} |`);
+	// `refetch` is absent from a `bench.json` older than the Measure: "—".
+	const bandRow = (label: string, count: (banded: Banded) => number | undefined) => {
+		const cell = ({ arm, kind }: (typeof columns)[number]) =>
+			int(median(complete(arm).map((run) => (run.refetch ? (count(run.refetch[kind]) ?? Number.NaN) : Number.NaN))));
+		console.log(`| ${label} | ${columns.map(cell).join(" | ")} |`);
+	};
+	for (const [at, band] of BANDS.entries()) bandRow(bandLabel(band), (banded) => banded.bands[at]);
+	bandRow("Total", (banded) => banded.total);
+	console.log("\nEach row is its own median, so the bands need not sum to the Total row.");
 
 	const stepIds = [
 		...new Set(

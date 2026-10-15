@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readJournal } from "../src/journal.ts";
+import { readBranch, readJournal } from "../src/journal.ts";
 import { PIN_ENTRY } from "../src/pins.ts";
 import { journalEntry, journalOf, toolCall, toolResult } from "./fixtures.ts";
 
@@ -194,5 +194,90 @@ describe("a pin written while a turn streams", () => {
 			"toolResult",
 			"assistant",
 		]);
+	});
+});
+
+/**
+ * Turns `from`..`to`, each a prompt, a tool call, its result and an answer,
+ * chained from `parent`: Turn t's messages are `u<t>`, `a<t>`, `r<t>`, `b<t>`.
+ */
+function toolTurns(from: number, to: number, parent: string | null) {
+	const entries: object[] = [];
+	let last = parent;
+	for (let t = from; t <= to; t++) {
+		entries.push(
+			journalEntry(`u${t}`, last, "user", `prompt ${t}`),
+			{ type: "message", id: `a${t}`, parentId: `u${t}`, message: toolCall("read", { path: `f${t}` }, `c${t}`) },
+			{ type: "message", id: `r${t}`, parentId: `a${t}`, message: toolResult(`contents ${t}`, `c${t}`) },
+			journalEntry(`b${t}`, `r${t}`, "assistant", `answer ${t}`),
+		);
+		last = `b${t}`;
+	}
+	return entries;
+}
+
+const compaction = (id: string, parentId: string, firstKeptEntryId: string) => ({
+	type: "compaction",
+	id,
+	parentId,
+	firstKeptEntryId,
+	summary: "what came before",
+});
+
+describe("readBranch", () => {
+	test("places a compaction between Turns and the message it kept part-way through a Turn", async () => {
+		const path = await journalOf([...toolTurns(0, 7, null), compaction("k1", "b7", "r6"), ...toolTurns(8, 9, "k1")]);
+
+		const { turns, compactions } = await readBranch(path);
+
+		expect(turns).toHaveLength(10);
+		expect(compactions).toEqual([{ id: "k1", before: { turn: 8, message: 0 }, firstKept: { turn: 6, message: 2 } }]);
+	});
+
+	test("a compaction mid-Turn comes before the next message of that Turn", async () => {
+		const entries = toolTurns(0, 3, null);
+		// Compacted between Turn 3's tool result and its answer.
+		const answer = entries.pop() as { parentId: string };
+		const path = await journalOf([...entries, compaction("k1", "r3", "u2"), { ...answer, parentId: "k1" }]);
+
+		const { compactions } = await readBranch(path);
+
+		expect(compactions).toEqual([{ id: "k1", before: { turn: 3, message: 3 }, firstKept: { turn: 2, message: 0 } }]);
+	});
+
+	test("a kept entry that is not a message resolves to the message after it", async () => {
+		const path = await journalOf([
+			...toolTurns(0, 1, null),
+			{ type: "model_change", id: "m1", parentId: "b1", model: "x" },
+			...toolTurns(2, 3, "m1"),
+			compaction("k1", "b3", "m1"),
+		]);
+
+		const { compactions } = await readBranch(path);
+
+		expect(compactions[0]?.firstKept).toEqual({ turn: 2, message: 0 });
+	});
+
+	test("a kept entry the branch does not hold leaves the compaction without one", async () => {
+		const path = await journalOf([...toolTurns(0, 2, null), compaction("k1", "b2", "gone"), ...toolTurns(3, 3, "k1")]);
+
+		const { compactions } = await readBranch(path);
+
+		expect(compactions).toHaveLength(1);
+		expect(compactions[0]?.firstKept).toBeUndefined();
+	});
+
+	test("a compaction on an abandoned branch is not returned", async () => {
+		const path = await journalOf([
+			...toolTurns(0, 2, null),
+			compaction("k1", "b2", "u1"),
+			journalEntry("x", "k1", "user", "abandoned"),
+			...toolTurns(3, 3, "b2"),
+		]);
+
+		const { turns, compactions } = await readBranch(path);
+
+		expect(turns.map((turn) => turn.prompt)).toEqual(["prompt 0", "prompt 1", "prompt 2", "prompt 3"]);
+		expect(compactions).toEqual([]);
 	});
 });

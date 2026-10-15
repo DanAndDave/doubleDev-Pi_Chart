@@ -19,11 +19,30 @@ export interface JournalTurn {
 	calls: number[];
 }
 
+/** A message by position: its Turn, and its index in that Turn's messages. */
+export interface MessageAddress {
+	turn: number;
+	message: number;
+}
+
+/** A compaction the harness made on the branch, placed among its messages. */
+export interface Compaction {
+	id: string;
+	/** Where the first message written after the compaction sits. */
+	before: MessageAddress;
+	/**
+	 * The first message the compaction kept; absent when the entry it names
+	 * is not on the branch before it.
+	 */
+	firstKept?: MessageAddress;
+}
+
 interface JournalEntry {
 	type?: string;
 	id?: string;
 	parentId?: string | null;
 	message?: HarnessMessage;
+	firstKeptEntryId?: string;
 }
 
 /**
@@ -38,20 +57,46 @@ export async function readJournal(
 	path: string,
 	leafId?: string,
 ): Promise<JournalTurn[]> {
+	return (await readBranch(path, leafId)).turns;
+}
+
+/**
+ * `readJournal`'s Turns, with the compactions on the same branch placed
+ * among them. One walk for both, so the two cannot disagree about which
+ * branch is active or where a message sits.
+ */
+export async function readBranch(
+	path: string,
+	leafId?: string,
+): Promise<{ turns: JournalTurn[]; compactions: Compaction[] }> {
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");
 	} catch {
-		return [];
+		return { turns: [], compactions: [] };
 	}
 
 	const turns: JournalTurn[] = [];
-	for (const entry of activeBranch(parse(text), leafId)) {
+	// Every entry id resolves to the first message at or after it: a
+	// non-message entry, a compaction among them, waits for the next message.
+	const placed = new Map<string, MessageAddress>();
+	const positionOf = new Map<string, number>();
+	let unplaced: string[] = [];
+	const found: { id: string; kept?: string; position: number }[] = [];
+
+	for (const [position, entry] of activeBranch(parse(text), leafId).entries()) {
+		if (entry.id) {
+			positionOf.set(entry.id, position);
+			unplaced.push(entry.id);
+			if (entry.type === "compaction") found.push({ id: entry.id, kept: entry.firstKeptEntryId, position });
+		}
 		const message = entry.type === "message" ? entry.message : undefined;
 		if (!message?.role) continue;
 
 		const current = turns[turns.length - 1];
+		let address: MessageAddress;
 		if (message.role === "user" || current === undefined) {
+			address = { turn: turns.length, message: 0 };
 			turns.push({
 				turnIndex: turns.length,
 				prompt: message.role === "user" ? messageText(message) : "",
@@ -62,18 +107,28 @@ export async function readJournal(
 				callCount: message.contextSnapshot ? 1 : 0,
 				calls: [0],
 			});
-			continue;
+		} else {
+			address = { turn: current.turnIndex, message: current.messages.length };
+			current.messages.push(message);
+			// The message belongs to the Call in progress, and a snapshot ends
+			// it: the same direction `addressOf` counts in, so ingest and
+			// accounting cannot disagree about which Call a thing was.
+			current.calls.push(current.callCount);
+			if (message.contextSnapshot) current.callCount++;
 		}
-
-		current.messages.push(message);
-		// The message belongs to the Call in progress, and a snapshot ends
-		// it: the same direction `addressOf` counts in, so ingest and
-		// accounting cannot disagree about which Call a thing was.
-		current.calls.push(current.callCount);
-		if (message.contextSnapshot) current.callCount++;
+		for (const id of unplaced) placed.set(id, address);
+		unplaced = [];
 	}
+	// Nothing followed these: they sit where the next prompt would.
+	for (const id of unplaced) placed.set(id, { turn: turns.length, message: 0 });
 
-	return turns;
+	const compactions = found.map(({ id, kept, position }): Compaction => {
+		const before = placed.get(id) as MessageAddress;
+		const keptAt = kept === undefined ? undefined : positionOf.get(kept);
+		const firstKept = keptAt !== undefined && keptAt < position ? placed.get(kept as string) : undefined;
+		return firstKept ? { id, before, firstKept } : { id, before };
+	});
+	return { turns, compactions };
 }
 
 /** Every entry the Journal holds, in file order. */

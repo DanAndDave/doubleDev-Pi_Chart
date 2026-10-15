@@ -1,0 +1,47 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-pi-chart-evicted",
+	"sessionId": "01a1f000-0000-7000-8000-000000000012",
+	"plants": [],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Look at C.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "Look at A.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "Look at the missing file and the empty one.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "Look at B.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Check B twice.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Check A, the missing file and C.",
+			"probes": []
+		}
+	],
+	"checks": []
+}
