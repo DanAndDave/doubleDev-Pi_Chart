@@ -1,6 +1,6 @@
 # Slices: building the context-need measures
 
-`to-tickets` output for the map in `map.md`. Each slice is its own change folder, created by `/opsx-propose <change-id>` when it reaches the frontier; its `proposal.md` repeats the `Blocked by:` line below. A slice is on the frontier when every slice it is blocked by is archived.
+`to-tickets` output for the map in `map.md`. Each slice is its own change folder under `openspec/changes/<change-id>/`, opened with a `proposal.md` carrying its `Blocked by:` line and `Triage: needs-triage`. A slice is on the frontier when every slice it is blocked by is archived; `/opsx-propose <change-id>` then continues the existing folder, revising the proposal against what the archived slices actually built and writing its delta specs, `design.md` and `tasks.md`. Until then `openspec validate` rejects the folder for having no deltas, which is expected.
 
 | # | Change id | Blocked by | Delivers |
 | --- | --- | --- | --- |
