@@ -1,0 +1,23 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"workload": { "name": "fixture", "version": 1, "commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359" },
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-complete",
+	"sessionId": "01a1f000-0000-7000-8000-000000000001",
+	"plants": [
+		{ "id": "codeword", "value": "PLUM-17" },
+		{ "id": "build", "value": "7341" }
+	],
+	"prompts": [
+		{ "step": "one", "text": "Remember PLUM-17. Add src/one.ts.", "probes": [] },
+		{ "step": "two", "text": "Build number 7341. Add src/two.ts.", "probes": [] },
+		{ "step": "three", "text": "What codeword and build number did I give you?", "probes": ["codeword", "build"] }
+	],
+	"checks": [
+		{ "step": "one", "pass": true, "exitCode": 0, "durationMs": 812, "output": "1 pass" },
+		{ "step": "two", "pass": false, "exitCode": 1, "durationMs": 790, "output": "1 fail" },
+		{ "step": "three", "pass": false, "exitCode": 1, "durationMs": 801, "output": "1 fail" }
+	]
+}

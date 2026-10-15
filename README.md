@@ -295,12 +295,14 @@ Five suites are gated, each because a fake would prove the wrong thing. The stor
 PICHART_CAPTURE_FILE=/tmp/capture.jsonl omp -p -e test/capture-extension.ts "<prompt>"
 ```
 
-`scripts/bench-tokens.ts` runs the same multi-turn workload against plain omp (`--no-extensions`) and against omp with only this extension (`--no-extensions -e src/extension.ts`), each in a fresh copy of this Codebase at `HEAD`, and compares what the provider charged per Conversation: prompt tokens, cache read and write, output, effective input at the 0.1 / 1.25 cache multipliers, cost, and window size per turn. The workload's last prompt asks for a codeword given in the first, past the default tail, so an arm that got cheaper by forgetting shows it. It spends real tokens:
+`scripts/bench-tokens.ts` runs a frozen Workload (`bench/workloads/<name>/`: pinned commit, prompts, Plants, optional overlay, checks and bundle) against plain omp (`--no-extensions`) and against omp with only this extension (`--no-extensions -e src/extension.ts`). Every Run starts from the same workspace, built from the Workload's commit, and gets its own doc bundle and, on the pi-chart Arm, its own Thread Store database, dropped once its Accounting is kept. A step with a check is a Graded Task, checked after its last prompt; a Probe asks a Plant back and is scored per Plant, so an Arm that got cheaper by forgetting shows it. Each Run leaves a record in `<out>/runs/<arm>-<index>/`, and `scripts/measures.ts` computes its Measures from that record alone: Cost per Run with its token breakdown, Graded Task outcomes, Cost per Pass and Retention per Plant. It spends real tokens:
 
 ```sh
-bun scripts/bench-tokens.ts                                   # 12 turns, 3 runs per arm
-bun scripts/bench-tokens.ts --runs 5 --parallel 4 --model sonnet --workload prompts.json
-bun scripts/bench-tokens.ts --report /tmp/pichart-bench-….json  # re-print a saved run
+bun scripts/bench-tokens.ts                                   # read-only-40, 3 Runs per Arm
+bun scripts/bench-tokens.ts --workload smoke --runs 1          # 3 Turns, the cheap end-to-end check
+bun scripts/bench-tokens.ts --runs 5 --parallel 4 --model sonnet --workload ./my-workload
+bun scripts/bench-tokens.ts --report /tmp/pichart-bench-…      # re-print a saved benchmark
+bun scripts/measures.ts /tmp/pichart-bench-…/runs/pi-chart-0   # one Run's Measures
 ```
 
 ## Reaching other conversations

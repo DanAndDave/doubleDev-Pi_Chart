@@ -1,0 +1,73 @@
+{
+	"name": "read-only-40",
+	"version": 1,
+	"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359",
+	"plants": [
+		{
+			"id": "codeword",
+			"value": "TANGERINE-42"
+		},
+		{
+			"id": "build",
+			"value": "7341"
+		}
+	],
+	"steps": [
+		{
+			"id": "read",
+			"prompts": [
+				"Remember this codeword for later: TANGERINE-42. Then read src/pins.ts and say in two sentences what a Pin entry holds. Do not modify any files and do not spawn subagents.",
+				"Read src/elision.ts. What does elision keep, and how is the shortened part marked? Three sentences at most. Do not modify any files and do not spawn subagents.",
+				"Where is PICHART_TAIL_TURNS read, and what is its default? Answer in one sentence. Also remember this build number for later: 7341. Do not modify any files and do not spawn subagents.",
+				"Read src/tokens.ts and explain how token counts are estimated. Do not modify any files and do not spawn subagents.",
+				"Read src/sections.ts. What does it split, and on what boundaries? Do not modify any files and do not spawn subagents.",
+				"Read src/shares.ts and summarise what it computes. Do not modify any files and do not spawn subagents.",
+				"Read src/symbols.ts. How are symbols chosen for a pack? Do not modify any files and do not spawn subagents.",
+				"Read src/report.ts. List the sections of the report it renders. Do not modify any files and do not spawn subagents.",
+				"Read src/journal.ts. How is a Conversation's active branch found? Do not modify any files and do not spawn subagents.",
+				"Read src/turns.ts and src/thread-store.ts. How does a Turn get into the Thread Store? Do not modify any files and do not spawn subagents.",
+				"Read src/accounting.ts. What does a recorded part carry? Do not modify any files and do not spawn subagents.",
+				"Read src/concept.ts. What fields does a Concept's front matter carry? Do not modify any files and do not spawn subagents.",
+				"Read src/doc-store.ts. How does a Doc Store find a Concept by its path? Do not modify any files and do not spawn subagents.",
+				"Read src/doc-index.ts. When is a Concept embedded again? Do not modify any files and do not spawn subagents.",
+				"Read src/embed-text.ts. What text is embedded for a Turn? Do not modify any files and do not spawn subagents.",
+				"Read src/embedder.ts. How does the embedder run off the main thread? Do not modify any files and do not spawn subagents.",
+				"Read src/graph.ts. What does a prepared graph index? Do not modify any files and do not spawn subagents.",
+				"Read src/graph-load.ts and src/graph-load-worker.ts. Why is the graph loaded in a worker? Do not modify any files and do not spawn subagents.",
+				"Read src/graph-store.ts. When does it run graphify again? Do not modify any files and do not spawn subagents.",
+				"Read src/install.ts. What does installing the extension write? Do not modify any files and do not spawn subagents.",
+				"Read src/messages.ts. How is a tool call rendered as text? Do not modify any files and do not spawn subagents.",
+				"Read src/process.ts. What does it wrap, and why? Do not modify any files and do not spawn subagents.",
+				"Read src/spec-store.ts. What does it read from openspec/? Do not modify any files and do not spawn subagents.",
+				"Read src/sql.ts. How are statements built safely? Do not modify any files and do not spawn subagents.",
+				"Read src/bun-runtime.ts. What runtime differences does it cover? Do not modify any files and do not spawn subagents.",
+				"Read src/harness.ts. List the events an extension can subscribe to. Do not modify any files and do not spawn subagents.",
+				"Read src/postgres-store.ts. Which tables does it create? Do not modify any files and do not spawn subagents.",
+				"Read src/inspection.ts. What subcommands does /pack accept? Do not modify any files and do not spawn subagents.",
+				"Read src/config.ts. How are retired setting names reported? Do not modify any files and do not spawn subagents.",
+				"Read test/elision.test.ts. What edge cases does it cover? Do not modify any files and do not spawn subagents.",
+				"Read test/journal.test.ts. How are fixture Journals built? Do not modify any files and do not spawn subagents.",
+				"Read test/sections.test.ts. Name two cases it covers. Do not modify any files and do not spawn subagents.",
+				"Read test/turns.test.ts. What does it check about Turn boundaries? Do not modify any files and do not spawn subagents.",
+				"Read test/concept.test.ts. Which malformed Concepts does it reject? Do not modify any files and do not spawn subagents.",
+				"Read docs/agents/workflow.md. What are the phases of the workflow? Do not modify any files and do not spawn subagents.",
+				"Read docs/agents/issue-tracker.md. Where do issues live? Do not modify any files and do not spawn subagents.",
+				"Read package.json. What scripts and dependencies does it declare? Do not modify any files and do not spawn subagents.",
+				"Read scripts/measure-pack-cache.ts. What does it measure? Do not modify any files and do not spawn subagents.",
+				"Read test/capture-extension.ts. What does it capture, and where does it write it? Do not modify any files and do not spawn subagents."
+			]
+		},
+		{
+			"id": "probe",
+			"prompts": [
+				{
+					"text": "What codeword did I give you at the start of this conversation, and what build number did I give you later? Reply with just the codeword and the build number, using UNKNOWN for either you do not know. Do not use any tools.",
+					"probes": [
+						"codeword",
+						"build"
+					]
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,24 @@
+{
+	"name": "smoke",
+	"version": 1,
+	"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359",
+	"plants": [{ "id": "codeword", "value": "PLUM-17" }],
+	"steps": [
+		{
+			"id": "add-double",
+			"prompts": [
+				"Remember this codeword for later: PLUM-17. Then create src/smoke.ts exporting a function `double(n: number): number` that returns twice n. Do not modify any other file and do not spawn subagents."
+			]
+		},
+		{
+			"id": "probe",
+			"prompts": [
+				"Read src/elision.ts. What does elision keep, and how is the shortened part marked? Three sentences at most. Do not modify any files and do not spawn subagents.",
+				{
+					"text": "What codeword did I give you at the start of this conversation? Reply with just the codeword, or UNKNOWN if you do not know. Do not use any tools.",
+					"probes": ["codeword"]
+				}
+			]
+		}
+	]
+}

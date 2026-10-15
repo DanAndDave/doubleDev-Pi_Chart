@@ -1,143 +1,124 @@
 /**
- * Benchmarks what a Conversation costs in tokens with pi-chart against plain
- * oh-my-pi, on the same scripted workload.
+ * Benchmarks a Conversation with pi-chart against plain oh-my-pi, on a frozen
+ * Workload (`bench/workloads/<name>/`, see `scripts/workload.ts`).
  *
- * Two arms, each run in its own fresh copy of a Codebase:
+ * Two Arms:
  *
- * - **vanilla**: `omp --no-extensions` — the harness's accumulate-forward window.
- * - **pi-chart**: `omp --no-extensions -e src/extension.ts` — this extension
- *   alone, so the only difference between the arms is pi-chart.
+ * - **vanilla**: `omp --no-extensions`, the harness's accumulate-forward window.
+ * - **pi-chart**: `omp --no-extensions -e src/extension.ts`, this checkout's
+ *   extension alone, so the only difference between the Arms is pi-chart.
  *
- * Every turn of the workload is one `omp -p` process, the second onwards with
- * `-c`, so a run is one multi-turn Conversation. Figures come from the
- * provider's own `usage` on each Call in the Journal — nothing is estimated.
- * The last prompt is a probe: it asks for a codeword given in the first
- * Turn and a build number given in the third, and the run scores each
- * separately. The codeword sits in Turn 0's prompt, which the Opening
- * carries; the build number sits only in a later Turn, so only recall can
- * bring it back. A cheaper arm that forgot what it was told is visible as
- * such. Probes are scored on the default workload only, never on a
- * `--workload` file.
+ * Every Run starts from the same bytes: the Workload's pinned commit without
+ * `bench/`, its overlay, its frozen `graphify-out/`, and dependencies
+ * installed from the workspace's own lockfile. That tree is built once per
+ * benchmark and copied into each Run's workspace (about 1 GB under $TMPDIR
+ * per Run in flight). Each Run gets its own copy of the Workload's bundle,
+ * and a pi-chart Run its own Thread Store database, migrated before the
+ * first Turn and dropped once its Accounting is exported. The user's own
+ * database and bundle are never touched; every other `PICHART_*` setting in
+ * the environment reaches both Arms, which is how a Budget sweep sets its
+ * cells.
  *
- *     bun scripts/bench-tokens.ts                       # 3 runs per arm
+ * Every Turn is one `omp -p` process, the second onwards with `-c`, so a Run
+ * is one Conversation. Prompts are sent exactly as the Workload states them.
+ * After the last prompt of a graded step, its check is copied into the
+ * workspace, run with `bun test`, and removed before the next Turn.
+ *
+ * Each Run leaves a record in `<out>/runs/<arm>-<index>/`, and its Measures
+ * come from that record alone (`scripts/measures.ts`), so they can be
+ * recomputed later at no model cost. `<out>/bench.json` holds the options and
+ * every Run's record and Measures.
+ *
+ *     bun scripts/bench-tokens.ts                          # read-only-40, 3 Runs per Arm
+ *     bun scripts/bench-tokens.ts --workload smoke --runs 1
  *     bun scripts/bench-tokens.ts --runs 5 --parallel 4 --model sonnet
- *     bun scripts/bench-tokens.ts --turns 3 --runs 1    # smoke
- *     bun scripts/bench-tokens.ts --workload my.json    # ["prompt", …]
- *     bun scripts/bench-tokens.ts --report bench.json   # re-print a saved run
+ *     bun scripts/bench-tokens.ts --workload ./my-workload --arm pi-chart
+ *     bun scripts/bench-tokens.ts --report /tmp/pichart-bench-1789…   # re-print
+ *
+ * `--workload` takes a name under `bench/workloads/`, or a path (anything
+ * with a `/`). `--turns N` sends the first N prompts; a step cut short is not
+ * checked. `--out` names the output directory. `--arm` runs one Arm alone.
+ * pi-chart Runs need the Thread Store server: `PICHART_DATABASE_URL`, else
+ * the URL setup saved.
  *
  * Runs use the default session root on purpose: pi-chart finds a
- * Conversation's Journal only there, and `--session-dir` would leave it
- * assembling without the Thread Store. Benchmark Conversations are therefore
- * ingested into the Thread Store like any other; cross-Conversation recall is
- * an explicit query, so they reach no other Conversation's packs by default.
- *
- * Not counted: anything charged outside the provider's `usage` — the local
- * embedder.
- *
- * `--arm pi-chart` (or `vanilla`) runs one arm alone, for sweeping a
- * setting; the comparison table needs both, so only the raw figures are
- * written.
+ * Conversation's Journal only there. Not counted: anything charged outside
+ * the provider's `usage`, such as the local embedder.
  */
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { SQL } from "bun";
 
+import type { TurnAccounting } from "../src/accounting.ts";
+import { readSavedUrl } from "../src/config.ts";
 import { SESSION_ROOT } from "../src/journal.ts";
-
-const READ_RATE = 0.1;
-const WRITE_RATE = 1.25;
-
-const CODEWORD = "TANGERINE-42";
-const BUILD_NUMBER = "7341";
-const PROBE = `What codeword did I give you at the start of this conversation, and what build number did I give you later? Reply with just the codeword and the build number, using UNKNOWN for either you do not know. Do not use any tools.`;
-
-/**
- * Read-only work over pi-chart's own source, 40 turns: each turn reads
- * something new, so an accumulating window grows. The build number at
- * turn 3 leaves the default tail (`PICHART_TAIL_TURNS=8`,
- * `PICHART_TAIL_TOKENS=25000`, `PICHART_TAIL_LOW_WATER=0.2`) at its first
- * Eviction, about turn 6, and stays out of it for the remaining
- * thirty-four, so the probe cannot be answered from the tail:
- * the codeword from the Opening, the build number from recall.
- */
-const DEFAULT_WORKLOAD = [
-	`Remember this codeword for later: ${CODEWORD}. Then read src/pins.ts and say in two sentences what a Pin entry holds.`,
-	"Read src/elision.ts. What does elision keep, and how is the shortened part marked? Three sentences at most.",
-	`Where is PICHART_TAIL_TURNS read, and what is its default? Answer in one sentence. Also remember this build number for later: ${BUILD_NUMBER}.`,
-	"Read src/tokens.ts and explain how token counts are estimated.",
-	"Read src/sections.ts. What does it split, and on what boundaries?",
-	"Read src/shares.ts and summarise what it computes.",
-	"Read src/symbols.ts. How are symbols chosen for a pack?",
-	"Read src/report.ts. List the sections of the report it renders.",
-	"Read src/journal.ts. How is a Conversation's active branch found?",
-	"Read src/turns.ts and src/thread-store.ts. How does a Turn get into the Thread Store?",
-	"Read src/accounting.ts. What does a recorded part carry?",
-	"Read src/concept.ts. What fields does a Concept's front matter carry?",
-	"Read src/doc-store.ts. How does a Doc Store find a Concept by its path?",
-	"Read src/doc-index.ts. When is a Concept embedded again?",
-	"Read src/embed-text.ts. What text is embedded for a Turn?",
-	"Read src/embedder.ts. How does the embedder run off the main thread?",
-	"Read src/graph.ts. What does a prepared graph index?",
-	"Read src/graph-load.ts and src/graph-load-worker.ts. Why is the graph loaded in a worker?",
-	"Read src/graph-store.ts. When does it run graphify again?",
-	"Read src/install.ts. What does installing the extension write?",
-	"Read src/messages.ts. How is a tool call rendered as text?",
-	"Read src/process.ts. What does it wrap, and why?",
-	"Read src/spec-store.ts. What does it read from openspec/?",
-	"Read src/sql.ts. How are statements built safely?",
-	"Read src/bun-runtime.ts. What runtime differences does it cover?",
-	"Read src/harness.ts. List the events an extension can subscribe to.",
-	"Read src/postgres-store.ts. Which tables does it create?",
-	"Read src/inspection.ts. What subcommands does /pack accept?",
-	"Read src/config.ts. How are retired setting names reported?",
-	"Read test/elision.test.ts. What edge cases does it cover?",
-	"Read test/journal.test.ts. How are fixture Journals built?",
-	"Read test/sections.test.ts. Name two cases it covers.",
-	"Read test/turns.test.ts. What does it check about Turn boundaries?",
-	"Read test/concept.test.ts. Which malformed Concepts does it reject?",
-	"Read docs/agents/workflow.md. What are the phases of the workflow?",
-	"Read docs/agents/issue-tracker.md. Where do issues live?",
-	"Read package.json. What scripts and dependencies does it declare?",
-	"Read scripts/measure-pack-cache.ts. What does it measure?",
-	"Read test/capture-extension.ts. What does it capture, and where does it write it?",
-	PROBE,
-];
-
-const NO_EDITS = " Do not modify any files and do not spawn subagents.";
+import { PostgresStore } from "../src/postgres-store.ts";
+import {
+	aggregate,
+	EARLY_TURNS,
+	int,
+	measureRun,
+	median,
+	percent,
+	READ_RATE,
+	type CheckOutcome,
+	type RunMeasures,
+	type RunRecord,
+	type Totals,
+	usd,
+	WRITE_RATE,
+} from "./measures.ts";
+import {
+	buildWorkspace,
+	gradedSteps,
+	installDependencies,
+	loadWorkload,
+	run,
+	stepEndingAt,
+	turnsOf,
+	WORKLOADS,
+	type Step,
+	type Turn,
+	type Workload,
+	type WorkloadId,
+} from "./workload.ts";
 
 const EXTENSION = resolve(import.meta.dir, "..", "src", "extension.ts");
-const REPO = resolve(import.meta.dir, "..");
+const CHECK_TIMEOUT_MS = 120_000;
 
 type Arm = "vanilla" | "pi-chart";
 const ARMS: Arm[] = ["vanilla", "pi-chart"];
 
-interface Call {
-	turn: number;
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cost: number;
-	promptTokens: number;
-	floor: number;
-	subagent: boolean;
-}
-
-interface Run {
-	arm: Arm;
-	index: number;
-	cwd: string;
-	journal: string;
+interface Options {
+	workload: WorkloadId;
+	model?: string;
+	thinking?: string;
 	turns: number;
-	failedTurn?: number;
-	/** `recalled`: the codeword, from Turn 0. `fact`: the build number, from turn 3. */
-	probe?: { answer: string; recalled: boolean; fact?: boolean };
-	calls: Call[];
+	omp: string;
 }
 
-interface Saved {
-	options: { model?: string; thinking?: string; turns: number; workload: string[] };
-	runs: Run[];
+/** `bench.json`. */
+interface Bench {
+	options: Options;
+	runs: { record: RunRecord; measures: RunMeasures }[];
+}
+
+/** What every Run of one benchmark shares. */
+interface Context {
+	workload: Workload;
+	turns: Turn[];
+	/** Steps checked after their last prompt, by id. */
+	graded: Map<string, Step>;
+	/** The workspace every Run copies. */
+	template: string;
+	/** The Thread Store server; pi-chart Runs create their database on it. */
+	server?: string;
+	out: string;
+	options: Options;
+	timeoutMs: number;
+	stamp: number;
 }
 
 // ------------------------------------------------------------------ args --
@@ -160,35 +141,6 @@ function positive(name: string, fallback: number): number {
 
 // --------------------------------------------------------------- journal --
 
-interface Entry {
-	type?: string;
-	cwd?: string;
-	message?: {
-		role?: string;
-		usage?: {
-			input?: number;
-			output?: number;
-			cacheRead?: number;
-			cacheWrite?: number;
-			cost?: { total?: number };
-		};
-		contextSnapshot?: { promptTokens?: number; nonMessageTokens?: number };
-	};
-}
-
-function parse(text: string): Entry[] {
-	const entries: Entry[] = [];
-	for (const line of text.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			entries.push(JSON.parse(line) as Entry);
-		} catch {
-			// A partially flushed final line.
-		}
-	}
-	return entries;
-}
-
 async function jsonlUnder(dir: string): Promise<string[]> {
 	const found: string[] = [];
 	for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
@@ -199,10 +151,26 @@ async function jsonlUnder(dir: string): Promise<string[]> {
 	return found;
 }
 
+/** The entries of a Journal that name its session and its model. */
+async function headerOf(file: string): Promise<{ cwd?: string; id?: string; model?: string }> {
+	const header: { cwd?: string; id?: string; model?: string } = {};
+	for (const line of (await readFile(file, "utf8")).split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const entry = JSON.parse(line) as { type?: string; cwd?: string; id?: string; model?: string };
+			if (entry.type === "session") Object.assign(header, { cwd: entry.cwd, id: entry.id });
+			if (entry.type === "model_change" && header.model === undefined) header.model = entry.model;
+		} catch {
+			// A partially flushed final line.
+		}
+	}
+	return header;
+}
+
 /**
  * The Journal of the Conversation started in `cwd`, and any subagent Journals
  * beside it. The harness names a session directory after its working
- * directory, and every run has a unique one, so the directory is matched by
+ * directory, and every Run has a unique one, so the directory is matched by
  * that name and confirmed by the session header.
  */
 async function journalsFor(cwd: string): Promise<{ main?: string; subagents: string[] }> {
@@ -215,211 +183,253 @@ async function journalsFor(cwd: string): Promise<{ main?: string; subagents: str
 		for (const file of files) {
 			// Subagent Journals sit one directory deeper, beside the main one.
 			if (file.slice(sessionDir.length + 1).includes("/")) continue;
-			const header = parse(await readFile(file, "utf8")).find((entry) => entry.type === "session");
-			if (header?.cwd === cwd) main = file;
+			if ((await headerOf(file)).cwd === cwd) main = file;
 		}
 		return { main, subagents: files.filter((file) => file !== main) };
 	}
 	return { subagents: [] };
 }
 
-function callsIn(entries: Entry[]): Omit<Call, "turn" | "subagent">[] {
-	const calls: Omit<Call, "turn" | "subagent">[] = [];
-	for (const entry of entries) {
-		const usage = entry.message?.usage;
-		if (entry.type !== "message" || entry.message?.role !== "assistant" || !usage) continue;
-		const input = usage.input ?? 0;
-		const cacheRead = usage.cacheRead ?? 0;
-		const cacheWrite = usage.cacheWrite ?? 0;
-		calls.push({
-			input,
-			output: usage.output ?? 0,
-			cacheRead,
-			cacheWrite,
-			cost: usage.cost?.total ?? 0,
-			promptTokens: entry.message.contextSnapshot?.promptTokens ?? input + cacheRead + cacheWrite,
-			floor: entry.message.contextSnapshot?.nonMessageTokens ?? 0,
-		});
-	}
-	return calls;
-}
-
 // ------------------------------------------------------------------- run --
 
-async function copyCodebase(): Promise<string> {
-	const cwd = await mkdtemp(join(tmpdir(), "pichart-bench-"));
-	// Tracked files at HEAD only: both arms start from the same tree, and
-	// nothing derived (graphify-out/, node_modules/) leaks in from this one.
-	const archive = Bun.spawn(["git", "-C", REPO, "archive", "HEAD"], { stdout: "pipe" });
-	const extract = Bun.spawn(["tar", "-x", "-C", cwd], { stdin: archive.stdout });
-	if ((await archive.exited) !== 0 || (await extract.exited) !== 0) {
-		throw new Error(`could not copy ${REPO} at HEAD into ${cwd}`);
-	}
-	const init = Bun.spawn(["git", "init", "-q"], { cwd });
-	await init.exited;
-	return cwd;
-}
-
-async function runOne(
-	arm: Arm,
-	index: number,
-	workload: string[],
-	options: Saved["options"],
-	timeoutMs: number,
-	scored: boolean,
-): Promise<Run> {
-	const cwd = await copyCodebase();
-	const run: Run = { arm, index, cwd, journal: "", turns: 0, calls: [] };
-	let seen = 0;
-	for (const [turn, prompt] of workload.entries()) {
-		const args = ["omp", "-p", "--no-title", "--no-extensions"];
-		if (arm === "pi-chart") args.push("-e", EXTENSION);
-		if (options.model) args.push("--model", options.model);
-		if (options.thinking) args.push("--thinking", options.thinking);
-		if (turn > 0) args.push("-c");
-		args.push(prompt === PROBE ? prompt : prompt + NO_EDITS);
-
-		const proc = Bun.spawn(args, { cwd, stdout: "pipe", stderr: "pipe" });
-		const timer = setTimeout(() => proc.kill(), timeoutMs);
-		const [stdout, , code] = await Promise.all([
+/** Runs a graded step's check in the workspace, which holds it only meanwhile. */
+async function runCheck(step: Step, cwd: string): Promise<CheckOutcome> {
+	const name = `${step.id}.check.ts`;
+	const target = join(cwd, name);
+	await copyFile(step.check as string, target);
+	const started = performance.now();
+	try {
+		const proc = Bun.spawn(["bun", "test", `./${name}`], { cwd, stdout: "pipe", stderr: "pipe" });
+		let timedOut = false;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			proc.kill();
+		}, CHECK_TIMEOUT_MS);
+		const [stdout, stderr, code] = await Promise.all([
 			new Response(proc.stdout).text(),
 			new Response(proc.stderr).text(),
 			proc.exited,
 		]);
 		clearTimeout(timer);
+		return {
+			step: step.id,
+			pass: code === 0 && !timedOut,
+			exitCode: code,
+			durationMs: Math.round(performance.now() - started),
+			output: (stdout + stderr).slice(-2048),
+		};
+	} finally {
+		await rm(target, { force: true });
+	}
+}
 
-		const { main } = await journalsFor(cwd);
+/** A pi-chart Run's own database on the server, migrated before any Turn. */
+async function createDatabase(server: string, name: string): Promise<string> {
+	const admin = new SQL(server);
+	try {
+		await admin.unsafe(`CREATE DATABASE ${name}`);
+	} finally {
+		await admin.end();
+	}
+	const url = new URL(server);
+	url.pathname = `/${name}`;
+	// Migrated here, as a real store is by the time a Conversation starts: a
+	// fresh database migrating inside the first Turn misses the Thread Store
+	// deadline and that Turn goes out without its Opening.
+	const store = PostgresStore.connect(String(url));
+	try {
+		await store.migrate();
+	} finally {
+		await store.close();
+	}
+	return String(url);
+}
+
+/** Every Conversation's Accounting in the Run's database, by Conversation id. */
+async function exportAccounting(url: string): Promise<Record<string, TurnAccounting[]>> {
+	const sql = new SQL(url);
+	let ids: string[];
+	try {
+		const rows = (await sql`SELECT DISTINCT conversation_id FROM call_accounting ORDER BY conversation_id`) as {
+			conversation_id: string;
+		}[];
+		ids = rows.map((row) => row.conversation_id);
+	} finally {
+		await sql.end();
+	}
+	const store = PostgresStore.connect(url);
+	try {
+		const accounting: Record<string, TurnAccounting[]> = {};
+		for (const id of ids) accounting[id] = await store.readAccounting(id);
+		return accounting;
+	} finally {
+		await store.close();
+	}
+}
+
+async function dropDatabase(server: string, name: string): Promise<void> {
+	const admin = new SQL(server);
+	try {
+		await admin.unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+	} finally {
+		await admin.end();
+	}
+}
+
+async function runOne(arm: Arm, index: number, ctx: Context): Promise<{ record: RunRecord; measures: RunMeasures }> {
+	const { workload, turns, options } = ctx;
+	const recordDir = join(ctx.out, "runs", `${arm}-${index}`);
+	await mkdir(recordDir, { recursive: true });
+	const cwd = await mkdtemp(join(tmpdir(), "pichart-bench-"));
+	const bundle = await mkdtemp(join(tmpdir(), "pichart-bundle-"));
+	const record: RunRecord = {
+		arm,
+		index,
+		workload: { name: workload.name, version: workload.version, commit: workload.commit },
+		omp: options.omp,
+		cwd,
+		plants: workload.plants,
+		prompts: turns.map(({ step, text, probes }) => ({ step, text, probes })),
+		checks: [],
+	};
+	// Named before it is created, so a migration that fails still drops it.
+	const database = arm === "pi-chart" ? `bench_${ctx.stamp}_${arm.replace("-", "_")}_${index}` : undefined;
+	let url: string | undefined;
+	let failure: unknown;
+	try {
+		await run(["cp", "-a", `${ctx.template}/.`, `${cwd}/`]);
+		const source = join(workload.dir, "bundle");
+		if (existsSync(source)) await run(["cp", "-a", `${source}/.`, `${bundle}/`]);
+		const env: Record<string, string | undefined> = { ...process.env, PICHART_DOC_BUNDLE: bundle };
+		if (database) {
+			url = await createDatabase(ctx.server as string, database);
+			env.PICHART_DATABASE_URL = url;
+		}
+
+		for (const { turn, text } of turns) {
+			const args = ["omp", "-p", "--no-title", "--no-extensions"];
+			if (arm === "pi-chart") args.push("-e", EXTENSION);
+			if (options.model) args.push("--model", options.model);
+			if (options.thinking) args.push("--thinking", options.thinking);
+			if (turn > 0) args.push("-c");
+			args.push(text);
+
+			const proc = Bun.spawn(args, { cwd, env, stdout: "ignore", stderr: "pipe" });
+			const timer = setTimeout(() => proc.kill(), ctx.timeoutMs);
+			const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+			clearTimeout(timer);
+
+			const { main } = await journalsFor(cwd);
+			if (code !== 0 || !main) {
+				record.failedTurn = turn;
+				log(`${arm}#${index} Turn ${turn + 1} failed (exit ${code}${main ? "" : ", no Journal"}) ${stderr.slice(-500)}`);
+				break;
+			}
+			log(`${arm}#${index} Turn ${turn + 1}/${turns.length}`);
+
+			const ending = stepEndingAt(workload, turn);
+			const graded = ending && ctx.graded.get(ending.id);
+			if (graded) {
+				const outcome = await runCheck(graded, cwd);
+				record.checks.push(outcome);
+				log(`${arm}#${index} check ${graded.id}: ${outcome.pass ? "Pass" : "Fail"}`);
+			}
+		}
+	} catch (error) {
+		failure = error;
+	}
+
+	// Every step runs whatever failed before it, so a Run never leaves a
+	// database or a workspace behind, and its record is always written.
+	const attempt = async (what: string, step: () => Promise<unknown>) => {
+		try {
+			await step();
+		} catch (error) {
+			log(`${arm}#${index} could not ${what}: ${error instanceof Error ? error.message : error}`);
+			failure ??= error;
+		}
+	};
+	await attempt("copy its Journals", async () => {
+		const { main, subagents } = await journalsFor(cwd);
 		if (main) {
-			run.journal = main;
-			const calls = callsIn(parse(await readFile(main, "utf8")));
-			for (const call of calls.slice(seen)) run.calls.push({ ...call, turn, subagent: false });
-			seen = calls.length;
+			await copyFile(main, join(recordDir, "journal.jsonl"));
+			const header = await headerOf(main);
+			record.sessionId = header.id;
+			record.model = header.model;
 		}
-		if (code !== 0 || !main) {
-			run.failedTurn = turn;
-			log(`${arm}#${index} turn ${turn + 1} failed (exit ${code}${main ? "" : ", no journal"})`);
-			break;
-		}
-		run.turns = turn + 1;
-		if (scored && prompt === PROBE) {
-			const answer = stdout.replace(/^Working\.\.\.\s*/m, "").trim();
-			run.probe = {
-				answer: answer.slice(0, 200),
-				recalled: answer.includes(CODEWORD),
-				fact: answer.includes(BUILD_NUMBER),
-			};
-		}
-		log(`${arm}#${index} turn ${turn + 1}/${workload.length}`);
+		if (subagents.length > 0) await mkdir(join(recordDir, "subagents"), { recursive: true });
+		for (const [n, file] of subagents.entries()) await copyFile(file, join(recordDir, "subagents", `${n}.jsonl`));
+	});
+	if (url) {
+		const migrated = url;
+		await attempt("export its Accounting", async () => {
+			const accounting = await exportAccounting(migrated);
+			await writeFile(join(recordDir, "accounting.json"), JSON.stringify(accounting, null, "\t"));
+		});
 	}
-
-	const { subagents } = await journalsFor(cwd);
-	for (const file of subagents) {
-		for (const call of callsIn(parse(await readFile(file, "utf8")))) {
-			run.calls.push({ ...call, turn: -1, subagent: true });
-		}
-	}
-	await rm(cwd, { recursive: true, force: true });
-	return run;
+	if (database) await attempt("drop its database", () => dropDatabase(ctx.server as string, database));
+	await attempt("remove its workspace", () => rm(cwd, { recursive: true, force: true }));
+	await attempt("remove its bundle", () => rm(bundle, { recursive: true, force: true }));
+	await writeFile(join(recordDir, "run.json"), JSON.stringify(record, null, "\t"));
+	if (failure !== undefined) throw failure;
+	return { record, measures: await measureRun(recordDir) };
 }
 
 function log(message: string): void {
 	process.stderr.write(`[bench] ${message}\n`);
 }
 
+/**
+ * Runs `jobs`, `width` at a time. After a job throws, no new job starts, but
+ * the ones in flight finish, so each still cleans up after itself before the
+ * error reaches the caller.
+ */
 async function pool<T>(jobs: (() => Promise<T>)[], width: number): Promise<T[]> {
 	const results: T[] = new Array(jobs.length);
 	let next = 0;
+	let failure: { error: unknown } | undefined;
 	await Promise.all(
 		Array.from({ length: Math.min(width, jobs.length) }, async () => {
-			while (next < jobs.length) {
+			while (next < jobs.length && !failure) {
 				const at = next++;
-				results[at] = await (jobs[at] as () => Promise<T>)();
+				try {
+					results[at] = await (jobs[at] as () => Promise<T>)();
+				} catch (error) {
+					failure ??= { error };
+				}
 			}
 		}),
 	);
+	if (failure) throw failure.error;
 	return results;
 }
 
 // ---------------------------------------------------------------- report --
 
-function median(values: number[]): number {
-	if (values.length === 0) return Number.NaN;
-	const sorted = [...values].sort((a, b) => a - b);
-	const mid = sorted.length >> 1;
-	return sorted.length % 2 ? (sorted[mid] as number) : ((sorted[mid - 1] as number) + (sorted[mid] as number)) / 2;
-}
+function report(bench: Bench): void {
+	const all = bench.runs.map((run) => run.measures);
+	const arms = aggregate(all);
+	const present = ARMS.filter((arm) => arms.has(arm));
+	const both = present.length === ARMS.length;
+	const complete = (arm: Arm) => arms.get(arm)?.complete ?? [];
+	const { workload, turns } = bench.options;
+	const distinct = (values: (string | undefined)[]) =>
+		[...new Set(values.map((value) => value ?? "(unknown)"))].join(", ");
+	const excluded = present.reduce((acc, arm) => acc + (arms.get(arm)?.excluded ?? 0), 0);
 
-interface Totals {
-	calls: number;
-	input: number;
-	cacheRead: number;
-	cacheWrite: number;
-	output: number;
-	prompt: number;
-	effective: number;
-	cost: number;
-	peak: number;
-	floor: number;
-	prefixHeld: number;
-	earlyWrite: number;
-}
+	console.log(
+		`\nWorkload ${workload.name} v${workload.version} (${workload.commit.slice(0, 7)}), ` +
+			`model ${distinct(bench.runs.map((run) => run.record.model))}, ${bench.options.omp}, ` +
+			`thinking ${bench.options.thinking ?? "(default)"}, ${turns} Turns; ` +
+			`complete Runs: ${present.map((arm) => `${arm} ${complete(arm).length}`).join(", ")}` +
+			(excluded > 0 ? ` (${excluded} failed, excluded)` : ""),
+	);
 
-/**
- * Turns before the verbatim tail starts sliding (the default tail is eight
- * Turns, so turn 9 is the first whose tail drops one). The cache figures
- * that judge Pack order are read over these, where nothing but order and
- * assembled-part churn moves the cached prefix.
- */
-const EARLY_TURNS = 7;
-
-/**
- * The share of consecutive main-agent Call pairs on the early turns, in-Turn
- * and across a Turn boundary alike, where the next Call read back at least
- * everything the previous one read or wrote: its whole prompt stayed a
- * cached prefix. NaN when there is no pair.
- */
-function prefixHeld(run: Run): number {
-	const early = run.calls.filter((c) => !c.subagent && c.turn < EARLY_TURNS);
-	let pairs = 0;
-	let held = 0;
-	for (let index = 1; index < early.length; index++) {
-		const before = early[index - 1] as Call;
-		const after = early[index] as Call;
-		pairs++;
-		if (after.cacheRead >= before.cacheRead + before.cacheWrite) held++;
-	}
-	return pairs === 0 ? Number.NaN : held / pairs;
-}
-
-function totals(run: Run): Totals {
-	const sum = (pick: (call: Call) => number) => run.calls.reduce((acc, call) => acc + pick(call), 0);
-	const input = sum((c) => c.input);
-	const cacheRead = sum((c) => c.cacheRead);
-	const cacheWrite = sum((c) => c.cacheWrite);
-	const output = sum((c) => c.output);
-	return {
-		calls: run.calls.length,
-		input,
-		cacheRead,
-		cacheWrite,
-		output,
-		prompt: input + cacheRead + cacheWrite,
-		effective: input + cacheRead * READ_RATE + cacheWrite * WRITE_RATE,
-		cost: sum((c) => c.cost),
-		peak: Math.max(0, ...run.calls.filter((c) => !c.subagent).map((c) => c.promptTokens)),
-		floor: median(run.calls.filter((c) => !c.subagent).map((c) => c.floor)),
-		prefixHeld: prefixHeld(run),
-		earlyWrite: run.calls
-			.filter((c) => !c.subagent && c.turn < EARLY_TURNS)
-			.reduce((acc, c) => acc + c.cacheWrite, 0),
+	const header = (first: string) => {
+		console.log(`| ${first} | ${present.join(" | ")} |${both ? " pi-chart / vanilla |" : ""}`);
+		console.log(`| --- | ${present.map(() => "---:").join(" | ")} |${both ? " ---: |" : ""}`);
 	};
-}
 
-const int = (x: number) => (Number.isFinite(x) ? Math.round(x).toLocaleString("en-US") : "—");
-const percent = (x: number) => (Number.isFinite(x) ? `${(100 * x).toFixed(0)}%` : "—");
-
-function report(saved: Saved): void {
-	const complete = saved.runs.filter((run) => run.failedTurn === undefined);
 	const rows: [string, (t: Totals) => number, (x: number) => string][] = [
 		["Calls", (t) => t.calls, int],
 		["Prompt tokens sent (input + cache read + cache write)", (t) => t.prompt, int],
@@ -428,62 +438,86 @@ function report(saved: Saved): void {
 		["Cache write", (t) => t.cacheWrite, int],
 		["Output", (t) => t.output, int],
 		[`Effective input (read ×${READ_RATE}, write ×${WRITE_RATE})`, (t) => t.effective, int],
-		["Cost, USD (harness pricing)", (t) => t.cost, (x) => (Number.isFinite(x) ? `$${x.toFixed(4)}` : "—")],
+		["Cost per Run, USD (harness pricing)", (t) => t.cost, usd],
 		["Peak window, tokens", (t) => t.peak, int],
 		["Floor, tokens", (t) => t.floor, int],
-		[`Cache write, turns 1–${EARLY_TURNS}`, (t) => t.earlyWrite, int],
-		[`Prefix held, turns 1–${EARLY_TURNS} (next Call read all the last read or wrote)`, (t) => t.prefixHeld, percent],
+		[`Cache write, Turns 1–${EARLY_TURNS}`, (t) => t.earlyWrite, int],
+		[`Prefix held, Turns 1–${EARLY_TURNS} (next Call read all the last read or wrote)`, (t) => t.prefixHeld, percent],
 	];
-	const byArm = Object.fromEntries(
-		ARMS.map((arm) => [arm, complete.filter((run) => run.arm === arm).map(totals)]),
-	) as Record<Arm, Totals[]>;
-
-	console.log(
-		`\nmodel ${saved.options.model ?? "(omp default)"}, thinking ${saved.options.thinking ?? "(default)"}, ` +
-			`${saved.options.turns} turns; complete runs: vanilla ${byArm.vanilla.length}, pi-chart ${byArm["pi-chart"].length}` +
-			(complete.length < saved.runs.length ? ` (${saved.runs.length - complete.length} failed, excluded)` : ""),
-	);
-	console.log("\nPer Conversation, median over runs:\n");
-	console.log("| Metric | vanilla | pi-chart | pi-chart / vanilla |");
-	console.log("| --- | ---: | ---: | ---: |");
+	console.log("\nPer Conversation, median over complete Runs:\n");
+	header("Measure");
 	for (const [label, pick, show] of rows) {
-		const v = median(byArm.vanilla.map(pick));
-		const p = median(byArm["pi-chart"].map(pick));
+		const values = present.map((arm) => median(complete(arm).map((run) => pick(run.totals))));
+		const cells = values.map(show).join(" | ");
+		if (!both) {
+			console.log(`| ${label} | ${cells} |`);
+			continue;
+		}
+		const [v, p] = values as [number, number];
 		const ratio = v > 0 && Number.isFinite(p) ? `${(p / v).toFixed(2)}×` : "—";
-		console.log(`| ${label} | ${show(v)} | ${show(p)} | ${ratio} |`);
+		console.log(`| ${label} | ${cells} | ${ratio} |`);
 	}
 
-	// Gated on what the runs recorded, not on the probe's wording, so a run
-	// saved before the wording changed still reports what it scored.
-	const scoredRuns = complete.filter((run) => run.probe);
-	const tally = (hit: (run: Run) => boolean | undefined) =>
-		ARMS.map((arm) => {
-			const probed = scoredRuns.filter((run) => run.arm === arm);
-			return `${arm} ${probed.filter(hit).length}/${probed.length}`;
-		}).join(", ");
-	if (scoredRuns.length > 0) {
-		console.log(`\nCodeword recalled at the probe: ${tally((run) => run.probe?.recalled)}`);
-	}
-	if (scoredRuns.some((run) => run.probe?.fact !== undefined)) {
-		console.log(`Build number recalled at the probe: ${tally((run) => run.probe?.fact)}`);
+	const stepIds = [
+		...new Set(
+			present.flatMap((arm) =>
+				complete(arm).flatMap((run) => run.steps.filter((s) => s.outcome !== "not graded").map((s) => s.id)),
+			),
+		),
+	];
+	console.log("\nGraded Tasks (Passes over complete Runs):\n");
+	if (stepIds.length === 0) {
+		console.log("No graded step within the Turns sent.");
+	} else {
+		console.log(`| Step | ${present.join(" | ")} |`);
+		console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
+		for (const id of stepIds) {
+			const cell = (arm: Arm) => {
+				const runs = complete(arm);
+				const passed = runs.filter((run) => run.steps.some((s) => s.id === id && s.outcome === "Pass"));
+				return `${passed.length}/${runs.length}`;
+			};
+			console.log(`| ${id} | ${present.map(cell).join(" | ")} |`);
+		}
 	}
 
-	console.log("\nWindow size per turn (median prompt tokens of the turn's last Call):\n");
-	console.log("| Turn | vanilla | pi-chart |");
-	console.log("| ---: | ---: | ---: |");
-	for (let turn = 0; turn < saved.options.turns; turn++) {
+	console.log("\nCost per Pass:\n");
+	for (const arm of present) {
+		const value = arms.get(arm)?.costPerPass ?? "n/a";
+		console.log(`- ${arm}: ${typeof value === "string" ? value : usd(value.usd)}`);
+	}
+
+	const plantIds = [...new Set(present.flatMap((arm) => arms.get(arm)?.retention.map((r) => r.id) ?? []))];
+	console.log("\nRetention per Plant (complete Runs whose Probe answered it correctly):\n");
+	if (plantIds.length === 0) {
+		console.log("No Probe within the Turns sent.");
+	} else {
+		console.log(`| Plant | ${present.join(" | ")} |`);
+		console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
+		for (const id of plantIds) {
+			const cell = (arm: Arm) => {
+				const retention = arms.get(arm)?.retention.find((r) => r.id === id);
+				return retention ? `${retention.right}/${retention.of}` : "—";
+			};
+			console.log(`| ${id} | ${present.map(cell).join(" | ")} |`);
+		}
+	}
+
+	console.log("\nWindow size per Turn (median prompt tokens of the Turn's last Call):\n");
+	console.log(`| Turn | ${present.join(" | ")} |`);
+	console.log(`| ---: | ${present.map(() => "---:").join(" | ")} |`);
+	for (let turn = 0; turn < turns; turn++) {
 		const cell = (arm: Arm) =>
 			int(
 				median(
-					complete
-						.filter((run) => run.arm === arm)
-						.map((run) => run.calls.filter((c) => c.turn === turn).at(-1)?.promptTokens)
+					complete(arm)
+						.map((run) => run.calls.filter((c) => !c.subagent && c.turn === turn).at(-1)?.promptTokens)
 						.filter((x): x is number => x !== undefined),
 				),
 			);
-		console.log(`| ${turn + 1} | ${cell("vanilla")} | ${cell("pi-chart")} |`);
+		console.log(`| ${turn + 1} | ${present.map(cell).join(" | ")} |`);
 	}
-	const sub = complete.flatMap((run) => run.calls.filter((c) => c.subagent));
+	const sub = present.flatMap((arm) => complete(arm).flatMap((run) => run.calls.filter((c) => c.subagent)));
 	if (sub.length > 0) console.log(`\nIncludes ${sub.length} subagent Calls (counted in the totals above).`);
 }
 
@@ -491,39 +525,63 @@ function report(saved: Saved): void {
 
 const reportFrom = flag("--report");
 if (reportFrom) {
-	report(JSON.parse(await readFile(reportFrom, "utf8")) as Saved);
+	report(JSON.parse(await readFile(join(reportFrom, "bench.json"), "utf8")) as Bench);
 } else {
-	const workloadFile = flag("--workload");
-	const full = workloadFile
-		? (JSON.parse(await readFile(workloadFile, "utf8")) as string[])
-		: DEFAULT_WORKLOAD;
-	if (!Array.isArray(full) || full.some((p) => typeof p !== "string") || full.length === 0) {
-		throw new Error("a workload is a non-empty JSON array of prompt strings");
-	}
-	const turns = Math.min(positive("--turns", full.length), full.length);
-	const workload = full.slice(0, turns);
+	const named = flag("--workload") ?? "read-only-40";
+	const workload = await loadWorkload(named.includes("/") ? resolve(named) : join(WORKLOADS, named));
+	const all = turnsOf(workload);
+	const turns = all.slice(0, Math.min(positive("--turns", all.length), all.length));
 	const runs = positive("--runs", 3);
-	const options: Saved["options"] = {
-		model: flag("--model"),
-		thinking: flag("--thinking"),
-		turns,
-		workload,
-	};
-	const out = flag("--out") ?? join(tmpdir(), `pichart-bench-${Date.now()}.json`);
-	const timeoutMs = positive("--turn-timeout", 600) * 1000;
-
-	// Interleave the arms so drift over the session (provider load, cache
+	const parallel = positive("--parallel", 2);
 	const only = flag("--arm");
 	if (only !== undefined && !ARMS.includes(only as Arm)) {
 		throw new Error(`--arm is "${only}"; expected ${ARMS.join(" or ")}`);
 	}
 	const arms = only === undefined ? ARMS : [only as Arm];
-	const jobs = Array.from({ length: runs }, (_, index) =>
-		arms.map((arm) => () => runOne(arm, index, workload, options, timeoutMs, !workloadFile)),
-	).flat();
-	log(`${jobs.length} Conversations × ${turns} turns, ${positive("--parallel", 2)} at a time`);
-	const saved: Saved = { options, runs: await pool(jobs, positive("--parallel", 2)) };
-	await Bun.write(out, JSON.stringify(saved, null, "\t"));
-	log(`raw figures: ${out}`);
-	if (!only) report(saved);
+	const server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
+	if (arms.includes("pi-chart") && !server) {
+		throw new Error("pi-chart Runs need a Thread Store server: set PICHART_DATABASE_URL, or run setup to save one");
+	}
+	const stamp = Date.now();
+	const out = resolve(flag("--out") ?? join(tmpdir(), `pichart-bench-${stamp}`));
+	await mkdir(join(out, "runs"), { recursive: true });
+
+	const options: Options = {
+		workload: { name: workload.name, version: workload.version, commit: workload.commit },
+		model: flag("--model"),
+		thinking: flag("--thinking"),
+		turns: turns.length,
+		omp: (await run(["omp", "--version"])).trim(),
+	};
+
+	// Built and installed once, before any Run: a Workload whose dependencies
+	// do not install stops the benchmark here, and every Run copies the same tree.
+	const template = await mkdtemp(join(tmpdir(), "pichart-template-"));
+	try {
+		log(`building ${workload.name} v${workload.version} at ${workload.commit.slice(0, 7)}`);
+		await buildWorkspace(workload, template);
+		await installDependencies(template);
+
+		const ctx: Context = {
+			workload,
+			turns,
+			graded: new Map(gradedSteps(workload, turns.length).map((step) => [step.id, step])),
+			template,
+			server,
+			out,
+			options,
+			timeoutMs: positive("--turn-timeout", 600) * 1000,
+			stamp,
+		};
+		// Interleave the Arms so drift over the session (provider load, cache
+		// state) falls on both alike.
+		const jobs = Array.from({ length: runs }, (_, index) => arms.map((arm) => () => runOne(arm, index, ctx))).flat();
+		log(`${jobs.length} Conversations × ${turns.length} Turns, ${parallel} at a time`);
+		const bench: Bench = { options, runs: await pool(jobs, parallel) };
+		await writeFile(join(out, "bench.json"), JSON.stringify(bench, null, "\t"));
+		log(`record: ${out}`);
+		report(bench);
+	} finally {
+		await rm(template, { recursive: true, force: true });
+	}
 }

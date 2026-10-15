@@ -1,0 +1,15 @@
+{
+	"arm": "vanilla",
+	"index": 0,
+	"workload": { "name": "fixture-read", "version": 1, "commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359" },
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-ungraded",
+	"sessionId": "01a1f000-0000-7000-8000-000000000003",
+	"plants": [],
+	"prompts": [
+		{ "step": "read", "text": "Read src/pins.ts.", "probes": [] },
+		{ "step": "read", "text": "Read src/elision.ts.", "probes": [] }
+	],
+	"checks": []
+}

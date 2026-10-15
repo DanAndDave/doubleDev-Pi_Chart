@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"01a1f000-0000-7000-8000-000000000002","timestamp":"2026-10-14T10:00:00.000Z","cwd":"/tmp/pichart-bench-failed-early"}
+{"type":"model_change","id":"m0","parentId":null,"timestamp":"2026-10-14T10:00:00.010Z","model":"anthropic/claude-opus-5-5","resolvedModelIsFallback":false}
+{"type":"message","id":"u0","parentId":"m0","timestamp":"2026-10-14T10:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"Remember PLUM-17. Add src/one.ts."}],"attribution":"user"}}
+{"type":"message","id":"a0","parentId":"u0","timestamp":"2026-10-14T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Added src/one.ts."}],"usage":{"input":100,"output":50,"cacheRead":0,"cacheWrite":9000,"totalTokens":9150,"cost":{"total":0.3}},"contextSnapshot":{"promptTokens":9100,"nonMessageTokens":8000}}}
+{"type":"message","id":"u1","parentId":"a0","timestamp":"2026-10-14T10:01:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Build number 7341. Add src/two.ts."}],"attribution":"user"}}
