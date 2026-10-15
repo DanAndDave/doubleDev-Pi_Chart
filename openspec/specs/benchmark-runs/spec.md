@@ -7,7 +7,7 @@ Running a frozen Workload against an Arm so that every Run starts from the same 
 
 ### Requirement: A Workload is a versioned folder
 
-A Workload SHALL be a folder `bench/workloads/<name>/` whose `workload.json` gives its name, a version, the commit its workspace is built from, the Plants it states, and an ordered list of steps. Each step SHALL have an id unique within the Workload and one or more prompts. A prompt SHALL be text, optionally naming the Plants it probes and optionally declaring that it forbids tools. The folder MAY also hold an `overlay/` tree, a `checks/` folder with at most one `<step-id>.check.ts` per step, a `bundle/` folder and a `graphify-out/` folder.
+A Workload SHALL be a folder `bench/workloads/<name>/` whose `workload.json` gives its name, a version, the commit its workspace is built from, the Plants it states, the Revisits it makes, and an ordered list of steps. Each step SHALL have an id unique within the Workload and one or more prompts. A prompt SHALL be text, optionally naming the Plants it probes and optionally declaring that it forbids tools. The folder MAY also hold an `overlay/` tree, a `checks/` folder with at most one `<step-id>.check.ts` per step, a `bundle/` folder and a `graphify-out/` folder.
 
 Each Plant SHALL have an id, a value and a kind. The kind SHALL be one of three:
 - **literal**: the value is the answer. A Plant that declares no kind SHALL be a literal.
@@ -17,6 +17,13 @@ Each Plant SHALL have an id, a value and a kind. The kind SHALL be one of three:
 A Plant SHALL be placed in one of two ways:
 - **In a prompt**: when it declares no file.
 - **In a tool result**: when it declares a file under `overlay/` holding its value. A superseded Plant placed in a tool result SHALL also declare a file holding its earlier value.
+
+Each Revisit SHALL have an id unique among the Workload's Revisits, and SHALL name:
+- the file it revisits, as a path under `overlay/`;
+- the earlier step whose prompts first send the agent to that file;
+- the step that needs the file's content again.
+
+A Workload that declares no Revisits SHALL make none.
 
 A Workload SHALL be rejected, naming the problem, before any Run starts when:
 - its `workload.json` is missing a name, version, commit or steps, or is not valid JSON;
@@ -31,7 +38,12 @@ A Workload SHALL be rejected, naming the problem, before any Run starts when:
 - a Plant placed in a tool result has its value or earlier value in any prompt, a declared file is missing from `overlay/` or lacks the value it is declared to hold, or no prompt before the Plant's first Probe names that file;
 - a superseded Plant placed in a tool result has no prompt naming its earlier value's file before the first prompt naming its value's file;
 - a Probe comes before or at the prompt that states the Plant it probes;
-- a prompt that forbids tools probes a constraint Plant.
+- a prompt that forbids tools probes a constraint Plant;
+- a Revisit lacks an id, a file, an earlier step or a step, or two Revisits share an id;
+- a Revisit names a step the Workload does not declare, or its earlier step does not come before its step;
+- a Revisit's step has no check;
+- a Revisit's file is missing from `overlay/`;
+- no prompt of a Revisit's earlier step names its file.
 
 #### Scenario: A well-formed Workload loads
 
@@ -77,6 +89,26 @@ A Workload SHALL be rejected, naming the problem, before any Run starts when:
 
 - **WHEN** a prompt that forbids tools probes a constraint Plant
 - **THEN** the benchmark SHALL stop before any Run starts, naming the step and the Plant
+
+#### Scenario: A Revisit loads
+
+- **WHEN** a Workload declares a Revisit of `notes/scale.md` with earlier step `add-scale` and step `add-shift`, `add-scale` comes first and has a prompt naming `notes/scale.md`, `overlay/notes/scale.md` exists, and `checks/` holds `add-shift.check.ts`
+- **THEN** the Workload SHALL load with that Revisit
+
+#### Scenario: A Revisit of an ungraded step is rejected
+
+- **WHEN** a Revisit's step has no check in `checks/`
+- **THEN** the benchmark SHALL stop before any Run starts, naming the Revisit and its step
+
+#### Scenario: A Revisit whose earlier step never names the file is rejected
+
+- **WHEN** no prompt of a Revisit's earlier step contains the Revisit's file path
+- **THEN** the benchmark SHALL stop before any Run starts, naming the Revisit and its file
+
+#### Scenario: A Revisit out of order is rejected
+
+- **WHEN** a Revisit's earlier step comes after its step, or is its step
+- **THEN** the benchmark SHALL stop before any Run starts, naming the Revisit and both steps
 
 ### Requirement: Every Run starts from the Workload's pinned workspace
 
@@ -153,8 +185,10 @@ Each Run SHALL leave a record folder holding:
 - the Workload's name, version and commit;
 - the model id the Conversation ran on and the omp version;
 - the Workload's Plants as declared, with kind, earlier value and files;
+- the Workload's Revisits as declared;
 - the prompt of each Turn in order, with the Plants it probes and whether it forbids tools;
 - each graded step's outcome;
+- for each Revisit's file, the first Turn after which the workspace's copy no longer matched `overlay/`, if any;
 - the first Turn that failed to complete, if any;
 - copies of the Run's main and subagent Journals;
 - for a pi-chart Run, the Accounting of every Call.
@@ -176,3 +210,13 @@ A Turn that fails to complete SHALL end the Run, and the record SHALL still be w
 
 - **WHEN** a Run of a Workload with a superseded Plant and a Probe that forbids tools has ended
 - **THEN** its record SHALL hold that Plant's kind, value and earlier value, and that Probe's tools flag, without the Workload folder being read again
+
+#### Scenario: The record keeps what a Revisit is scored by
+
+- **WHEN** a Run of a Workload with a Revisit of `notes/scale.md` has ended, and the agent changed that file during Turn 2
+- **THEN** its record SHALL hold the Revisit as declared, and Turn 2 as the first Turn after which `notes/scale.md` no longer matched `overlay/`, without the Workload folder or the workspace being read again
+
+#### Scenario: An untouched Revisit file records no edit
+
+- **WHEN** a Run ends and no Turn changed a Revisit's file
+- **THEN** its record SHALL name no Turn for that file
