@@ -20,6 +20,7 @@ import { join } from "node:path";
 import type { CallAccounting, TurnAccounting } from "../src/accounting.ts";
 import { readBranch, readJournal, type Compaction, type JournalTurn, type MessageAddress } from "../src/journal.ts";
 import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
+import { approximateTokens } from "../src/tokens.ts";
 import type { Plant, Turn, WorkloadId } from "./workload.ts";
 
 export const READ_RATE = 0.1;
@@ -149,6 +150,30 @@ export interface Refetch {
 	class: RefetchClass;
 }
 
+/** The tools that bring content into the window because the agent asked; pi-chart's only. */
+export const PULL_TOOLS = [
+	"recall_earlier_turns",
+	"recall_across_conversations",
+	"search_documentation",
+	"walk_documentation",
+	"codebase_structure",
+] as const;
+export type PullTool = (typeof PULL_TOOLS)[number];
+
+/** Whether the window of the Call that pulled is known to have let go of what came back. */
+export type RecallClass = "recall" | "unknown";
+
+/** A Pull whose result held a Turn of the Run's own Conversation the window did not carry, or may not have. */
+export interface RecallPull {
+	turn: number;
+	/** The Call that made the tool call, by its index in the Turn. */
+	call: number;
+	tool: PullTool;
+	/** To the nearest such Turn; absent when the record names no Turn. */
+	distance?: number;
+	class: RecallClass;
+}
+
 export interface RunMeasures {
 	arm: string;
 	index: number;
@@ -172,6 +197,14 @@ export interface RunMeasures {
 	refetch: Record<RefetchClass, Banded>;
 	/** Compactions on the branch; absent on pi-chart, which suppresses compaction. */
 	compactions?: number;
+	/** Calls and estimated tokens returned per Pull tool, in the main Journal; pi-chart only. */
+	pulls?: Record<PullTool, { calls: number; tokens: number }>;
+	/** `write_documentation` calls: they add nothing to the window and are not Pulls; pi-chart only. */
+	writes?: number;
+	/** Every recall Pull of the main Journal, in order; pi-chart only. */
+	recalls?: RecallPull[];
+	/** Recall Pulls per class by distance band: Lapses recovered, never added to Re-fetches; pi-chart only. */
+	recall?: Record<RecallClass, Banded>;
 }
 
 export async function readRecord(dir: string): Promise<RunRecord> {
@@ -228,13 +261,8 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 	}
 
 	const refetches = refetchesOf(turns, windowAt);
-	const banded = (kind: RefetchClass): Banded => {
-		const distances = refetches.filter((refetch) => refetch.class === kind).map((refetch) => refetch.distance);
-		return {
-			total: distances.length,
-			bands: BANDS.map(([low, high]) => distances.filter((distance) => distance >= low && distance <= high).length),
-		};
-	};
+	const banded = (kind: RefetchClass) =>
+		band(refetches.filter((refetch) => refetch.class === kind).map((refetch) => refetch.distance));
 
 	const total = totals(calls);
 	return {
@@ -251,8 +279,94 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		plants,
 		refetches,
 		refetch: { held: banded("held"), left: banded("left"), unknown: banded("unknown") },
-		...(record.arm === "pi-chart" ? {} : { compactions: compactions.length }),
+		...(record.arm === "pi-chart" ? pullsOf(turns, windowAt, record.sessionId) : { compactions: compactions.length }),
 	};
+}
+
+/** A count of `distances` in total and per band; an absent distance counts in the total only. */
+function band(distances: (number | undefined)[]): Banded {
+	return {
+		total: distances.length,
+		bands: BANDS.map(
+			([low, high]) => distances.filter((distance) => distance !== undefined && distance >= low && distance <= high).length,
+		),
+	};
+}
+
+/**
+ * The Pulls of the main Journal, and which of them recovered a Turn of the
+ * Run's own Conversation, `own`, that the pulling Call's window had let go.
+ */
+function pullsOf(
+	turns: JournalTurn[],
+	windowAt: (at: MessageAddress, call: number) => Window,
+	own: string | undefined,
+): Pick<RunMeasures, "pulls" | "writes" | "recalls" | "recall"> {
+	const pulls = Object.fromEntries(PULL_TOOLS.map((tool) => [tool, { calls: 0, tokens: 0 }])) as Record<
+		PullTool,
+		{ calls: number; tokens: number }
+	>;
+	let writes = 0;
+	const recalls: RecallPull[] = [];
+	for (const turn of turns) {
+		for (const [index, message] of turn.messages.entries()) {
+			if (message.role !== "toolResult") continue;
+			if (message.toolName === "write_documentation") writes++;
+			const tool = PULL_TOOLS.find((name) => name === message.toolName);
+			if (!tool) continue;
+			pulls[tool].calls++;
+			pulls[tool].tokens += approximateTokens([message]);
+
+			const caller = callerOf(turn, index);
+			const call = turn.calls[caller ?? index] ?? 0;
+			const window = (): Window =>
+				caller === undefined ? "unknown" : windowAt({ turn: turn.turnIndex, message: caller }, call);
+			const recalled = recallOf(tool, message, turn.turnIndex, window, own);
+			if (recalled) recalls.push({ turn: turn.turnIndex, call, tool, ...recalled });
+		}
+	}
+	const banded = (kind: RecallClass) =>
+		band(recalls.filter((recall) => recall.class === kind).map((recall) => recall.distance));
+	return { pulls, writes, recalls, recall: { recall: banded("recall"), unknown: banded("unknown") } };
+}
+
+/**
+ * Whether a Pull's result held a Turn of the Run, `own`, that the window of
+ * the Call at Turn `current` did not carry, and how far back the nearest is.
+ * None when it is no recall Pull at all.
+ */
+function recallOf(
+	tool: PullTool,
+	result: HarnessMessage,
+	current: number,
+	window: () => Window,
+	own: string | undefined,
+): Pick<RecallPull, "distance" | "class"> | undefined {
+	const details = (result.details ?? {}) as { turnIndices?: unknown; turns?: unknown; results?: unknown };
+	const nearest = (indices: number[]) => ({ distance: current - Math.max(...indices) });
+	if (tool === "recall_earlier_turns") {
+		// The tool returns only Turns from before the tail of the very Call
+		// that made it: the window it would be checked against.
+		const indices = Array.isArray(details.turnIndices) ? (details.turnIndices as number[]) : [];
+		return indices.length > 0 ? { ...nearest(indices), class: "recall" } : undefined;
+	}
+	if (tool !== "recall_across_conversations") return undefined;
+
+	if (!Array.isArray(details.turns)) {
+		// Recorded before results named their Turns: some came back, whose is unsaid.
+		return typeof details.results === "number" && details.results > 0 ? { class: "unknown" } : undefined;
+	}
+	const found = details.turns as { conversationId: string; turnIndex: number }[];
+	// Without the Run's id, no result can be told for the Run's own.
+	if (own === undefined) return found.length > 0 ? { class: "unknown" } : undefined;
+	// The Call's own Turn is always in its window.
+	const owned = found.filter((each) => each.conversationId === own && each.turnIndex !== current).map((each) => each.turnIndex);
+	if (owned.length === 0) return undefined;
+	const held = window();
+	if (held === "unknown") return { ...nearest(owned), class: "unknown" };
+	// The Opening carries only its Turn's prompt; a Pull returns the whole Turn.
+	const left = owned.filter((turn) => !held.tail.turns.includes(turn));
+	return left.length > 0 ? { ...nearest(left), class: "recall" } : undefined;
 }
 
 function callOf(message: HarnessMessage, turn: number, subagent: boolean): Call | undefined {
@@ -553,5 +667,16 @@ if (import.meta.main) {
 		banded("Lapses", measures.refetch.left);
 		banded("Re-fetches unknown", measures.refetch.unknown);
 		console.log(`Compactions per Run: ${measures.compactions ?? "n/a"}`);
+		if (measures.pulls && measures.recall) {
+			for (const tool of PULL_TOOLS) {
+				const { calls, tokens } = measures.pulls[tool];
+				console.log(`Pulls, ${tool}: ${calls} (~${int(tokens)} tokens)`);
+			}
+			console.log(`write_documentation calls: ${measures.writes ?? 0}`);
+			banded("Recall Pulls (Lapses)", measures.recall.recall);
+			banded("Recall Pulls unknown", measures.recall.unknown);
+		} else {
+			console.log("Pulls: n/a");
+		}
 	}
 }

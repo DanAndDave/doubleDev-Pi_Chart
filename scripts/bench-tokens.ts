@@ -64,9 +64,11 @@ import {
 	measureRun,
 	median,
 	percent,
+	PULL_TOOLS,
 	READ_RATE,
 	type Banded,
 	type CheckOutcome,
+	type RecallClass,
 	type RefetchClass,
 	type RunMeasures,
 	type RunRecord,
@@ -436,6 +438,13 @@ function report(bench: Bench): void {
 	// A pick gives `undefined` for a Measure the Run's Arm does not have:
 	// that Arm reads "n/a", and the row has no ratio. NaN is a figure
 	// the record lacks, as in a `bench.json` older than the Measure.
+	const figure = (arm: Arm, pick: (run: RunMeasures) => number | undefined): number | "n/a" => {
+		const picked = complete(arm).map(pick);
+		return picked.length > 0 && picked.every((value) => value === undefined)
+			? "n/a"
+			: median(picked.map((value) => value ?? Number.NaN));
+	};
+	const shown = (value: number | "n/a", show: (x: number) => string) => (value === "n/a" ? value : show(value));
 	const rows: [string, (run: RunMeasures) => number | undefined, (x: number) => string][] = [
 		["Calls", (r) => r.totals.calls, int],
 		["Prompt tokens sent (input + cache read + cache write)", (r) => r.totals.prompt, int],
@@ -456,13 +465,8 @@ function report(bench: Bench): void {
 	console.log("\nPer Conversation, median over complete Runs:\n");
 	header("Measure");
 	for (const [label, pick, show] of rows) {
-		const values = present.map((arm) => {
-			const picked = complete(arm).map(pick);
-			return picked.length > 0 && picked.every((value) => value === undefined)
-				? "n/a"
-				: median(picked.map((value) => value ?? Number.NaN));
-		});
-		const cells = values.map((value) => (value === "n/a" ? value : show(value))).join(" | ");
+		const values = present.map((arm) => figure(arm, pick));
+		const cells = values.map((value) => shown(value, show)).join(" | ");
 		if (!both) {
 			console.log(`| ${label} | ${cells} |`);
 			continue;
@@ -477,24 +481,58 @@ function report(bench: Bench): void {
 		console.log(`| ${label} | ${cells} | ${ratio} |`);
 	}
 
-	const classes: [RefetchClass, string][] = [
-		["held", "held"],
-		["left", "Lapses"],
-		["unknown", "unknown"],
-	];
-	console.log("\nRe-fetches per Run by distance band, median over complete Runs:\n");
-	const columns = present.flatMap((arm) => classes.map(([kind, name]) => ({ arm, kind, name })));
+	// Plain omp has no Pull tool: its Pull figures do not exist, and read
+	// "n/a". A pi-chart record older than them lacks them, and reads "—".
+	const pulled = (pick: (run: RunMeasures) => number | undefined) => (run: RunMeasures) =>
+		run.arm === "pi-chart" ? (pick(run) ?? Number.NaN) : undefined;
+	console.log("\nPulls per Run, median over complete Runs:\n");
+	console.log(`| Tool | ${present.map((arm) => `${arm} calls | ${arm} tokens returned`).join(" | ")} |`);
+	console.log(`| --- | ${present.map(() => "---: | ---:").join(" | ")} |`);
+	for (const tool of PULL_TOOLS) {
+		const cells = present.map(
+			(arm) =>
+				`${shown(figure(arm, pulled((r) => r.pulls?.[tool].calls)), int)} | ` +
+				shown(figure(arm, pulled((r) => r.pulls?.[tool].tokens)), int),
+		);
+		console.log(`| ${tool} | ${cells.join(" | ")} |`);
+	}
+	// A write adds nothing to the window: there are no tokens returned to count.
+	const writes = present.map((arm) => `${shown(figure(arm, pulled((r) => r.writes)), int)} | n/a`);
+	console.log(`| write_documentation (not a Pull) | ${writes.join(" | ")} |`);
+
+	type BandColumn = { arm: Arm; name: string; count: (run: RunMeasures, of: (banded: Banded) => number | undefined) => number | undefined };
+	const refetched = (kind: RefetchClass) => (run: RunMeasures, of: (banded: Banded) => number | undefined) =>
+		// `refetch` is absent from a `bench.json` older than the Measure: "—".
+		run.refetch ? (of(run.refetch[kind]) ?? Number.NaN) : Number.NaN;
+	const recalled = (kind: RecallClass) => (run: RunMeasures, of: (banded: Banded) => number | undefined) =>
+		run.arm === "pi-chart" ? (run.recall ? (of(run.recall[kind]) ?? Number.NaN) : Number.NaN) : undefined;
+	console.log("\nRe-fetches and recall Pulls per Run by distance band, median over complete Runs:\n");
+	const columns: BandColumn[] = present.flatMap((arm) => [
+		{ arm, name: "held", count: refetched("held") },
+		{ arm, name: "Lapses", count: refetched("left") },
+		{ arm, name: "unknown", count: refetched("unknown") },
+		{ arm, name: "recall", count: recalled("recall") },
+		{ arm, name: "recall unknown", count: recalled("unknown") },
+	]);
 	console.log(`| Distance, Turns | ${columns.map(({ arm, name }) => `${arm} ${name}`).join(" | ")} |`);
 	console.log(`| --- | ${columns.map(() => "---:").join(" | ")} |`);
-	// `refetch` is absent from a `bench.json` older than the Measure: "—".
-	const bandRow = (label: string, count: (banded: Banded) => number | undefined) => {
-		const cell = ({ arm, kind }: (typeof columns)[number]) =>
-			int(median(complete(arm).map((run) => (run.refetch ? (count(run.refetch[kind]) ?? Number.NaN) : Number.NaN))));
+	const bandRow = (label: string, of: (banded: Banded) => number | undefined) => {
+		const cell = ({ arm, count }: BandColumn) => shown(figure(arm, (run) => count(run, of)), int);
 		console.log(`| ${label} | ${columns.map(cell).join(" | ")} |`);
 	};
 	for (const [at, band] of BANDS.entries()) bandRow(bandLabel(band), (banded) => banded.bands[at]);
 	bandRow("Total", (banded) => banded.total);
-	console.log("\nEach row is its own median, so the bands need not sum to the Total row.");
+	console.log(
+		"\nEach row is its own median, so the bands need not sum to the Total row. " +
+			"A recall Pull unknown with no Turn on record counts in the Total only.",
+	);
+	if (both) {
+		console.log(
+			"Lapses are recovered by different routes: plain omp only through Re-fetches, " +
+				"pi-chart through Re-fetches and recall Pulls. The two are never added together. " +
+				"Plain omp's recall reads n/a because it has no recall tool, not because it had no Lapses.",
+		);
+	}
 
 	const stepIds = [
 		...new Set(

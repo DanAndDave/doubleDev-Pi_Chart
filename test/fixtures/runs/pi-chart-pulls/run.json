@@ -1,0 +1,67 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-pi-chart-pulls",
+	"sessionId": "s-own",
+	"plants": [],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Look at the config.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "Look at the parser.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "Look at the lexer.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "Look at the printer.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Recall what we said about the parser.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Check the docs and the structure.",
+			"probes": []
+		},
+		{
+			"step": "s6",
+			"text": "Search past conversations for the retry policy.",
+			"probes": []
+		},
+		{
+			"step": "s7",
+			"text": "Recall the first decisions.",
+			"probes": []
+		},
+		{
+			"step": "s8",
+			"text": "Search for the printer and the lexer.",
+			"probes": []
+		},
+		{
+			"step": "s9",
+			"text": "Recall the parser and lexer discussion.",
+			"probes": []
+		}
+	],
+	"checks": []
+}

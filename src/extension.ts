@@ -1543,6 +1543,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		return toolResult(renderSearch(found), {
 			results: found.length,
 			conversations: [...new Set(found.map((hit) => hit.conversationId))],
+			// Which Turns, in result order: Measures tells a recall of this
+			// Conversation's evicted Turns from these, not from the text.
+			turns: found.map((hit) => ({ conversationId: hit.conversationId, turnIndex: hit.turnIndex })),
 		});
 	}
 

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { aggregate, measureRun, type RunMeasures } from "../scripts/measures.ts";
+import { readBranch } from "../src/journal.ts";
+import { approximateTokens } from "../src/tokens.ts";
 
 const fixture = (name: string) => new URL(`./fixtures/runs/${name}`, import.meta.url).pathname;
 
@@ -161,6 +163,98 @@ describe("compactions per Run", () => {
 		expect(measures.compactions).toBe(0);
 		expect(measures.refetches).toEqual([]);
 		expect(measures.refetch).toEqual({ held: none, left: none, unknown: none });
+	});
+});
+
+/** The estimated tokens of every result `tool` returned in the fixture's main Journal, summed. */
+async function returned(name: string, tool: string): Promise<number> {
+	const { turns } = await readBranch(join(fixture(name), "journal.jsonl"));
+	const results = turns.flatMap((turn) => turn.messages).filter((message) => message.toolName === tool);
+	return results.reduce((sum, result) => sum + approximateTokens([result]), 0);
+}
+
+describe("Pulls", () => {
+	test("are counted per tool with the tokens their results returned, failed calls included", async () => {
+		const measures = await measureRun(fixture("pi-chart-pulls"));
+
+		const calls = Object.fromEntries(Object.entries(measures.pulls ?? {}).map(([tool, { calls }]) => [tool, calls]));
+		expect(calls).toEqual({
+			recall_earlier_turns: 3,
+			recall_across_conversations: 5,
+			search_documentation: 2,
+			walk_documentation: 1,
+			codebase_structure: 1,
+		});
+		for (const tool of Object.keys(calls)) {
+			expect(measures.pulls?.[tool as keyof typeof measures.pulls].tokens).toBe(await returned("pi-chart-pulls", tool));
+		}
+		expect(measures.pulls?.search_documentation.tokens).toBeGreaterThan(0);
+	});
+
+	test("a write to the bundle is counted apart and is not a Pull", async () => {
+		const measures = await measureRun(fixture("pi-chart-pulls"));
+
+		expect(measures.writes).toBe(1);
+		expect(Object.keys(measures.pulls ?? {})).not.toContain("write_documentation");
+	});
+
+	test("are zero, not absent, for every tool a pi-chart Run never called", async () => {
+		const measures = await measureRun(fixture("pi-chart-evicted"));
+
+		expect(measures.pulls).toEqual({
+			recall_earlier_turns: { calls: 0, tokens: 0 },
+			recall_across_conversations: { calls: 0, tokens: 0 },
+			search_documentation: { calls: 0, tokens: 0 },
+			walk_documentation: { calls: 0, tokens: 0 },
+			codebase_structure: { calls: 0, tokens: 0 },
+		});
+		expect(measures.writes).toBe(0);
+	});
+
+	test("are absent on plain omp, which has no Pull tool", async () => {
+		const measures = await measureRun(fixture("vanilla-compacted"));
+
+		expect(measures.pulls).toBeUndefined();
+		expect(measures.writes).toBeUndefined();
+		expect(measures.recalls).toBeUndefined();
+		expect(measures.recall).toBeUndefined();
+	});
+});
+
+describe("recall Pulls", () => {
+	test("are the Pulls that returned a Turn of the Run the window did not carry, at the nearest such Turn", async () => {
+		const measures = await measureRun(fixture("pi-chart-pulls"));
+
+		// Not here: Turn 4's failed recall, Turn 5's documentation and
+		// structure Pulls, Turn 8's search of another Conversation only and
+		// its search of Turn 7, which the tail carried.
+		expect(measures.recalls).toEqual([
+			// Turns returned, none named: the record cannot say which.
+			{ turn: 6, call: 0, tool: "recall_across_conversations", class: "unknown" },
+			// No Accounting for this Call: Turn 1 may have been carried.
+			{ turn: 7, call: 0, tool: "recall_across_conversations", distance: 6, class: "unknown" },
+			// The tool returns only what is before the tail, whatever the record says.
+			{ turn: 7, call: 0, tool: "recall_earlier_turns", distance: 7, class: "recall" },
+			{ turn: 9, call: 0, tool: "recall_earlier_turns", distance: 4, class: "recall" },
+			// Turn 8 was carried and the other Conversation's Turn 4 is not the Run's: Turn 3 decides.
+			{ turn: 9, call: 0, tool: "recall_across_conversations", distance: 6, class: "recall" },
+		]);
+	});
+
+	test("are banded by distance, and one with no distance counts in its total only", async () => {
+		const measures = await measureRun(fixture("pi-chart-pulls"));
+
+		expect(measures.recall).toEqual({
+			recall: { total: 3, bands: [1, 2, 0, 0, 0] },
+			unknown: { total: 2, bands: [0, 1, 0, 0, 0] },
+		});
+	});
+
+	test("are zero in every band, not absent, on a pi-chart Run that made none", async () => {
+		const measures = await measureRun(fixture("pi-chart-evicted"));
+
+		expect(measures.recalls).toEqual([]);
+		expect(measures.recall).toEqual({ recall: none, unknown: none });
 	});
 });
 

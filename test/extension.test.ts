@@ -1847,12 +1847,14 @@ describe("searching across conversations", () => {
 
 	test("still holds results to the recall distance, and returns them as found", async () => {
 		const asked: number[] = [];
+		const elsewhere = { ...hit, turnIndex: 3, conversationId: "conversation-a" };
+		const later = { ...hit, turnIndex: 7, conversationId: "conversation-b" };
 		const cm = harness({
 			config: { recallMaxDistance: 0.37 },
 			search: {
 				searchAll: async (_query, _limit, maxDistance) => {
 					asked.push(maxDistance);
-					return [hit];
+					return [elsewhere, later];
 				},
 			},
 		});
@@ -1864,8 +1866,12 @@ describe("searching across conversations", () => {
 		expect(asked).toEqual([0.37]);
 		expect(result?.content[0]?.text).toContain("exponential backoff");
 		expect(result?.details).toEqual({
-			results: 1,
-			conversations: ["other-conversation"],
+			results: 2,
+			conversations: ["conversation-a", "conversation-b"],
+			turns: [
+				{ conversationId: "conversation-a", turnIndex: 3 },
+				{ conversationId: "conversation-b", turnIndex: 7 },
+			],
 		});
 	});
 });
