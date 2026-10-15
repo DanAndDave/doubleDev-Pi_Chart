@@ -64,6 +64,8 @@ import {
 	measureRun,
 	median,
 	percent,
+	POSITIONS,
+	probeKey,
 	PULL_TOOLS,
 	READ_RATE,
 	type Banded,
@@ -72,6 +74,8 @@ import {
 	type RefetchClass,
 	type RunMeasures,
 	type RunRecord,
+	type ScoreClass,
+	SOURCES,
 	usd,
 	WRITE_RATE,
 } from "./measures.ts";
@@ -294,7 +298,7 @@ async function runOne(arm: Arm, index: number, ctx: Context): Promise<{ record: 
 		omp: options.omp,
 		cwd,
 		plants: workload.plants,
-		prompts: turns.map(({ step, text, probes }) => ({ step, text, probes })),
+		prompts: turns.map(({ step, text, probes, tools }) => ({ step, text, probes, ...(tools === false ? { tools } : {}) })),
 		checks: [],
 	};
 	// Named before it is created, so a migration that fails still drops it.
@@ -506,13 +510,19 @@ function report(bench: Bench): void {
 		run.refetch ? (of(run.refetch[kind]) ?? Number.NaN) : Number.NaN;
 	const recalled = (kind: RecallClass) => (run: RunMeasures, of: (banded: Banded) => number | undefined) =>
 		run.arm === "pi-chart" ? (run.recall ? (of(run.recall[kind]) ?? Number.NaN) : Number.NaN) : undefined;
-	console.log("\nRe-fetches and recall Pulls per Run by distance band, median over complete Runs:\n");
+	const probed = (kind: Extract<ScoreClass, "lapse" | "unknown">) =>
+		(run: RunMeasures, of: (banded: Banded) => number | undefined) =>
+			// `probe` is absent from a `bench.json` older than the Measure: "—".
+			run.probe ? (of(run.probe[kind]) ?? Number.NaN) : Number.NaN;
+	console.log("\nRe-fetches, recall Pulls and failed Probes per Run by distance band, median over complete Runs:\n");
 	const columns: BandColumn[] = present.flatMap((arm) => [
 		{ arm, name: "held", count: refetched("held") },
 		{ arm, name: "Lapses", count: refetched("left") },
 		{ arm, name: "unknown", count: refetched("unknown") },
 		{ arm, name: "recall", count: recalled("recall") },
 		{ arm, name: "recall unknown", count: recalled("unknown") },
+		{ arm, name: "failed Probe", count: probed("lapse") },
+		{ arm, name: "failed Probe unknown", count: probed("unknown") },
 	]);
 	console.log(`| Distance, Turns | ${columns.map(({ arm, name }) => `${arm} ${name}`).join(" | ")} |`);
 	console.log(`| --- | ${columns.map(() => "---:").join(" | ")} |`);
@@ -529,7 +539,8 @@ function report(bench: Bench): void {
 	if (both) {
 		console.log(
 			"Lapses are recovered by different routes: plain omp only through Re-fetches, " +
-				"pi-chart through Re-fetches and recall Pulls. The two are never added together. " +
+				"pi-chart through Re-fetches and recall Pulls. Failed Probes are Lapses neither Arm recovered. " +
+				"None of the three is added to another. " +
 				"Plain omp's recall reads n/a because it has no recall tool, not because it had no Lapses.",
 		);
 	}
@@ -563,20 +574,68 @@ function report(bench: Bench): void {
 		console.log(`- ${arm}: ${typeof value === "string" ? value : usd(value.usd)}`);
 	}
 
-	const plantIds = [...new Set(present.flatMap((arm) => arms.get(arm)?.retention.map((r) => r.id) ?? []))];
-	console.log("\nRetention per Plant (complete Runs whose Probe answered it correctly):\n");
-	if (plantIds.length === 0) {
+	const probes = [
+		...new Map(present.flatMap((arm) => arms.get(arm)?.retention ?? []).map((probe) => [probeKey(probe), probe])).values(),
+	].sort((a, b) => a.turn - b.turn);
+	console.log("\nRetention per Probe (complete Runs whose Probe answered the Plant correctly):\n");
+	if (probes.length === 0) {
 		console.log("No Probe within the Turns sent.");
 	} else {
-		console.log(`| Plant | ${present.join(" | ")} |`);
-		console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
-		for (const id of plantIds) {
+		console.log(`| Plant | Kind | Probe Turn | Tools | ${present.join(" | ")} |`);
+		console.log(`| --- | --- | ---: | --- | ${present.map(() => "---:").join(" | ")} |`);
+		for (const probe of probes) {
+			const { id, kind, turn, tools } = probe;
 			const cell = (arm: Arm) => {
-				const retention = arms.get(arm)?.retention.find((r) => r.id === id);
+				const retention = arms.get(arm)?.retention.find((r) => probeKey(r) === probeKey(probe));
 				return retention ? `${retention.right}/${retention.of}` : "—";
 			};
-			console.log(`| ${id} | ${present.map(cell).join(" | ")} |`);
+			console.log(
+				`| ${id} | ${kind} | ${turn + 1} | ${tools === false ? "forbidden" : "allowed"} | ${present.map(cell).join(" | ")} |`,
+			);
 		}
+
+		// A score recorded before Scores had positions leaves its Arm without these: "—".
+		type Tally = { right: number; of: number } | undefined;
+		const ratio = (tally: Tally) => (tally ? `${tally.right}/${tally.of}` : "—");
+		const breakdown = (title: string, column: string, rows: [string, (arm: Arm) => Tally][]) => {
+			console.log(`\n${title}:\n`);
+			console.log(`| ${column} | ${present.join(" | ")} |`);
+			console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
+			for (const [label, pick] of rows) {
+				const tallies = present.map(pick);
+				// A row only where some Arm scored; "—" from an older record keeps its row.
+				if (tallies.every((tally) => tally?.of === 0)) continue;
+				console.log(`| ${label} | ${tallies.map(ratio).join(" | ")} |`);
+			}
+		};
+		breakdown(
+			"Retention by distance band",
+			"Distance, Turns",
+			BANDS.map((band, at) => [bandLabel(band), (arm) => arms.get(arm)?.byBand?.[at]]),
+		);
+		breakdown(
+			"Retention by position",
+			"Position",
+			POSITIONS.map((position) => [position, (arm) => arms.get(arm)?.byPosition?.[position]]),
+		);
+
+		console.log("\nAnswer sources (scores right and wrong, over complete Runs):\n");
+		console.log(`| Source | ${present.map((arm) => `${arm} right | ${arm} wrong`).join(" | ")} |`);
+		console.log(`| --- | ${present.map(() => "---: | ---:").join(" | ")} |`);
+		for (const source of SOURCES) {
+			const counts = present.map((arm) => arms.get(arm)?.sources?.[source]);
+			if (counts.every((count) => count && count.right + count.wrong === 0)) continue;
+			const cells = counts.map((count) => (count ? `${count.right} | ${count.wrong}` : "— | —"));
+			console.log(`| ${source} | ${cells.join(" | ")} |`);
+		}
+		const tallied = present.map((arm) => {
+			const counts = arms.get(arm)?.counts;
+			return counts
+				? `${arm} ${counts.leak} leak${counts.leak === 1 ? "" : "s"}, ${counts.despite} wrong despite a source, ` +
+						`${counts.stale} stale, ${counts.breach} breach${counts.breach === 1 ? "" : "es"}`
+				: `${arm} —`;
+		});
+		console.log(`\n${tallied.join("; ")}.`);
 	}
 
 	console.log("\nWindow size per Turn (median prompt tokens of the Turn's last Call):\n");

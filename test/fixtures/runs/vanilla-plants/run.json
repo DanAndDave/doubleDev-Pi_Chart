@@ -1,0 +1,101 @@
+{
+	"arm": "vanilla",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-vanilla-plants",
+	"sessionId": "01a1f000-0000-7000-8000-000000000021",
+	"plants": [
+		{
+			"id": "build",
+			"kind": "literal",
+			"value": "7341"
+		},
+		{
+			"id": "color",
+			"kind": "literal",
+			"value": "TEAL-12"
+		},
+		{
+			"id": "mark",
+			"kind": "literal",
+			"value": "MARK-77"
+		},
+		{
+			"id": "tag",
+			"kind": "literal",
+			"value": "TAG-4"
+		},
+		{
+			"id": "seal",
+			"kind": "literal",
+			"value": "SEAL-5",
+			"file": "notes/seal.md"
+		}
+	],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Start.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "Look around. The tag is TAG-4.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "The build number is 7341.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "The color is TEAL-12.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Look at E.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Look at F.",
+			"probes": []
+		},
+		{
+			"step": "s6",
+			"text": "Read notes/seal.md.",
+			"probes": []
+		},
+		{
+			"step": "s7",
+			"text": "The mark is MARK-77.",
+			"probes": []
+		},
+		{
+			"step": "s8",
+			"text": "Carry on.",
+			"probes": []
+		},
+		{
+			"step": "s9",
+			"text": "What build number, color, mark, tag and seal did I give you? Do not use any tools.",
+			"probes": [
+				"build",
+				"color",
+				"mark",
+				"tag",
+				"seal"
+			],
+			"tools": false
+		}
+	],
+	"checks": []
+}

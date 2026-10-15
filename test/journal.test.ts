@@ -231,7 +231,19 @@ describe("readBranch", () => {
 		const { turns, compactions } = await readBranch(path);
 
 		expect(turns).toHaveLength(10);
-		expect(compactions).toEqual([{ id: "k1", before: { turn: 8, message: 0 }, firstKept: { turn: 6, message: 2 } }]);
+		expect(compactions).toEqual([
+			{ id: "k1", before: { turn: 8, message: 0 }, firstKept: { turn: 6, message: 2 }, summary: "what came before" },
+		]);
+	});
+
+	test("gives a compaction the summary it sent in place of what it cut", async () => {
+		const path = new URL("./fixtures/runs/vanilla-compacted/journal.jsonl", import.meta.url).pathname;
+
+		const { compactions } = await readBranch(path);
+
+		expect(compactions.map(({ id, summary }) => ({ id, summary }))).toEqual([
+			{ id: "k1", summary: "## Goal\nThe Run so far." },
+		]);
 	});
 
 	test("a compaction mid-Turn comes before the next message of that Turn", async () => {
@@ -242,7 +254,9 @@ describe("readBranch", () => {
 
 		const { compactions } = await readBranch(path);
 
-		expect(compactions).toEqual([{ id: "k1", before: { turn: 3, message: 3 }, firstKept: { turn: 2, message: 0 } }]);
+		expect(compactions).toEqual([
+			{ id: "k1", before: { turn: 3, message: 3 }, firstKept: { turn: 2, message: 0 }, summary: "what came before" },
+		]);
 	});
 
 	test("a kept entry that is not a message resolves to the message after it", async () => {

@@ -1,0 +1,139 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"workload": {
+		"name": "fixture",
+		"version": 1,
+		"commit": "c6fe51651936bdcb29d9dd5dc3d46609ad02c359"
+	},
+	"model": "anthropic/claude-opus-5-5",
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-pi-chart-plants",
+	"sessionId": "s-own",
+	"plants": [
+		{
+			"id": "codeword",
+			"kind": "literal",
+			"value": "PLUM-17"
+		},
+		{
+			"id": "port",
+			"kind": "superseded",
+			"value": "PORT-8817",
+			"earlier": "PORT-3304"
+		},
+		{
+			"id": "pinned",
+			"kind": "literal",
+			"value": "PIN-23"
+		},
+		{
+			"id": "build",
+			"kind": "literal",
+			"value": "7341"
+		},
+		{
+			"id": "secret",
+			"kind": "literal",
+			"value": "SECRET-55",
+			"file": "notes/secret.md"
+		},
+		{
+			"id": "owner",
+			"kind": "constraint",
+			"value": "owner: QUILL-9"
+		},
+		{
+			"id": "leaky",
+			"kind": "literal",
+			"value": "MOSS-61"
+		},
+		{
+			"id": "ghost",
+			"kind": "literal",
+			"value": "GHOST-80",
+			"file": "notes/ghost.md"
+		}
+	],
+	"prompts": [
+		{
+			"step": "s0",
+			"text": "Remember the codeword PLUM-17.",
+			"probes": []
+		},
+		{
+			"step": "s1",
+			"text": "The port is PORT-3304. The release name is PIN-23.",
+			"probes": []
+		},
+		{
+			"step": "s2",
+			"text": "The build number is 7341.",
+			"probes": []
+		},
+		{
+			"step": "s3",
+			"text": "The port is now PORT-8817.",
+			"probes": []
+		},
+		{
+			"step": "s4",
+			"text": "Read notes/secret.md.",
+			"probes": []
+		},
+		{
+			"step": "s5",
+			"text": "Every new file must start with owner: QUILL-9.",
+			"probes": []
+		},
+		{
+			"step": "s6",
+			"text": "Remember MOSS-61.",
+			"probes": []
+		},
+		{
+			"step": "s7",
+			"text": "What is the build number?",
+			"probes": [
+				"build"
+			]
+		},
+		{
+			"step": "s8",
+			"text": "Add src/x.ts.",
+			"probes": [
+				"owner"
+			]
+		},
+		{
+			"step": "s9",
+			"text": "What is the secret? Do not use any tools.",
+			"probes": [
+				"secret"
+			],
+			"tools": false
+		},
+		{
+			"step": "s10",
+			"text": "What port did I give you?",
+			"probes": [
+				"port"
+			]
+		},
+		{
+			"step": "s11",
+			"text": "Give me the codeword, build number, port, the value to remember, the ghost code, the secret and the release name. Do not use any tools.",
+			"probes": [
+				"codeword",
+				"build",
+				"port",
+				"leaky",
+				"ghost",
+				"secret",
+				"pinned"
+			],
+			"tools": false
+		}
+	],
+	"checks": []
+}

@@ -4,6 +4,7 @@ import type { BranchEntry } from "../src/harness.ts";
 import {
 	admit,
 	PIN_ENTRY,
+	pinTexts,
 	pinTokens,
 	renderPin,
 	renderPinned,
@@ -77,6 +78,23 @@ describe("replaying a conversation's pins", () => {
 
 	test("no entries is no pins, numbered from one", () => {
 		expect(replayPins([])).toEqual({ pins: [], nextId: 1 });
+	});
+});
+
+describe("the text of each Pin a Journal ever held", () => {
+	test("comes from adds and snapshots alike, and survives the Pin's removal", () => {
+		const texts = pinTexts([
+			add(1, "use tabs"),
+			{ type: "message", message: { role: "user", content: "hello" } },
+			remove(1),
+			pinEntry({ op: "snapshot", pins: [{ id: 2, text: "never push" }], nextId: 3 }),
+			{ type: "custom", customType: "someone-else", data: { op: "add", id: 9, text: "not a Pin" } },
+		]);
+
+		expect([...texts]).toEqual([
+			[1, "use tabs"],
+			[2, "never push"],
+		]);
 	});
 });
 

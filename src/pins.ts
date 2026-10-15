@@ -63,6 +63,22 @@ export function replayPins(entries: readonly BranchEntry[]): PinState {
 }
 
 /**
+ * The text of every Pin the entries ever held, by id, added or carried by
+ * a snapshot, whether or not it was removed since: what a window carrying
+ * that id held. Folded in file order, so a reused id takes its latest text.
+ */
+export function pinTexts(entries: readonly BranchEntry[]): Map<number, string> {
+	const texts = new Map<number, string>();
+	for (const entry of entries) {
+		if (entry.type !== "custom" || entry.customType !== PIN_ENTRY) continue;
+		const event = parseEvent(entry.data);
+		if (event?.op === "add") texts.set(event.id, event.text);
+		if (event?.op === "snapshot") for (const pin of event.pins) texts.set(pin.id, pin.text);
+	}
+	return texts;
+}
+
+/**
  * Whether two states agree: the same Pins under the same ids, in order,
  * and the same next id, so a copy cannot give out an id its parent used.
  */

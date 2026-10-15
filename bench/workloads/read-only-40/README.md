@@ -9,3 +9,4 @@ No step is graded, so Cost per Pass is not applicable. The bundle is empty.
 ## Versions
 
 - **v1:** the 40 prompts `scripts/bench-tokens.ts` carried inline up to `de5f8e0`, byte for byte, with the no-edits suffix now part of each prompt's text. Workspaces now carry `node_modules/`, which the inline workload's did not, so figures saved before v1 (for example `docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md`) compare for plausibility only.
+- **v1, amended:** the Probe declares `"tools": false`, which its text already said ("Do not use any tools"). Nothing sent changed, so the version stays 1. Records written before the amendment show the Probe as allowing tools; their Plants are literal by default.

@@ -16,7 +16,8 @@
 				"Read src/elision.ts. What does elision keep, and how is the shortened part marked? Three sentences at most. Do not modify any files and do not spawn subagents.",
 				{
 					"text": "What codeword did I give you at the start of this conversation? Reply with just the codeword, or UNKNOWN if you do not know. Do not use any tools.",
-					"probes": ["codeword"]
+					"probes": ["codeword"],
+					"tools": false
 				}
 			]
 		}

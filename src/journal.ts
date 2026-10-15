@@ -35,6 +35,8 @@ export interface Compaction {
 	 * is not on the branch before it.
 	 */
 	firstKept?: MessageAddress;
+	/** The text sent in place of what it cut; absent when the entry has none. */
+	summary?: string;
 }
 
 interface JournalEntry {
@@ -43,6 +45,9 @@ interface JournalEntry {
 	parentId?: string | null;
 	message?: HarnessMessage;
 	firstKeptEntryId?: string;
+	summary?: unknown;
+	customType?: string;
+	data?: unknown;
 }
 
 /**
@@ -63,18 +68,21 @@ export async function readJournal(
 /**
  * `readJournal`'s Turns, with the compactions on the same branch placed
  * among them. One walk for both, so the two cannot disagree about which
- * branch is active or where a message sits.
+ * branch is active or where a message sits. `entries` is every entry of
+ * the file in the order written, branch or not, for what folds over the
+ * whole file, as Pins do (ADR-0009).
  */
 export async function readBranch(
 	path: string,
 	leafId?: string,
-): Promise<{ turns: JournalTurn[]; compactions: Compaction[] }> {
+): Promise<{ turns: JournalTurn[]; compactions: Compaction[]; entries: JournalEntry[] }> {
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");
 	} catch {
-		return { turns: [], compactions: [] };
+		return { turns: [], compactions: [], entries: [] };
 	}
+	const entries = parse(text);
 
 	const turns: JournalTurn[] = [];
 	// Every entry id resolves to the first message at or after it: a
@@ -82,13 +90,16 @@ export async function readBranch(
 	const placed = new Map<string, MessageAddress>();
 	const positionOf = new Map<string, number>();
 	let unplaced: string[] = [];
-	const found: { id: string; kept?: string; position: number }[] = [];
+	const found: { id: string; kept?: string; summary?: string; position: number }[] = [];
 
-	for (const [position, entry] of activeBranch(parse(text), leafId).entries()) {
+	for (const [position, entry] of activeBranch(entries, leafId).entries()) {
 		if (entry.id) {
 			positionOf.set(entry.id, position);
 			unplaced.push(entry.id);
-			if (entry.type === "compaction") found.push({ id: entry.id, kept: entry.firstKeptEntryId, position });
+			if (entry.type === "compaction") {
+				const summary = typeof entry.summary === "string" ? entry.summary : undefined;
+				found.push({ id: entry.id, kept: entry.firstKeptEntryId, position, ...(summary === undefined ? {} : { summary }) });
+			}
 		}
 		const message = entry.type === "message" ? entry.message : undefined;
 		if (!message?.role) continue;
@@ -122,13 +133,13 @@ export async function readBranch(
 	// Nothing followed these: they sit where the next prompt would.
 	for (const id of unplaced) placed.set(id, { turn: turns.length, message: 0 });
 
-	const compactions = found.map(({ id, kept, position }): Compaction => {
+	const compactions = found.map(({ id, kept, summary, position }): Compaction => {
 		const before = placed.get(id) as MessageAddress;
 		const keptAt = kept === undefined ? undefined : positionOf.get(kept);
 		const firstKept = keptAt !== undefined && keptAt < position ? placed.get(kept as string) : undefined;
-		return firstKept ? { id, before, firstKept } : { id, before };
+		return { id, before, ...(firstKept ? { firstKept } : {}), ...(summary === undefined ? {} : { summary }) };
 	});
-	return { turns, compactions };
+	return { turns, compactions, entries };
 }
 
 /** Every entry the Journal holds, in file order. */

@@ -20,8 +20,9 @@ import { join } from "node:path";
 import type { CallAccounting, TurnAccounting } from "../src/accounting.ts";
 import { readBranch, readJournal, type Compaction, type JournalTurn, type MessageAddress } from "../src/journal.ts";
 import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
+import { pinTexts } from "../src/pins.ts";
 import { approximateTokens } from "../src/tokens.ts";
-import type { Plant, Turn, WorkloadId } from "./workload.ts";
+import type { Plant, PlantKind, Turn, WorkloadId } from "./workload.ts";
 
 export const READ_RATE = 0.1;
 export const WRITE_RATE = 1.25;
@@ -55,7 +56,8 @@ export interface RunRecord {
 	omp: string;
 	cwd: string;
 	sessionId?: string;
-	plants: Plant[];
+	/** As declared; one recorded before Plants had kinds has none, and is a literal. */
+	plants: (Omit<Plant, "kind"> & { kind?: PlantKind })[];
 	/** Every prompt the Run was to send, in Turn order. */
 	prompts: Omit<Turn, "turn">[];
 	checks: CheckOutcome[];
@@ -174,6 +176,45 @@ export interface RecallPull {
 	class: RecallClass;
 }
 
+/** Where a Plant sat in the window of its Probe's first Call. */
+export type Position = "opening" | "pin" | "tail" | "summary" | "evicted" | "unplanted" | "unknown";
+/** What held the Plant's value for the Probe's answer, searched window first. */
+export type Source = "opening" | "pin" | "tail" | "summary" | "pull" | "result" | "none" | "unknown";
+/**
+ * Leak: right with nothing behind it. Despite: wrong with a source. Lapse:
+ * wrong, evicted, unrecovered. Unknown: wrong where the window cannot tell.
+ * Unplanted: wrong, and the Plant never entered the Conversation.
+ */
+export type ScoreClass = "leak" | "despite" | "lapse" | "unknown" | "unplanted";
+
+/** One Plant scored at one Probe Turn. */
+export interface Score {
+	id: string;
+	turn: number;
+	kind: PlantKind;
+	right: boolean;
+	/** The Turn the value first entered by prompt or tool result; absent when unplanted. */
+	planted?: number;
+	distance?: number;
+	position: Position;
+	source: Source;
+	/** Which Pull tool, when the source is a Pull. */
+	pull?: PullTool;
+	/** Absent when right with a source. */
+	class?: ScoreClass;
+	/** Superseded only: the reply gave the earlier value. */
+	stale?: true;
+	/** The Probe forbade tools and the Turn called one. */
+	breach?: true;
+	/** The Probe forbade tools. */
+	tools?: false;
+}
+
+/** One key per Plant per Probe Turn, shared by a score and its Retention. */
+export function probeKey(probe: { id: string; turn: number }): string {
+	return `${probe.id}@${probe.turn}`;
+}
+
 export interface RunMeasures {
 	arm: string;
 	index: number;
@@ -190,7 +231,9 @@ export interface RunMeasures {
 	passes: number;
 	firstFail?: string;
 	/** One score per Plant per Probe Turn the Run completed. */
-	plants: { id: string; turn: number; right: boolean }[];
+	plants: Score[];
+	/** Failed-Probe Lapses and failed Probes unknown, by distance band; zeros when none. */
+	probe: { lapse: Banded; unknown: Banded };
 	/** Every Re-fetch of the main Journal, in order. */
 	refetches: Refetch[];
 	/** Re-fetches per class by distance band; Lapses are `left`. */
@@ -214,7 +257,7 @@ export async function readRecord(dir: string): Promise<RunRecord> {
 /** Every Measure of the Run recorded in `dir`. */
 export async function measureRun(dir: string): Promise<RunMeasures> {
 	const record = await readRecord(dir);
-	const { turns, compactions } = await readBranch(join(dir, "journal.jsonl"));
+	const { turns, compactions, entries } = await readBranch(join(dir, "journal.jsonl"));
 	const windowAt = await windowReader(dir, record, compactions);
 
 	const calls: Call[] = [];
@@ -249,16 +292,9 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		steps.push({ id: prompt.step, outcome: pass === undefined ? "not graded" : pass ? "Pass" : "Fail" });
 	}
 
-	const plants: RunMeasures["plants"] = [];
-	for (const [turn, prompt] of record.prompts.entries()) {
-		if (turn >= completed || prompt.probes.length === 0) continue;
-		const reply = turns[turn]?.messages.filter((message) => message.role === "assistant").at(-1);
-		const text = reply ? messageText(reply) : "";
-		for (const id of prompt.probes) {
-			const value = record.plants.find((plant) => plant.id === id)?.value;
-			plants.push({ id, turn, right: value !== undefined && text.includes(value) });
-		}
-	}
+	const plants = scoresOf(record, turns, completed, windowAt, compactions, pinTexts(entries));
+	const probeBanded = (kind: ScoreClass) =>
+		band(plants.filter((score) => score.class === kind).map((score) => score.distance));
 
 	const refetches = refetchesOf(turns, windowAt);
 	const banded = (kind: RefetchClass) =>
@@ -277,10 +313,168 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		passes: steps.filter((step) => step.outcome === "Pass").length,
 		firstFail: steps.find((step) => step.outcome === "Fail")?.id,
 		plants,
+		probe: { lapse: probeBanded("lapse"), unknown: probeBanded("unknown") },
 		refetches,
 		refetch: { held: banded("held"), left: banded("left"), unknown: banded("unknown") },
 		...(record.arm === "pi-chart" ? pullsOf(turns, windowAt, record.sessionId) : { compactions: compactions.length }),
 	};
+}
+
+/**
+ * One Score per Plant per Probe Turn below `completed`. Where the Plant
+ * entered, and where its Probe's first Call held it, come from the Journal
+ * and that Call's window, never from the declaration, so old records score.
+ */
+function scoresOf(
+	record: RunRecord,
+	turns: JournalTurn[],
+	completed: number,
+	windowAt: (at: MessageAddress, call: number) => Window,
+	compactions: Compaction[],
+	pins: Map<number, string>,
+): Score[] {
+	const scores: Score[] = [];
+	for (const [turn, prompt] of record.prompts.entries()) {
+		if (turn >= completed || prompt.probes.length === 0) continue;
+		const messages = turns[turn]?.messages ?? [];
+		const first = messages.findIndex((message) => message.role === "assistant" && message.usage);
+		const window = first === -1 ? "unknown" : windowAt({ turn, message: first }, turns[turn]?.calls[first] ?? 0);
+		const replyAt = messages.findLastIndex((message) => message.role === "assistant");
+		const reply = replyAt === -1 ? "" : messageText(messages[replyAt] as HarnessMessage);
+		const breach =
+			prompt.tools === false &&
+			messages.some((message) => message.role === "assistant" && toolCalls(message).length > 0);
+		const summaryOf = (id: string | undefined) => compactions.find((compaction) => compaction.id === id)?.summary;
+
+		for (const id of prompt.probes) {
+			const plant = record.plants.find((known) => known.id === id);
+			const kind = plant?.kind ?? "literal";
+			const value = plant?.value;
+			const { right, stale, scoredAt } = answerOf(plant, messages, reply, replyAt);
+
+			const planted = value === undefined ? undefined : plantedAt(turns, value, turn);
+			const inPin =
+				window !== "unknown" && value !== undefined && window.pins.some((pin) => pins.get(pin)?.includes(value));
+			const inSummary =
+				window !== "unknown" && value !== undefined && summaryOf(window.summary)?.includes(value) === true;
+
+			let position: Position;
+			if (!planted) position = "unplanted";
+			else if (window === "unknown") position = "unknown";
+			else if (window.opening === planted.turn && planted.message === 0) position = "opening";
+			else if (inPin) position = "pin";
+			else if (inTail(window, planted)) position = window.tail.partial ? "unknown" : "tail";
+			else if (inSummary) position = "summary";
+			else position = "evicted";
+
+			let source: Source = "none";
+			let pull: PullTool | undefined;
+			if (window === "unknown") source = "unknown";
+			else if (value !== undefined) {
+				const held = (message: HarnessMessage) => holds(message, value);
+				const tailHolds = window.tail.turns.some((at) =>
+					(turns[at]?.messages ?? []).some((message, index) => inTail(window, { turn: at, message: index }) && held(message)),
+				);
+				const results = messages.slice(0, Math.max(scoredAt, 0)).filter(
+					(message) => message.role === "toolResult" && held(message),
+				);
+				const pulled = results.flatMap((message) => PULL_TOOLS.find((tool) => tool === message.toolName) ?? []);
+				if (window.opening !== undefined && turns[window.opening]?.prompt.includes(value)) source = "opening";
+				else if (inPin) source = "pin";
+				else if (tailHolds) source = window.tail.partial ? "unknown" : "tail";
+				else if (inSummary) source = "summary";
+				else if (pulled.length > 0) {
+					source = "pull";
+					pull = pulled[0];
+				} else if (results.length > 0) source = "result";
+			}
+
+			const scoreClass = classOf(right, position, source);
+			scores.push({
+				id,
+				turn,
+				kind,
+				right,
+				...(planted ? { planted: planted.turn, distance: turn - planted.turn } : {}),
+				position,
+				source,
+				...(pull ? { pull } : {}),
+				...(scoreClass ? { class: scoreClass } : {}),
+				...(stale ? { stale: true as const } : {}),
+				...(breach ? { breach: true as const } : {}),
+				...(prompt.tools === false ? { tools: false as const } : {}),
+			});
+		}
+	}
+	return scores;
+}
+
+/**
+ * Whether the Probe Turn answered `plant` right, and the message that
+ * answered: the final reply, or a right constraint's first tool call
+ * obeying it. An undeclared Plant is wrong.
+ */
+function answerOf(
+	plant: RunRecord["plants"][number] | undefined,
+	messages: HarnessMessage[],
+	reply: string,
+	replyAt: number,
+): { right: boolean; stale: boolean; scoredAt: number } {
+	const value = plant?.value;
+	if (value === undefined) return { right: false, stale: false, scoredAt: replyAt };
+	if (plant?.kind === "constraint") {
+		const obeyed = messages.findIndex(
+			(message) =>
+				message.role === "assistant" &&
+				toolCalls(message).some((call) => stringLeaves(call.arguments).some((leaf) => leaf.includes(value))),
+		);
+		return { right: obeyed !== -1, stale: false, scoredAt: obeyed === -1 ? replyAt : obeyed };
+	}
+	const stale = plant?.kind === "superseded" && plant.earlier !== undefined && reply.includes(plant.earlier);
+	return { right: reply.includes(value) && !stale, stale, scoredAt: replyAt };
+}
+
+/** A score's class from its result, position and source; none when right with a source. */
+function classOf(right: boolean, position: Position, source: Source): ScoreClass | undefined {
+	if (right) return source === "none" ? "leak" : undefined;
+	if (position === "unplanted") return "unplanted";
+	if (source === "unknown") return "unknown";
+	if (source === "none") return position === "evicted" ? "lapse" : "unknown";
+	return "despite";
+}
+
+/**
+ * Where `value` first entered the Conversation before Turn `before`: a
+ * prompt or a tool result holding it. An assistant message only echoes.
+ */
+function plantedAt(turns: JournalTurn[], value: string, before: number): MessageAddress | undefined {
+	for (const turn of turns.slice(0, before)) {
+		const message = turn.messages.findIndex(
+			(message, index) => (index === 0 || message.role === "toolResult") && messageText(message).includes(value),
+		);
+		if (message !== -1) return { turn: turn.turnIndex, message };
+	}
+	return undefined;
+}
+
+/** Whether a message's text, or a string anywhere in its tool calls' arguments, holds `value`. */
+function holds(message: HarnessMessage, value: string): boolean {
+	return (
+		messageText(message).includes(value) ||
+		toolCalls(message).some((call) => stringLeaves(call.arguments).some((leaf) => leaf.includes(value)))
+	);
+}
+
+function toolCalls(message: HarnessMessage) {
+	return Array.isArray(message.content) ? message.content.filter(isToolCall) : [];
+}
+
+/** Every string in `value`, however deeply nested; matched as is, so escaping cannot hide one. */
+function stringLeaves(value: unknown): string[] {
+	if (typeof value === "string") return [value];
+	if (Array.isArray(value)) return value.flatMap(stringLeaves);
+	if (value && typeof value === "object") return Object.values(value).flatMap(stringLeaves);
+	return [];
 }
 
 /** A count of `distances` in total and per band; an absent distance counts in the total only. */
@@ -444,13 +638,16 @@ function callerOf(turn: JournalTurn, result: number): number | undefined {
 /** Whether `window` held the earlier result at `earlier`. */
 function classify(window: Window, earlier: MessageAddress): RefetchClass {
 	if (window === "unknown") return "unknown";
-	const { tail } = window;
-	const inTail =
-		tail.turns.includes(earlier.turn) && (tail.from?.turn !== earlier.turn || earlier.message >= tail.from.message);
-	if (inTail) return tail.partial ? "unknown" : "held";
+	if (inTail(window, earlier)) return window.tail.partial ? "unknown" : "held";
 	// The Opening carries its Turn's prompt and nothing after it.
 	if (window.opening === earlier.turn && earlier.message === 0) return "held";
 	return "left";
+}
+
+/** Whether the message at `at` sits in the window's tail; a partial tail may still have dropped it. */
+function inTail(window: Exclude<Window, "unknown">, at: MessageAddress): boolean {
+	const { tail } = window;
+	return tail.turns.includes(at.turn) && (tail.from?.turn !== at.turn || at.message >= tail.from.message);
 }
 
 /** Which message comes first on the branch: negative when `a` does. */
@@ -579,9 +776,21 @@ export interface ArmAggregate {
 	/** Runs left out because a Turn failed. */
 	excluded: number;
 	costPerPass: CostPerPass;
-	/** Per Plant: how many complete Runs scored it right, of how many. */
-	retention: { id: string; right: number; of: number }[];
+	/** Per Probe, in Probe order: how many complete Runs scored that Plant right at that Turn, of how many. */
+	retention: { id: string; turn: number; kind: PlantKind; tools?: false; right: number; of: number }[];
+	/**
+	 * The rest count every score of the complete Runs, and are absent when a
+	 * score was recorded before Scores had positions. `byBand` is right of
+	 * scored per distance band, indexed like `BANDS`; unplanted scores are in none.
+	 */
+	byBand?: { right: number; of: number }[];
+	byPosition?: Record<Position, { right: number; of: number }>;
+	sources?: Record<Source, { right: number; wrong: number }>;
+	counts?: { leak: number; despite: number; stale: number; breach: number };
 }
+
+export const POSITIONS: Position[] = ["opening", "pin", "tail", "summary", "evicted", "unplanted", "unknown"];
+export const SOURCES: Source[] = ["opening", "pin", "tail", "summary", "pull", "result", "none", "unknown"];
 
 /** The figures a report states per Arm, over complete Runs only. */
 export function aggregate(runs: RunMeasures[]): Map<string, ArmAggregate> {
@@ -601,17 +810,55 @@ export function aggregate(runs: RunMeasures[]): Map<string, ArmAggregate> {
 					? "no Pass"
 					: { usd: graded.reduce((acc, run) => acc + run.cost, 0) / passes };
 
-		const ids = [...new Set(complete.flatMap((run) => run.plants.map((plant) => plant.id)))];
-		const retention = ids.map((id) => ({
-			id,
-			right: complete.filter((run) => {
-				const scores = run.plants.filter((plant) => plant.id === id);
-				return scores.length > 0 && scores.every((plant) => plant.right);
-			}).length,
-			of: complete.length,
-		}));
+		const byProbe = new Map<string, ArmAggregate["retention"][number]>();
+		for (const run of complete) {
+			for (const score of run.plants) {
+				const key = probeKey(score);
+				let probe = byProbe.get(key);
+				if (!probe) {
+					probe = {
+						id: score.id,
+						turn: score.turn,
+						kind: score.kind ?? "literal",
+						...(score.tools === false ? { tools: false as const } : {}),
+						right: 0,
+						of: 0,
+					};
+					byProbe.set(key, probe);
+				}
+				probe.of++;
+				if (score.right) probe.right++;
+			}
+		}
+		const retention = [...byProbe.values()].sort((a, b) => a.turn - b.turn);
 
-		result.set(arm, { arm, complete, excluded: all.length - complete.length, costPerPass, retention });
+		const scores = complete.flatMap((run) => run.plants);
+		const positioned = scores.every((score) => score.position !== undefined);
+		const tally = (of: Score[]) => ({ right: of.filter((score) => score.right).length, of: of.length });
+		const breakdown = positioned
+			? {
+					byBand: BANDS.map(([low, high]) =>
+						tally(scores.filter((s) => s.distance !== undefined && s.distance >= low && s.distance <= high)),
+					),
+					byPosition: Object.fromEntries(
+						POSITIONS.map((position) => [position, tally(scores.filter((s) => s.position === position))]),
+					) as Record<Position, { right: number; of: number }>,
+					sources: Object.fromEntries(
+						SOURCES.map((source) => {
+							const { right, of } = tally(scores.filter((s) => s.source === source));
+							return [source, { right, wrong: of - right }];
+						}),
+					) as Record<Source, { right: number; wrong: number }>,
+					counts: {
+						leak: scores.filter((s) => s.class === "leak").length,
+						despite: scores.filter((s) => s.class === "despite").length,
+						stale: scores.filter((s) => s.stale).length,
+						breach: scores.filter((s) => s.breach).length,
+					},
+				}
+			: {};
+
+		result.set(arm, { arm, complete, excluded: all.length - complete.length, costPerPass, retention, ...breakdown });
 	}
 	return result;
 }
@@ -621,6 +868,28 @@ export const int = (x: number) => (Number.isFinite(x) ? Math.round(x).toLocaleSt
 export const percent = (x: number) => (Number.isFinite(x) ? `${(100 * x).toFixed(0)}%` : "—");
 export const bandLabel = ([low, high]: (typeof BANDS)[number]) =>
 	high === Number.POSITIVE_INFINITY ? `≥${low}` : `${low}–${high}`;
+
+const CLASS_LABEL: Record<ScoreClass, string> = {
+	leak: "leak",
+	despite: "wrong despite a source",
+	lapse: "Lapse",
+	unknown: "failed Probe unknown",
+	unplanted: "unplanted",
+};
+
+/** One Score as a line: `build: wrong at Turn 40, literal, 37 Turns back, evicted, source none (Lapse)`. */
+export function scoreLine(score: Score): string {
+	const parts = [
+		`${score.id}: ${score.right ? "right" : "wrong"} at Turn ${score.turn + 1}`,
+		score.kind,
+		...(score.distance === undefined ? [] : [`${score.distance} Turn${score.distance === 1 ? "" : "s"} back`]),
+		score.position,
+		`source ${score.source}${score.pull ? ` (${score.pull})` : ""}`,
+		...(score.stale ? ["stale"] : []),
+		...(score.breach ? ["called a tool the Probe forbade"] : []),
+	];
+	return parts.join(", ") + (score.class ? ` (${CLASS_LABEL[score.class]})` : "");
+}
 
 if (import.meta.main) {
 	const [dir, ...rest] = process.argv.slice(2);
@@ -652,13 +921,8 @@ if (import.meta.main) {
 				`${measures.passes} Pass${measures.passes === 1 ? "" : "es"}` +
 				(measures.firstFail ? `, first failing step ${measures.firstFail}` : ""),
 		);
-		console.log(
-			measures.plants.length === 0
-				? "Retention: no Probe reached"
-				: `Retention: ${measures.plants
-						.map((plant) => `${plant.id} ${plant.right ? "right" : "wrong"} (Turn ${plant.turn + 1})`)
-						.join(", ")}`,
-		);
+		if (measures.plants.length === 0) console.log("Retention: no Probe reached");
+		for (const score of measures.plants) console.log(scoreLine(score));
 		const banded = (name: string, count: Banded) =>
 			console.log(
 				`${name}: ${count.total} (${BANDS.map((band, at) => `${bandLabel(band)} ${count.bands[at]}`).join(", ")})`,
@@ -666,6 +930,8 @@ if (import.meta.main) {
 		banded("Re-fetches held", measures.refetch.held);
 		banded("Lapses", measures.refetch.left);
 		banded("Re-fetches unknown", measures.refetch.unknown);
+		banded("Failed-Probe Lapses", measures.probe.lapse);
+		banded("Failed Probes unknown", measures.probe.unknown);
 		console.log(`Compactions per Run: ${measures.compactions ?? "n/a"}`);
 		if (measures.pulls && measures.recall) {
 			for (const tool of PULL_TOOLS) {

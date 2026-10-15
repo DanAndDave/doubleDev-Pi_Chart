@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { buildWorkspace, gradedSteps, loadWorkload } from "../scripts/workload.ts";
 
@@ -11,6 +11,7 @@ const PINNED = "c6fe51651936bdcb29d9dd5dc3d46609ad02c359";
 async function workloadDir(
 	spec: unknown,
 	checks: string[] = [],
+	overlay: Record<string, string> = {},
 ): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "pichart-workload-"));
 	await writeFile(
@@ -22,6 +23,10 @@ async function workloadDir(
 		for (const check of checks) {
 			await writeFile(join(dir, "checks", check), "");
 		}
+	}
+	for (const [path, text] of Object.entries(overlay)) {
+		await mkdir(dirname(join(dir, "overlay", path)), { recursive: true });
+		await writeFile(join(dir, "overlay", path), text);
 	}
 	return dir;
 }
@@ -122,6 +127,141 @@ describe("loadWorkload", () => {
 
 		expect(await rejection(dir)).toContain("workload.json");
 	});
+
+	test("a Plant with no kind loads as a literal", async () => {
+		const workload = await loadWorkload(await workloadDir(WELL_FORMED));
+
+		expect(workload.plants).toEqual([{ id: "codeword", kind: "literal", value: "PLUM-17" }]);
+	});
+
+	test("every kind and placement loads, and a Probe that forbids tools keeps saying so", async () => {
+		const dir = await workloadDir(
+			{
+				...WELL_FORMED,
+				plants: [
+					{ id: "codeword", value: "PLUM-17" },
+					{ id: "port", kind: "superseded", earlier: "PORT-3304", value: "PORT-8817" },
+					{ id: "owner", kind: "constraint", value: "owner: QUILL-9", file: "notes/rule.md" },
+				],
+				steps: [
+					{
+						id: "setup",
+						prompts: [
+							"Remember PLUM-17. The port is PORT-3304.",
+							"Read notes/rule.md and follow it.",
+							"The port is now PORT-8817.",
+						],
+					},
+					{
+						id: "ask",
+						prompts: [
+							{ text: "Codeword and port? Do not use any tools.", probes: ["codeword", "port"], tools: false },
+							{ text: "Add src/x.ts.", probes: ["owner"] },
+						],
+					},
+				],
+			},
+			[],
+			{ "notes/rule.md": "Every new file starts with owner: QUILL-9.\n" },
+		);
+
+		const workload = await loadWorkload(dir);
+
+		expect(workload.plants).toEqual([
+			{ id: "codeword", kind: "literal", value: "PLUM-17" },
+			{ id: "port", kind: "superseded", value: "PORT-8817", earlier: "PORT-3304" },
+			{ id: "owner", kind: "constraint", value: "owner: QUILL-9", file: "notes/rule.md" },
+		]);
+		expect(workload.steps[1]?.prompts).toEqual([
+			{ text: "Codeword and port? Do not use any tools.", probes: ["codeword", "port"], tools: false },
+			{ text: "Add src/x.ts.", probes: ["owner"] },
+		]);
+	});
+
+	test("every problem with the Plant matrix is named in one rejection", async () => {
+		const dir = await workloadDir(
+			{
+				...WELL_FORMED,
+				plants: [
+					{ id: "oddkind", kind: "fuzzy", value: "ODD-A" },
+					{ id: "noearlier", kind: "superseded", value: "BARE-B" },
+					{ id: "equalearlier", kind: "superseded", value: "EQUAL-C", earlier: "EQUAL-C" },
+					{ id: "literalearlier", value: "PLAIN-D", earlier: "PLAIN-OLD" },
+					{ id: "num4", value: "7341" },
+					{ id: "num5", value: "73412" },
+					{ id: "twice", value: "TWICE-E" },
+					{ id: "nowhere", value: "NOWHERE-F" },
+					{ id: "late", kind: "superseded", earlier: "LATE-OLD", value: "LATE-NEW" },
+					{ id: "spoken", value: "SPOKEN-G", file: "notes/spoken.md" },
+					{ id: "absent", value: "ABSENT-H", file: "notes/absent.md" },
+					{ id: "lacking", value: "LACKING-I", file: "notes/lacking.md" },
+					{ id: "unnamed", value: "UNNAMED-J", file: "notes/unnamed.md" },
+					{
+						id: "swapped",
+						kind: "superseded",
+						value: "SWAP-NEW",
+						earlier: "SWAP-OLD",
+						file: "notes/new.md",
+						earlierFile: "notes/old.md",
+					},
+					{ id: "early", value: "EARLY-K" },
+					{ id: "rule", kind: "constraint", value: "RULE-L" },
+				],
+				steps: [
+					{
+						id: "setup",
+						prompts: [
+							"Remember TWICE-E and 73412. Read notes/spoken.md, notes/absent.md, notes/lacking.md and notes/new.md. RULE-L applies. ODD-A BARE-B EQUAL-C PLAIN-D.",
+							"It is LATE-NEW. SPOKEN-G.",
+							"Before, it was LATE-OLD. See notes/old.md.",
+						],
+					},
+					{
+						id: "ask",
+						prompts: [
+							{
+								text: "Tell me everything, TWICE-E too. Do not use any tools.",
+								probes: ["twice", "late", "spoken", "absent", "lacking", "unnamed", "swapped", "early", "rule"],
+								tools: false,
+							},
+							"EARLY-K is the last code.",
+						],
+					},
+				],
+			},
+			[],
+			{
+				"notes/spoken.md": "SPOKEN-G\n",
+				"notes/lacking.md": "nothing here\n",
+				"notes/unnamed.md": "UNNAMED-J\n",
+				"notes/new.md": "SWAP-NEW\n",
+				"notes/old.md": "SWAP-OLD\n",
+			},
+		);
+
+		const lines = (await rejection(dir)).split("\n");
+		const named = (...fragments: string[]) =>
+			lines.some((line) => fragments.every((fragment) => line.includes(fragment)));
+
+		const expected = [
+			["oddkind", "fuzzy"],
+			["noearlier", "earlier"],
+			["equalearlier", "earlier"],
+			["literalearlier", "earlier"],
+			["num4", "num5"],
+			["twice", "more than one prompt"],
+			["nowhere", "no prompt"],
+			["late", "earlier", "after"],
+			["spoken", "notes/spoken.md", "prompt"],
+			["absent", "notes/absent.md", "missing"],
+			["lacking", "notes/lacking.md", "hold"],
+			["unnamed", "notes/unnamed.md"],
+			["swapped", "notes/old.md"],
+			["ask", "early", "states"],
+			["ask", "rule", "tools"],
+		];
+		expect(expected.filter((fragments) => !named(...fragments))).toEqual([]);
+	});
 });
 
 describe("gradedSteps", () => {
@@ -129,6 +269,7 @@ describe("gradedSteps", () => {
 		const dir = await workloadDir(
 			{
 				...WELL_FORMED,
+				plants: [],
 				steps: [
 					{ id: "first", prompts: ["a", "b"] },
 					{ id: "second", prompts: ["c"] },

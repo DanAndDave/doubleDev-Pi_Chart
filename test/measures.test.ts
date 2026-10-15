@@ -3,7 +3,7 @@ import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { aggregate, measureRun, type RunMeasures } from "../scripts/measures.ts";
+import { aggregate, measureRun, type RunMeasures, type Score } from "../scripts/measures.ts";
 import { readBranch } from "../src/journal.ts";
 import { approximateTokens } from "../src/tokens.ts";
 
@@ -36,9 +36,20 @@ describe("measureRun", () => {
 		const measures = await measureRun(fixture("complete"));
 
 		// The build number is only in the reply's thinking, which is not the answer.
+		// No Accounting was exported, so where each Plant sat is unknown.
 		expect(measures.plants).toEqual([
-			{ id: "codeword", turn: 2, right: true },
-			{ id: "build", turn: 2, right: false },
+			{ id: "codeword", turn: 2, kind: "literal", right: true, planted: 0, distance: 2, position: "unknown", source: "unknown" },
+			{
+				id: "build",
+				turn: 2,
+				kind: "literal",
+				right: false,
+				planted: 1,
+				distance: 1,
+				position: "unknown",
+				source: "unknown",
+				class: "unknown",
+			},
 		]);
 	});
 
@@ -50,6 +61,124 @@ describe("measureRun", () => {
 		expect(measures.steps.map((step) => step.outcome)).toEqual(["Pass", "not graded", "not graded"]);
 	});
 });
+
+const none = { total: 0, bands: [0, 0, 0, 0, 0] };
+
+describe("Plant scores", () => {
+	test("each kind, position and source on a pi-chart Run", async () => {
+		const measures = await measureRun(fixture("pi-chart-plants"));
+
+		const literal = { kind: "literal" } as const;
+		const probe11 = { turn: 11, tools: false } as const;
+		expect(measures.plants).toEqual([
+			// No Accounting for Turn 7's Call.
+			{ id: "build", turn: 7, ...literal, right: false, planted: 2, distance: 5, position: "unknown", source: "unknown", class: "unknown" },
+			// The write's content holds the rule; the tail that held Turn 5 was carried shortened.
+			{ id: "owner", turn: 8, kind: "constraint", right: true, planted: 5, distance: 3, position: "unknown", source: "unknown" },
+			// Read at Turn 4, gone from the window, read again despite the prompt.
+			{
+				id: "secret",
+				turn: 9,
+				...literal,
+				right: true,
+				planted: 4,
+				distance: 5,
+				position: "evicted",
+				source: "result",
+				breach: true,
+				tools: false,
+			},
+			{
+				id: "port",
+				turn: 10,
+				kind: "superseded",
+				right: true,
+				planted: 3,
+				distance: 7,
+				position: "evicted",
+				source: "pull",
+				pull: "recall_earlier_turns",
+			},
+			{ id: "codeword", ...probe11, ...literal, right: true, planted: 0, distance: 11, position: "opening", source: "opening" },
+			{ id: "build", ...probe11, ...literal, right: false, planted: 2, distance: 9, position: "evicted", source: "none", class: "lapse" },
+			// Turn 10's recall and reply, in the tail, held the value; the reply gave the earlier one.
+			{
+				id: "port",
+				...probe11,
+				kind: "superseded",
+				right: false,
+				stale: true,
+				planted: 3,
+				distance: 8,
+				position: "evicted",
+				source: "tail",
+				class: "despite",
+			},
+			{ id: "leaky", ...probe11, ...literal, right: true, planted: 6, distance: 5, position: "evicted", source: "none", class: "leak" },
+			{ id: "ghost", ...probe11, ...literal, right: false, position: "unplanted", source: "none", class: "unplanted" },
+			// Turn 9's re-read, in the tail, held it.
+			{ id: "secret", ...probe11, ...literal, right: true, planted: 4, distance: 7, position: "evicted", source: "tail" },
+			{ id: "pinned", ...probe11, ...literal, right: true, planted: 1, distance: 10, position: "pin", source: "pin" },
+		]);
+		expect(measures.probe).toEqual({
+			lapse: { total: 1, bands: [0, 0, 1, 0, 0] },
+			unknown: { total: 1, bands: [1, 0, 0, 0, 0] },
+		});
+	});
+
+	test("a plain-omp summary holds a Plant its tail let go, and a Plant read from a file enters at the read", async () => {
+		const measures = await measureRun(fixture("vanilla-plants"));
+
+		const probe = { turn: 9, kind: "literal", tools: false } as const;
+		expect(measures.plants).toEqual([
+			{ id: "build", ...probe, right: true, planted: 2, distance: 7, position: "summary", source: "summary" },
+			{ id: "color", ...probe, right: false, planted: 3, distance: 6, position: "evicted", source: "none", class: "lapse" },
+			{ id: "mark", ...probe, right: true, planted: 7, distance: 2, position: "tail", source: "tail" },
+			{ id: "tag", ...probe, right: false, planted: 1, distance: 8, position: "evicted", source: "none", class: "lapse" },
+			{ id: "seal", ...probe, right: true, planted: 6, distance: 3, position: "tail", source: "tail" },
+		]);
+		expect(measures.probe).toEqual({ lapse: { total: 2, bands: [0, 1, 1, 0, 0] }, unknown: none });
+	});
+
+	test("a reply naming both a superseded value and its earlier one is wrong and stale", async () => {
+		const dir = await variant("pi-chart-plants", (journal) =>
+			journal.replace("PLUM-17, 1234, PORT-3304,", "PLUM-17, 1234, PORT-8817 or PORT-3304,"),
+		);
+
+		const port = (await measureRun(dir)).plants.find((score) => score.id === "port" && score.turn === 11);
+
+		expect(port).toMatchObject({ right: false, stale: true });
+	});
+
+	test("failed Probes are zero in every band, not absent, on a Run whose Probes all pass", async () => {
+		const dir = await variant("vanilla-plants", (journal) =>
+			journal.replace("7341, UNKNOWN, MARK-77, UNKNOWN, SEAL-5", "7341, TEAL-12, MARK-77, TAG-4, SEAL-5"),
+		);
+
+		const measures = await measureRun(dir);
+
+		expect(measures.plants.every((score) => score.right)).toBe(true);
+		expect(measures.probe).toEqual({ lapse: none, unknown: none });
+	});
+
+	test("failed Probes are zero in every band, not absent, on a Run with no Probe", async () => {
+		const measures = await measureRun(fixture("pi-chart-evicted"));
+
+		expect(measures.probe).toEqual({ lapse: none, unknown: none });
+	});
+});
+
+/** A copy of fixture `name` whose Journal text went through `edit`. */
+async function variant(name: string, edit: (journal: string) => string): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), `measures-${name}-`));
+	await cp(fixture(name), dir, { recursive: true });
+	const path = join(dir, "journal.jsonl");
+	const journal = await readFile(path, "utf8");
+	const edited = edit(journal);
+	if (edited === journal) throw new Error(`the edit changed nothing in ${name}'s Journal`);
+	await writeFile(path, edited);
+	return dir;
+}
 
 /** The windows of the main Calls answering `turn`, in Call order. */
 async function windows(name: string, turn: number) {
@@ -103,8 +232,6 @@ describe("the window each Call sent", () => {
 		expect(measures.calls.filter((call) => call.subagent).map((call) => call.window)).toEqual([undefined, undefined]);
 	});
 });
-
-const none = { total: 0, bands: [0, 0, 0, 0, 0] };
 
 describe("Re-fetches", () => {
 	test("a pi-chart Run's Re-fetches are held, left or unknown by the window of the Call that made them", async () => {
@@ -286,6 +413,7 @@ function run(arm: string, cost: number, outcomes: ("Pass" | "Fail")[], extra: Pa
 		passes: outcomes.filter((outcome) => outcome === "Pass").length,
 		firstFail: steps.find((step) => step.outcome === "Fail")?.id,
 		plants: [],
+		probe: { lapse: none, unknown: none },
 		refetches: [],
 		refetch: { held: none, left: none, unknown: none },
 		...extra,
@@ -328,12 +456,59 @@ describe("aggregate", () => {
 		expect(piChart?.costPerPass).toEqual({ usd: 7 / 2 });
 	});
 
-	test("Retention is the share of complete Runs that scored the Plant right", () => {
-		const probed = (right: boolean, complete = true) =>
-			run("pi-chart", 1, [], { complete, plants: complete ? [{ id: "codeword", turn: 2, right }] : [] });
+	const score = (extra: Partial<Score> = {}): Score => ({
+		id: "build",
+		turn: 9,
+		kind: "literal",
+		right: true,
+		planted: 2,
+		distance: 7,
+		position: "tail",
+		source: "tail",
+		...extra,
+	});
+	const scored = (scores: Score[], complete = true) => run("pi-chart", 1, [], { complete, plants: scores });
 
-		const arms = aggregate([probed(true), probed(false), probed(true), probed(true), probed(true, false)]);
+	test("Retention is per Probe: the complete Runs that scored that Plant right at that Turn", () => {
+		const arms = aggregate([
+			scored([score(), score({ turn: 12 })]),
+			scored([score({ right: false, class: "despite" }), score({ turn: 12 })]),
+			scored([score({ right: false, class: "despite" }), score({ turn: 12 })], false),
+		]);
 
-		expect(arms.get("pi-chart")?.retention).toEqual([{ id: "codeword", right: 3, of: 4 }]);
+		expect(arms.get("pi-chart")?.retention).toEqual([
+			{ id: "build", turn: 9, kind: "literal", right: 1, of: 2 },
+			{ id: "build", turn: 12, kind: "literal", right: 2, of: 2 },
+		]);
+	});
+
+	test("Retention by position and band, sources and counts are over complete Runs", () => {
+		const evicted = score({ right: false, position: "evicted", source: "none", class: "lapse" });
+		const arms = aggregate([
+			scored([score()]),
+			scored([evicted]),
+			scored([evicted]),
+			scored([score({ position: "evicted", source: "none", class: "leak" })]),
+			scored([
+				score({ right: false, planted: undefined, distance: undefined, position: "unplanted", source: "none", class: "unplanted" }),
+			]),
+			scored([evicted, evicted], false),
+		]);
+
+		const piChart = arms.get("pi-chart");
+		expect(piChart?.byPosition?.tail).toEqual({ right: 1, of: 1 });
+		expect(piChart?.byPosition?.evicted).toEqual({ right: 1, of: 3 });
+		expect(piChart?.byPosition?.unplanted).toEqual({ right: 0, of: 1 });
+		// Band 6–7 holds every score with a distance; the unplanted one is in none.
+		expect(piChart?.byBand).toEqual([
+			{ right: 0, of: 0 },
+			{ right: 2, of: 4 },
+			{ right: 0, of: 0 },
+			{ right: 0, of: 0 },
+			{ right: 0, of: 0 },
+		]);
+		expect(piChart?.sources?.none).toEqual({ right: 1, wrong: 3 });
+		expect(piChart?.sources?.tail).toEqual({ right: 1, wrong: 0 });
+		expect(piChart?.counts).toEqual({ leak: 1, despite: 0, stale: 0, breach: 0 });
 	});
 });
