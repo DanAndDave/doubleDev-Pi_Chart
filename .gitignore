@@ -5,3 +5,5 @@ node_modules/
 
 # Written by graph extraction (PICHART_GRAPH=on), derived from the tree.
 graphify-out/
+# A Workload's frozen graph is input, not derived output.
+!bench/workloads/*/graphify-out/

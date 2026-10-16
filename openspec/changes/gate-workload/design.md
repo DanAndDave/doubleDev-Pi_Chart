@@ -26,7 +26,7 @@ What the archived slices built, which this Workload must satisfy:
 
 **Goals:**
 
-- One frozen Workload whose Plants and Revisits each land in their planned distance band, which pi-chart evicts in the middle and far bands, and which costs at most $3.75 per pi-chart Run.
+- One frozen Workload whose Plants and Revisits each land in their planned distance band, which pi-chart evicts in the middle and far bands, and which costs at most $3.75 per pi-chart Run. (The probe missed this target; see decision 6, step 6.)
 - Checks that a correct solution passes and the untouched workspace fails, so a Fail means the agent got the step wrong.
 
 **Non-Goals:**
@@ -128,6 +128,7 @@ A step's check tests only that step's exports, plus earlier ones it calls throug
    - cut Turns that carry no Plant, Revisit or Probe, keeping every distance;
    - shorten reads.
 5. Probe spend stops at $30 for a decision from the user.
+6. **Outcome.** Probe 1 met the cost target but missed the Positions: the agent read `notes/owners.md` and `notes/conventions.md` at Turn 1, and most of `notes/` again at Turns 31–32. The fix was a suffix on every non-Probe prompt: "Read a file under notes/ only when this prompt names it." With it, Probes 2 and 3 put every Plant and Revisit at its planned Turn and evicted all eight in the 8–12 and ≥ 25 bands. They cost $3.83 and $4.91 (mean $4.37). The spread comes from agent behaviour, not the draft: `recall_earlier_turns` results of about 20k tokens each, and the tail's cache rewrite after each Eviction. The levers above save cents per Turn, so they could not close the gap reliably. The user accepted the measured mean as the per-Run figure instead of revising further.
 
 Pass rates are recorded, not gated. A step every Arm fails, or every Arm passes trivially, is reported to the user at freeze rather than tuned in a loop.
 

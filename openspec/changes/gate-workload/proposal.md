@@ -23,7 +23,7 @@ Decisions: `context-need-measures/questions/06`, `07`, `10`, `16`.
 - **Carries six Plants.** Each of the three kinds (literal, superseded, constraint) is placed once in a prompt and once in a tool result. Two Plants sit in each distance band (≤ 5, 8–12, ≥ 25 Turns). The final Probe forbids tools and asks for the four Plants that are not constraints.
 - **Carries six Revisits** of overlay files, two in each distance band.
 - **Agent-drafted, user-reviewed, then frozen.** Every check is shown to pass against a reference solution before any Run. Any later edit is a new version and resets saved reference figures.
-- **Probed on both Arms before freezing.** On pi-chart, the Plants and Revisits in the 8–12 and ≥ 25 bands must be evicted when they are needed. The pi-chart Run must cost at most $3.75, so 20 Runs fit the $75 Gate cap.
+- **Probed on both Arms before freezing.** On pi-chart, the Plants and Revisits in the 8–12 and ≥ 25 bands must be evicted when they are needed. The pi-chart cost was planned at $3.75 per Run, so that 20 Runs fit the $75 Gate cap. The probe measured $4.37, the mean of two Runs of the frozen draft, and the user accepted that figure. 20 Runs then cost about $87, which `regression-gate` has to budget for.
 - `.gitignore` stops ignoring a Workload's `graphify-out/`.
 
 ## Capabilities
