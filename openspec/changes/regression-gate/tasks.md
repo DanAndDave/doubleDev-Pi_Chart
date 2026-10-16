@@ -43,7 +43,7 @@
   - the record folders are `base-<i>` and `candidate-<i>`;
   - a candidate Run's `omp` processes load `<candidate tree>/src/extension.ts` (check `ps` during the run);
   - the recorded model is `REFERENCE_MODEL`. If omp rejects the `--model` form, apply design's fallback and re-run.
-- [ ] 5.2 With the user's explicit go-ahead for about $44: `bun scripts/gate.ts --aa` on the `gate` Workload against the committed pool. Verify: 5 complete pairs, an `aa` batch in `bench/gate/pool.json`, and the reported cost CV and Lapse SD. If the user declines, leave the pool empty and say so in the archive commit.
+- [x] 5.2 With the user's explicit go-ahead for about $44: `bun scripts/gate.ts --aa` on the `gate` Workload against the committed pool. Verify: 5 complete pairs, an `aa` batch in `bench/gate/pool.json`, and the reported cost CV and Lapse SD. If the user declines, leave the pool empty and say so in the archive commit.
 
 ## 6. Docs
 

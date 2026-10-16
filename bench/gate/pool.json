@@ -1,1 +1,71 @@
-{ "batches": [] }
+{
+	"batches": [
+		{
+			"kind": "aa",
+			"key": {
+				"workload": {
+					"name": "gate",
+					"version": 1
+				},
+				"model": "anthropic/claude-opus-5-5",
+				"omp": "omp/18.11.0"
+			},
+			"date": "2026-10-16T16:10:52.431Z",
+			"base": "fd96df4d4de5af61e4ca00adf9dd9be5f9422a6c",
+			"candidate": "fd96df4d4de5af61e4ca00adf9dd9be5f9422a6c",
+			"out": "/tmp/gate-aa-real",
+			"pairs": [
+				{
+					"base": {
+						"cost": 4.3105709999999995,
+						"lapses": 23
+					},
+					"candidate": {
+						"cost": 3.304109600000001,
+						"lapses": 11
+					}
+				},
+				{
+					"base": {
+						"cost": 4.5382722,
+						"lapses": 24
+					},
+					"candidate": {
+						"cost": 4.961734399999996,
+						"lapses": 23
+					}
+				},
+				{
+					"base": {
+						"cost": 4.470232599999998,
+						"lapses": 24
+					},
+					"candidate": {
+						"cost": 4.4200545999999985,
+						"lapses": 25
+					}
+				},
+				{
+					"base": {
+						"cost": 4.975396999999998,
+						"lapses": 28
+					},
+					"candidate": {
+						"cost": 5.0393378,
+						"lapses": 28
+					}
+				},
+				{
+					"base": {
+						"cost": 5.062834599999997,
+						"lapses": 27
+					},
+					"candidate": {
+						"cost": 4.5702517999999985,
+						"lapses": 25
+					}
+				}
+			]
+		}
+	]
+}
