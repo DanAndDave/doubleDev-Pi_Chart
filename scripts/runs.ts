@@ -23,13 +23,23 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { SQL } from "bun";
 
 import type { TurnAccounting } from "../src/accounting.ts";
 import { SESSION_ROOT } from "../src/journal.ts";
 import { type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
-import { editedFiles, run, type Step, stepEndingAt, type Turn, type Workload, type WorkloadId } from "./workload.ts";
+import {
+	editedFiles,
+	loadWorkload,
+	run,
+	type Step,
+	stepEndingAt,
+	type Turn,
+	type Workload,
+	type WorkloadId,
+	WORKLOADS,
+} from "./workload.ts";
 
 const CHECK_TIMEOUT_MS = 120_000;
 
@@ -346,6 +356,30 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 
 export function log(message: string): void {
 	process.stderr.write(`[bench] ${message}\n`);
+}
+
+/** A script's `--name value` flags, and its positive-integer ones checked. */
+export function flagsOf(argv: string[]): {
+	flag: (name: string) => string | undefined;
+	positive: (name: string, fallback: number) => number;
+} {
+	const flag = (name: string) => {
+		const at = argv.indexOf(name);
+		return at === -1 ? undefined : argv[at + 1];
+	};
+	const positive = (name: string, fallback: number) => {
+		const raw = flag(name);
+		if (raw === undefined) return fallback;
+		const value = Number(raw);
+		if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer, got ${raw}`);
+		return value;
+	};
+	return { flag, positive };
+}
+
+/** The Workload `--workload` names: a folder path when it holds a slash, else one under `bench/workloads/`. */
+export function loadNamedWorkload(name: string): Promise<Workload> {
+	return loadWorkload(name.includes("/") ? resolve(name) : join(WORKLOADS, name));
 }
 
 /**

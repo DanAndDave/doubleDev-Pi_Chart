@@ -7,10 +7,12 @@ import {
 	gatherPairs,
 	type GateKey,
 	gateLapses,
+	isComplete,
 	keyOf,
 	LOOKS,
 	type PairFigures,
 	type PairRun,
+	PairStop,
 	pooledBatches,
 	REFERENCE_MODEL,
 } from "../scripts/gate.ts";
@@ -138,7 +140,7 @@ describe("decide", () => {
 		expect(decision.verdict).toBe("inconclusive");
 	});
 
-	test("forgetting fails a change whose Cost is non-inferior", () => {
+	test("a Lapse rise fails a change whose Cost is non-inferior", () => {
 		const decision = decide({ look: 0, pairs: constant(5, 0, 5), history: [aa(sdForBound(1.06, 0, 5), 1)], key: KEY });
 
 		expect(decision.nonInferior).toBe(true);
@@ -195,7 +197,7 @@ describe("gatherPairs", () => {
 		base: { cost, lapses: 20, complete: !isVoid },
 		candidate: { cost, lapses: 20, complete: true },
 	});
-	const completeCount = (runs: PairRun[]) => runs.filter((run) => run.base.complete && run.candidate.complete).length;
+	const completeCount = (pairs: PairRun[]) => pairs.filter(isComplete).length;
 
 	test("a void pair is replaced and its Runs count as spend", async () => {
 		const gathered = await gatherPairs({
@@ -205,8 +207,8 @@ describe("gatherPairs", () => {
 			runPair: async (index) => finished(index, 1, index === 2),
 		});
 
-		expect(completeCount(gathered.runs)).toBe(5);
-		expect(gathered.runs.map((run) => run.index)).toEqual([0, 1, 2, 3, 4, 5]);
+		expect(completeCount(gathered.pairs)).toBe(5);
+		expect(gathered.pairs.map((pair) => pair.index)).toEqual([0, 1, 2, 3, 4, 5]);
 		expect(gathered.spent).toBe(12);
 		expect(gathered.capped).toBe(false);
 	});
@@ -224,7 +226,7 @@ describe("gatherPairs", () => {
 		});
 
 		expect(started).toEqual([0, 1, 2, 3, 4]);
-		expect(completeCount(gathered.runs)).toBe(4);
+		expect(completeCount(gathered.pairs)).toBe(4);
 		expect(gathered.spent).toBeCloseTo(45.2, 10);
 		expect(gathered.capped).toBe(true);
 	});
@@ -233,7 +235,7 @@ describe("gatherPairs", () => {
 		const first = await gatherPairs({ want: 5, cap: 45, width: 2, runPair: async (index) => finished(index, 1) });
 		const second = await gatherPairs({ ...first, want: 10, cap: 90, width: 2, runPair: async (index) => finished(index, 1) });
 
-		expect(second.runs.map((run) => run.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+		expect(second.pairs.map((pair) => pair.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 		expect(second.spent).toBe(20);
 	});
 
@@ -273,9 +275,8 @@ describe("gatherPairs", () => {
 		expect(most).toBe(2);
 	});
 
-	test("a pair that throws lets the pairs in flight finish, starts no other, and rejects", async () => {
+	test("a pair that stops lets the pairs in flight finish, starts no other, and returns what finished", async () => {
 		const started: number[] = [];
-		const done: number[] = [];
 		const first = Promise.withResolvers<void>();
 		let settled = false;
 		const gathering = gatherPairs({
@@ -284,13 +285,12 @@ describe("gatherPairs", () => {
 			width: 2,
 			runPair: async (index) => {
 				started.push(index);
-				if (index === 1) throw new Error("model mismatch");
+				if (index === 1) throw new PairStop("model mismatch", 3);
 				await first.promise;
-				done.push(index);
 				return finished(index, 1);
 			},
 		});
-		gathering.catch(() => {}).finally(() => {
+		gathering.finally(() => {
 			settled = true;
 		});
 
@@ -298,9 +298,13 @@ describe("gatherPairs", () => {
 		expect(settled).toBe(false);
 		first.resolve();
 
-		await expect(gathering).rejects.toThrow("model mismatch");
+		const gathered = await gathering;
 		expect(started).toEqual([0, 1]);
-		expect(done).toEqual([0]);
+		expect((gathered.stopped as Error).message).toBe("model mismatch");
+		expect(gathered.pairs.map((pair) => pair.index)).toEqual([0]);
+		// Pair 0's two Runs at $1, and the $3 the stopping pair's Runs cost.
+		expect(gathered.spent).toBe(5);
+		expect(gathered.capped).toBe(false);
 	});
 });
 

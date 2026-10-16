@@ -68,8 +68,8 @@ import {
 	usd,
 	WRITE_RATE,
 } from "./measures.ts";
-import { type Arm, ARMS, type Context, log, type Options, pool, runOne } from "./runs.ts";
-import { buildWorkspace, gradedSteps, installDependencies, loadWorkload, REPO, run, turnsOf, WORKLOADS } from "./workload.ts";
+import { type Arm, ARMS, type Context, flagsOf, loadNamedWorkload, log, type Options, pool, runOne } from "./runs.ts";
+import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf } from "./workload.ts";
 
 /** `bench.json`. */
 interface Bench {
@@ -79,21 +79,7 @@ interface Bench {
 
 // ------------------------------------------------------------------ args --
 
-const argv = process.argv.slice(2);
-function flag(name: string): string | undefined {
-	const at = argv.indexOf(name);
-	return at === -1 ? undefined : argv[at + 1];
-}
-
-function positive(name: string, fallback: number): number {
-	const raw = flag(name);
-	if (raw === undefined) return fallback;
-	const value = Number(raw);
-	if (!Number.isInteger(value) || value < 1) {
-		throw new Error(`${name} must be a positive integer, got ${raw}`);
-	}
-	return value;
-}
+const { flag, positive } = flagsOf(process.argv.slice(2));
 
 // ---------------------------------------------------------------- report --
 
@@ -387,8 +373,7 @@ const reportFrom = flag("--report");
 if (reportFrom) {
 	report(JSON.parse(await readFile(join(reportFrom, "bench.json"), "utf8")) as Bench);
 } else {
-	const named = flag("--workload") ?? "read-only-40";
-	const workload = await loadWorkload(named.includes("/") ? resolve(named) : join(WORKLOADS, named));
+	const workload = await loadNamedWorkload(flag("--workload") ?? "read-only-40");
 	const all = turnsOf(workload);
 	const turns = all.slice(0, Math.min(positive("--turns", all.length), all.length));
 	const runs = positive("--runs", 3);

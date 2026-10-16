@@ -41,19 +41,9 @@ import { dirname, join, resolve } from "node:path";
 
 import { readSavedUrl } from "../src/config.ts";
 import { aggregate, BANDS, bandLabel, int, measureRun, median, PULL_TOOLS, type RunMeasures, usd } from "./measures.ts";
-import { type Context, loadStore, log, type Options, runOne } from "./runs.ts";
+import { type Context, flagsOf, loadNamedWorkload, loadStore, log, type Options, runOne } from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
-import {
-	buildWorkspace,
-	gradedSteps,
-	installDependencies,
-	loadWorkload,
-	REPO,
-	run,
-	turnsOf,
-	WORKLOADS,
-	type WorkloadId,
-} from "./workload.ts";
+import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf, type WorkloadId } from "./workload.ts";
 
 /**
  * The two looks: the pairs each needs, its one-sided level (O'Brien–Fleming,
@@ -70,6 +60,10 @@ export const AA_PAIRS = 5;
 
 /** The model every Gate Run uses, and must record. */
 export const REFERENCE_MODEL = "anthropic/claude-opus-5-5";
+
+/** The two commits a pair runs: the one before the change, and the change's. */
+export type Side = "base" | "candidate";
+const SIDES: readonly Side[] = ["base", "candidate"];
 
 /** What a batch is pooled under: variance is only pooled within one key. */
 export interface GateKey {
@@ -259,55 +253,70 @@ export interface PairRun {
 	candidate: RunOutcome;
 }
 
-export function isComplete(run: PairRun): boolean {
-	return run.base.complete && run.candidate.complete;
+export function isComplete(pair: PairRun): boolean {
+	return pair.base.complete && pair.candidate.complete;
+}
+
+/** A pair that cannot count and stops the Gate, with what its finished Runs cost. */
+export class PairStop extends Error {
+	constructor(
+		message: string,
+		readonly spent: number,
+		options?: ErrorOptions,
+	) {
+		super(message, options);
+	}
 }
 
 export interface Gathered {
 	/** Every finished pair, void ones included, by index. */
-	runs: PairRun[];
-	/** Cost per Run summed over every finished Run. */
+	pairs: PairRun[];
+	/** Cost per Run summed over every finished Run, a stopping pair's included. */
 	spent: number;
 	/** Whether the cap stopped the look short of `want` complete pairs. */
 	capped: boolean;
+	/** The first error a pair threw, which stops the Gate. */
+	stopped?: unknown;
 }
 
 /**
  * Runs pairs, up to `width` at once, until `want` of them are complete. A
  * pair starts only while complete and in-flight pairs number fewer than
  * `want` and `spent` is below `cap`; each finished pair adds both Runs' cost
- * to `spent`, and a void one frees its slot for a replacement. `runs` and
+ * to `spent`, and a void one frees its slot for a replacement. `pairs` and
  * `spent` carry an earlier look's pairs. After `runPair` throws, no pair
- * starts, the ones in flight finish, and the error is rethrown.
+ * starts and the ones in flight finish; the error comes back as `stopped`
+ * beside every pair that finished, and a `PairStop`'s spend is counted.
  */
 export async function gatherPairs(input: {
 	want: number;
 	cap: number;
 	width: number;
 	runPair: (index: number) => Promise<PairRun>;
-	runs?: PairRun[];
+	pairs?: PairRun[];
 	spent?: number;
 }): Promise<Gathered> {
 	const { want, cap, width, runPair } = input;
-	const runs = [...(input.runs ?? [])];
+	const pairs = [...(input.pairs ?? [])];
 	let spent = input.spent ?? 0;
-	let next = runs.reduce((top, run) => Math.max(top, run.index + 1), 0);
+	let next = pairs.reduce((top, pair) => Math.max(top, pair.index + 1), 0);
 	let inFlight = 0;
-	let failure: { error: unknown } | undefined;
-	const complete = () => runs.filter(isComplete).length;
+	let stopped: { error: unknown } | undefined;
+	const complete = () => pairs.filter(isComplete).length;
 
 	await new Promise<void>((resolve) => {
 		const fill = () => {
-			while (!failure && inFlight < width && complete() + inFlight < want && spent < cap) {
+			while (!stopped && inFlight < width && complete() + inFlight < want && spent < cap) {
 				inFlight++;
 				runPair(next++)
 					.then(
-						(run) => {
-							runs.push(run);
-							spent += run.base.cost + run.candidate.cost;
+						(pair) => {
+							pairs.push(pair);
+							spent += pair.base.cost + pair.candidate.cost;
 						},
 						(error: unknown) => {
-							failure ??= { error };
+							if (error instanceof PairStop) spent += error.spent;
+							stopped ??= { error };
 						},
 					)
 					.finally(() => {
@@ -319,9 +328,8 @@ export async function gatherPairs(input: {
 		};
 		fill();
 	});
-	if (failure) throw failure.error;
-	runs.sort((a, b) => a.index - b.index);
-	return { runs, spent, capped: complete() < want };
+	pairs.sort((a, b) => a.index - b.index);
+	return { pairs, spent, capped: !stopped && complete() < want, ...(stopped ? { stopped: stopped.error } : {}) };
 }
 
 /**
@@ -352,7 +360,7 @@ export function gateLapses(measures: RunMeasures): number {
 
 /** `gate.json`: everything the report needs besides the Runs' own records. */
 export interface GateRecord {
-	mode: "gate" | "aa";
+	kind: Batch["kind"];
 	/** Full shas; the same on both sides of an A/A run. */
 	base: string;
 	candidate: string;
@@ -396,8 +404,8 @@ async function appendToPool(file: string, batch: Batch): Promise<void> {
 	await rename(temporary, file);
 }
 
-function completePairs(runs: PairRun[]): PairFigures[] {
-	return runs.filter(isComplete).map(({ base, candidate }) => ({
+function completePairs(pairs: PairRun[]): PairFigures[] {
+	return pairs.filter(isComplete).map(({ base, candidate }) => ({
 		base: { cost: base.cost, lapses: base.lapses },
 		candidate: { cost: candidate.cost, lapses: candidate.lapses },
 	}));
@@ -432,17 +440,18 @@ export function report(gate: GateRecord, sides: Sides): void {
 	const voids = gate.pairs.length - complete;
 	const short = (sha: string) => sha.slice(0, 7);
 	console.log(
-		`\n${gate.mode === "aa" ? `A/A run of ${short(gate.base)}` : `Gate ${short(gate.base)} → ${short(gate.candidate)}`}; ` +
+		`\n${gate.kind === "aa" ? `A/A run of ${short(gate.base)}` : `Gate ${short(gate.base)} → ${short(gate.candidate)}`}; ` +
 			`key ${describeKey(key)}; ${complete} complete pair${complete === 1 ? "" : "s"}` +
 			(voids > 0 ? `, ${voids} void` : ""),
 	);
 
 	if (gate.stopped) {
 		console.log(`\nStopped without a verdict: ${gate.stopped}. Nothing was added to the pool.`);
-	} else if (gate.mode === "aa") {
+	} else if (gate.kind === "aa") {
 		const spread = aaSpread(completePairs(gate.pairs));
 		console.log(
-			`\nNo verdict (A/A). Cost log-ratio SD ${fixed(spread.costSd, 4)} (CV ${fixed(100 * spread.costCv, 1)}%); ` +
+			`\nNo verdict (A/A)${gate.capped ? `; the cap stopped it short of ${AA_PAIRS} complete pairs` : ""}. ` +
+				`Cost log-ratio SD ${fixed(spread.costSd, 4)} (CV ${fixed(100 * spread.costCv, 1)}%); ` +
 				`Lapse difference SD ${fixed(spread.lapseSd, 2)}.`,
 		);
 	} else {
@@ -478,7 +487,7 @@ export function report(gate: GateRecord, sides: Sides): void {
 	);
 
 	// Reported, not gated: each side over its complete Runs.
-	const aggregates = (["base", "candidate"] as const).map((side) => ({
+	const aggregates = SIDES.map((side) => ({
 		side,
 		runs: sides[side].filter((run) => run.complete),
 		aggregate: aggregate(sides[side]).get("pi-chart"),
@@ -491,7 +500,7 @@ export function report(gate: GateRecord, sides: Sides): void {
 	console.log("| Measure | base | candidate |");
 	console.log("| --- | ---: | ---: |");
 	row("Complete Runs", ({ runs, side }) => `${runs.length}/${sides[side].length}`);
-	row("Passes / graded steps", ({ runs }) => {
+	row("Passes / Graded Tasks", ({ runs }) => {
 		const graded = runs.flatMap((run) => run.steps.filter((step) => step.outcome !== "not graded"));
 		return `${graded.filter((step) => step.outcome === "Pass").length}/${graded.length}`;
 	});
@@ -540,7 +549,7 @@ export function report(gate: GateRecord, sides: Sides): void {
 async function measureSides(out: string, pairs: PairRun[]): Promise<Sides> {
 	const sides: Sides = { base: [], candidate: [] };
 	for (const { index } of pairs) {
-		for (const side of ["base", "candidate"] as const) {
+		for (const side of SIDES) {
 			sides[side].push(await measureRun(join(out, "runs", `${side}-${index}`)));
 		}
 	}
@@ -573,17 +582,7 @@ async function buildTree(sha: string): Promise<string> {
 }
 
 async function main(argv: string[]): Promise<void> {
-	const flag = (name: string) => {
-		const at = argv.indexOf(name);
-		return at === -1 ? undefined : argv[at + 1];
-	};
-	const positive = (name: string, fallback: number) => {
-		const raw = flag(name);
-		if (raw === undefined) return fallback;
-		const value = Number(raw);
-		if (!Number.isInteger(value) || value < 1) throw new Error(`${name} must be a positive integer, got ${raw}`);
-		return value;
-	};
+	const { flag, positive } = flagsOf(argv);
 
 	const reportFrom = flag("--report");
 	if (reportFrom) {
@@ -598,9 +597,9 @@ async function main(argv: string[]): Promise<void> {
 	if (aa) {
 		base = candidate = await resolveCommit(flag("--commit") ?? "HEAD");
 	} else {
-		const named = flag("--base");
-		if (!named) throw new Error("a Gate needs --base <the commit before the change>; or --aa, or --report <dir>");
-		base = await resolveCommit(named);
+		const baseRevision = flag("--base");
+		if (!baseRevision) throw new Error("a Gate needs --base <the commit before the change>; or --aa, or --report <dir>");
+		base = await resolveCommit(baseRevision);
 		candidate = await resolveCommit(flag("--candidate") ?? "HEAD");
 		if (!(await changesSource(base, candidate))) {
 			console.log(`${base.slice(0, 7)} → ${candidate.slice(0, 7)} does not touch src/: no Gate is needed.`);
@@ -608,8 +607,7 @@ async function main(argv: string[]): Promise<void> {
 		}
 	}
 
-	const named = flag("--workload") ?? "gate";
-	const workload = await loadWorkload(named.includes("/") ? resolve(named) : join(WORKLOADS, named));
+	const workload = await loadNamedWorkload(flag("--workload") ?? "gate");
 	const turns = turnsOf(workload);
 	const options: Options = {
 		workload: { name: workload.name, version: workload.version, commit: workload.commit },
@@ -657,10 +655,7 @@ async function main(argv: string[]): Promise<void> {
 			stamp,
 		};
 		const runPair = async (index: number): Promise<PairRun> => {
-			const sides = [
-				{ side: "base" as const, sha: base },
-				{ side: "candidate" as const, sha: candidate },
-			];
+			const sides = SIDES.map((side) => ({ side, sha: side === "base" ? base : candidate }));
 			// Alternate which side's job is created first, so start-order effects fall on both alike.
 			if (index % 2 === 1) sides.reverse();
 			const settled = await Promise.allSettled(
@@ -668,23 +663,32 @@ async function main(argv: string[]): Promise<void> {
 					runOne({ arm: "pi-chart", index, label: `${side}-${index}`, source: trees.get(sha) as string }, ctx),
 				),
 			);
-			const outcome: Partial<Record<"base" | "candidate", RunOutcome>> = {};
+			const outcome: Partial<Record<Side, RunOutcome>> = {};
+			let spent = 0;
+			let stop: { message: string; cause?: unknown } | undefined;
 			for (const [at, result] of settled.entries()) {
-				if (result.status === "rejected") throw result.reason;
-				const { record, measures } = result.value;
 				const { side } = sides[at] as (typeof sides)[number];
-				if (record.model !== undefined && record.model !== REFERENCE_MODEL) {
-					throw new Error(`${side}-${index} ran on ${record.model}, not ${REFERENCE_MODEL}`);
+				if (result.status === "rejected") {
+					const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+					stop ??= { message: `${side}-${index}: ${reason}`, cause: result.reason };
+					continue;
+				}
+				const { record, measures } = result.value;
+				spent += measures.cost;
+				// A complete Run always left a Journal naming its model; a void one may have left none.
+				if (record.model === undefined ? measures.complete : record.model !== REFERENCE_MODEL) {
+					stop ??= { message: `${side}-${index} ran on ${record.model ?? "no recorded model"}, not ${REFERENCE_MODEL}` };
 				}
 				outcome[side] = { cost: measures.cost, lapses: gateLapses(measures), complete: measures.complete };
 			}
+			if (stop) throw new PairStop(stop.message, spent, { cause: stop.cause });
 			const pair = { index, base: outcome.base as RunOutcome, candidate: outcome.candidate as RunOutcome };
 			log(`pair ${index}: ${isComplete(pair) ? "complete" : "void"}`);
 			return pair;
 		};
 
 		const gate: GateRecord = {
-			mode: aa ? "aa" : "gate",
+			kind: aa ? "aa" : "gate",
 			base,
 			candidate,
 			key,
@@ -697,15 +701,17 @@ async function main(argv: string[]): Promise<void> {
 			capped: false,
 			looks: [],
 		};
+		let stop: { error: unknown } | undefined;
 		try {
 			let gathered: Gathered | undefined;
 			for (const [look, { pairs, cap }] of LOOKS.entries()) {
 				const want = aa ? AA_PAIRS : pairs;
 				gate.cap = cap;
 				gathered = await gatherPairs({ want, cap, width: parallel, runPair, ...gathered });
-				Object.assign(gate, { pairs: gathered.runs, spent: gathered.spent, capped: gathered.capped });
+				Object.assign(gate, { pairs: gathered.pairs, spent: gathered.spent, capped: gathered.capped });
+				if (gathered.stopped !== undefined) throw gathered.stopped;
 				if (aa) break;
-				const current = completePairs(gathered.runs);
+				const current = completePairs(gathered.pairs);
 				if (gathered.capped) {
 					if (current.length > 0) gate.looks.push({ ...decide({ look, pairs: current, history, key }), verdict: "inconclusive" });
 					gate.verdict = "inconclusive";
@@ -720,15 +726,15 @@ async function main(argv: string[]): Promise<void> {
 			}
 		} catch (error) {
 			gate.stopped = error instanceof Error ? error.message : String(error);
-			await writeFile(join(out, "gate.json"), JSON.stringify(gate, null, "\t"));
-			throw error;
+			stop = { error };
 		}
 		await writeFile(join(out, "gate.json"), JSON.stringify(gate, null, "\t"));
+		if (stop) throw stop.error;
 
 		const batch = completePairs(gate.pairs);
 		if (batch.length >= 2) {
 			await appendToPool(poolFile, {
-				kind: gate.mode,
+				kind: gate.kind,
 				key,
 				date: new Date().toISOString(),
 				base,
