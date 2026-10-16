@@ -674,28 +674,28 @@ function callerWindow(
  */
 function recallOf(
 	tool: PullTool,
-	result: unknown,
+	details: unknown,
 	current: number,
 	window: () => Window,
 	own: string | undefined,
 ): { turns: number[]; class: RecallClass } | undefined {
-	const details = (result ?? {}) as { turns?: unknown; results?: unknown };
+	const fields = (details ?? {}) as { turns?: unknown; results?: unknown };
 	if (tool === "recall_earlier_turns") {
 		// The tool returns only Turns from before the tail of the very Call
 		// that made it: the window it would be checked against.
-		const turns = recalledTurns(tool, result, own);
+		const turns = recalledTurns(tool, details, own);
 		return turns.length > 0 ? { turns, class: "recall" } : undefined;
 	}
 	if (tool !== "recall_across_conversations") return undefined;
 
-	if (!Array.isArray(details.turns)) {
+	if (!Array.isArray(fields.turns)) {
 		// Recorded before results named their Turns: some came back, whose is unsaid.
-		return typeof details.results === "number" && details.results > 0 ? { turns: [], class: "unknown" } : undefined;
+		return typeof fields.results === "number" && fields.results > 0 ? { turns: [], class: "unknown" } : undefined;
 	}
 	// Without the Run's id, no result can be told for the Run's own.
-	if (own === undefined) return details.turns.length > 0 ? { turns: [], class: "unknown" } : undefined;
+	if (own === undefined) return fields.turns.length > 0 ? { turns: [], class: "unknown" } : undefined;
 	// The Call's own Turn is always in its window.
-	const owned = recalledTurns(tool, result, own).filter((turn) => turn !== current);
+	const owned = recalledTurns(tool, details, own).filter((turn) => turn !== current);
 	if (owned.length === 0) return undefined;
 	const held = window();
 	if (held === "unknown") return { turns: owned, class: "unknown" };
@@ -709,11 +709,11 @@ function recallOf(
  * details name; none for another tool, or a result that names no Turn or
  * whose own cannot be told.
  */
-function recalledTurns(tool: PullTool, result: unknown, own: string | undefined): number[] {
-	const details = (result ?? {}) as { turnIndices?: unknown; turns?: unknown };
-	if (tool === "recall_earlier_turns") return Array.isArray(details.turnIndices) ? (details.turnIndices as number[]) : [];
-	if (tool !== "recall_across_conversations" || own === undefined || !Array.isArray(details.turns)) return [];
-	return (details.turns as { conversationId: string; turnIndex: number }[])
+function recalledTurns(tool: PullTool, details: unknown, own: string | undefined): number[] {
+	const fields = (details ?? {}) as { turnIndices?: unknown; turns?: unknown };
+	if (tool === "recall_earlier_turns") return Array.isArray(fields.turnIndices) ? (fields.turnIndices as number[]) : [];
+	if (tool !== "recall_across_conversations" || own === undefined || !Array.isArray(fields.turns)) return [];
+	return (fields.turns as { conversationId: string; turnIndex: number }[])
 		.filter((each) => each.conversationId === own)
 		.map((each) => each.turnIndex);
 }
@@ -727,7 +727,7 @@ function recalledTurns(tool: PullTool, result: unknown, own: string | undefined)
 function invokedTool(message: HarnessMessage): { name: string | undefined; details: unknown } {
 	const xdev = (message.details as { xdev?: { tool?: unknown; mode?: unknown; inner?: unknown } } | undefined)?.xdev;
 	if (xdev?.mode === "execute" && typeof xdev.tool === "string" && xdev.tool !== "") {
-		return { name: xdev.tool, details: xdev.inner ?? {} };
+		return { name: xdev.tool, details: xdev.inner };
 	}
 	return { name: message.toolName, details: message.details };
 }

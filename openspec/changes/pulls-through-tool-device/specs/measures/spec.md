@@ -13,13 +13,18 @@ A device result marked as an error SHALL count as a call to the tool the device 
 
 #### Scenario: A failed device call still counts
 
-- **WHEN** a pi-chart Run writes to `xd://search_documentation` and the device reports an error
-- **THEN** that call SHALL count as 1 `search_documentation` Pull and SHALL NOT be a recall Pull
+- **WHEN** a pi-chart Run writes to `xd://recall_earlier_turns` and the device reports an error
+- **THEN** that call SHALL count as 1 `recall_earlier_turns` Pull and SHALL NOT be a recall Pull
 
 #### Scenario: A write to the bundle through the device is counted apart
 
 - **WHEN** a pi-chart Run writes to `xd://write_documentation` once
 - **THEN** its `write_documentation` count SHALL be 1, and no Pull count SHALL include that call
+
+#### Scenario: A Re-fetch through the device names the tool it ran
+
+- **WHEN** a pi-chart Run's device call to `xd://search_documentation` at Turn 8 returns the text a direct `search_documentation` call returned at Turn 5
+- **THEN** that result SHALL be a Re-fetch at distance 3 naming `search_documentation`
 
 #### Scenario: Reading a tool's documentation is not a Pull
 

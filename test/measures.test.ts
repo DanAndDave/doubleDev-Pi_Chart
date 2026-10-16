@@ -269,6 +269,15 @@ describe("Re-fetches", () => {
 			unknown: none,
 		});
 	});
+
+	test("name the tool a call through the tool device ran", async () => {
+		const measures = await measureRun(fixture("pi-chart-pulls"));
+
+		// Turn 8's device search repeats Turn 5's direct one.
+		expect(measures.refetches).toEqual([
+			{ turn: 8, call: 0, earlierTurn: 5, distance: 3, tool: "search_documentation", class: "left" },
+		]);
+	});
 });
 
 describe("compactions per Run", () => {
@@ -302,7 +311,7 @@ async function returned(name: string, tool: string): Promise<number> {
 	const { turns } = await readBranch(join(fixture(name), "journal.jsonl"));
 	const ran = (message: HarnessMessage) => {
 		const xdev = (message.details as { xdev?: { tool?: unknown; mode?: unknown } } | undefined)?.xdev;
-		return xdev?.mode === "execute" ? xdev.tool : message.toolName;
+		return xdev?.mode === "execute" && typeof xdev.tool === "string" && xdev.tool !== "" ? xdev.tool : message.toolName;
 	};
 	const results = turns.flatMap((turn) => turn.messages).filter((message) => ran(message) === tool);
 	return results.reduce((sum, result) => sum + approximateTokens([result]), 0);
@@ -316,7 +325,7 @@ describe("Pulls", () => {
 		expect(calls).toEqual({
 			recall_earlier_turns: 3,
 			recall_across_conversations: 5,
-			search_documentation: 2,
+			search_documentation: 3,
 			walk_documentation: 1,
 			codebase_structure: 1,
 		});

@@ -29,7 +29,7 @@ omp 18.11.0 builds device results in its tool-device dispatcher. A tool that run
 ### 1. Resolve from `details.xdev`, at the result
 
 `invokedTool(message)` returns `{ name, details }`:
-- **Device result** (`details.xdev.mode === "execute"` and `xdev.tool` a non-empty string): the name is `xdev.tool`, and the details are `xdev.inner ?? {}`.
+- **Device result** (`details.xdev.mode === "execute"` and `xdev.tool` a non-empty string): the name is `xdev.tool`, and the details are `xdev.inner`.
 - **Anything else**: the name is `message.toolName`, and the details are `message.details`.
 
 `recallOf` and `recalledTurns` take the resolved details instead of the raw message, so neither ever sees the wrapper. A failed device call has no `inner`, which resolves to empty details. That makes it a Pull with no Turns: counted, and never a recall Pull, the same as a failed direct call.
@@ -50,13 +50,14 @@ The seam is `measureRun(fixture(…))` in `test/measures.test.ts`, the one the e
 
 - **Pulls (`pi-chart-pulls`)**:
   - Rewrite into device form one successful `recall_earlier_turns` call that is a recall Pull, the failed `recall_earlier_turns` call, and one `search_documentation` call. The rewritten failed call takes the error shape, with no `inner`.
-  - Add one device `write_documentation` call, keeping the direct one. The expected `writes` goes from 1 to 2, the only expectation that changes.
+  - Add one device `write_documentation` call, keeping the direct one. The expected `writes` goes from 1 to 2.
   - Add a `read` of `xd://recall_earlier_turns` and a help-mode device result. They must leave every Pull count and token figure unchanged.
+  - Add one device `search_documentation` call at Turn 8 whose result repeats Turn 5's direct `search_documentation` result. It is a Re-fetch naming `search_documentation`, and the expected `search_documentation` count goes from 2 to 3.
   - Every other expected count and recall Pull holds unchanged. Token figures keep their oracle: the test's `returned` helper sums the estimate over every result of the tool. It currently selects those results by `toolName` and gains the device form (`details.xdev.tool` in execute mode). So the expected token sums move with the rewritten messages and stay exact.
 - **Plants (`pi-chart-plants`)**: rewrite the recall that sources a Plant into device form. The expected score (`source: "pull"`, `pull: "recall_earlier_turns"`) holds unchanged.
 - **Revisits (`pi-chart-revisits`)**: rewrite the recall that recovers the Revisit into device form. The expected score holds unchanged.
 
-These tests fail before the resolver exists and pass after it. Apart from `writes`, none of their expected figures changes.
+These tests fail before the resolver exists and pass after it. Apart from `writes`, the `search_documentation` count and the new Re-fetch, none of their expected figures changes.
 
 ## Risks / Trade-offs
 
