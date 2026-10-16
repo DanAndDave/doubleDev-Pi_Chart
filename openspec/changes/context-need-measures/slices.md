@@ -10,10 +10,11 @@
 | 4 | `plants-and-retention` | 3 | Plant kinds and placement, distance bands, source attribution × right/wrong, leaks, failed Probe as third Lapse route. |
 | 5 | `revisit-scoring` | 2 | Revisits declared in the Workload, scored held / left / not re-fetched with source and correctness. |
 | 6 | `gate-workload` | 4, 5 | The frozen 40-Turn, 6-step Gate Workload v1, probed on both Arms (evicts; planned ≤ $3.75 per pi-chart Run, measured $4.37 and accepted, so 20 Runs cost about $87). |
-| 7 | `regression-gate` | 6 | Paired Gate against the previous commit, Holm-corrected Cost and Lapse tests, two looks, pooled σ from an A/A batch, $75 cap, workflow step. |
+| 7 | `regression-gate` | 6, 14 | Paired Gate against the previous commit, Holm-corrected Cost and Lapse tests, two looks, pooled σ from an A/A batch, $75 cap, workflow step. |
 | 8 | `ablation` | 2, 6, 7 | Replay moves into `scripts/`; unit cut with sham, k = 4, Needed verdicts, calibration set, controls; Gate `--ablate`. |
 | 9 | `utilisation` | 2 | Lexical Used rule at default *s*, *k*; Utilisation per Call and Run by unit kind, "uncalibrated". |
 | 10 | `utilisation-calibration` | 8, 9 | κ grid against Needed, frozen per Workload version, PPI Needed-share row. |
 | 11 | `budget-sweep` | 7 | Sweep script on the Gate's objective, screen plus held-out confirm Workload. |
 | 12 | `evocode-subset` | 4 | omp agent for Harbor, probed EvoCode-Bench subset feeding the Measures script. |
 | 13 | `comparison-report` | 7, 10, 12 | Headline paired differences with intervals, second model, Ablation units, six caveats. |
+| 14 | `pulls-through-tool-device` | 3 | A call through omp's tool device (`write xd://<tool>`) counts as the tool it ran, at every Measure that reads a tool, so the Gate's recall Pulls and Plant sources are not read as zero. |

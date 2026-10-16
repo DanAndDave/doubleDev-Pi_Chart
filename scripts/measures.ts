@@ -413,7 +413,7 @@ function scoresOf(
 				const results = messages.slice(0, Math.max(scoredAt, 0)).filter(
 					(message) => message.role === "toolResult" && held(message),
 				);
-				const pulled = results.flatMap((message) => PULL_TOOLS.find((tool) => tool === message.toolName) ?? []);
+				const pulled = results.flatMap((message) => PULL_TOOLS.find((tool) => tool === invokedTool(message).name) ?? []);
 				if (window.opening !== undefined && turns[window.opening]?.prompt.includes(value)) source = "opening";
 				else if (inPin) source = "pin";
 				else if (tailHolds) source = window.tail.partial ? "unknown" : "tail";
@@ -566,9 +566,11 @@ function revisitsOf(
 				const turn = turns[at];
 				if (!turn) return [];
 				return turn.messages.flatMap((message, index) => {
-					const tool = message.role === "toolResult" ? PULL_TOOLS.find((name) => name === message.toolName) : undefined;
+					if (message.role !== "toolResult") return [];
+					const ran = invokedTool(message);
+					const tool = PULL_TOOLS.find((name) => name === ran.name);
 					if (!tool) return [];
-					const recalled = recallOf(tool, message, at, () => callerWindow(turn, index, windowAt), record.sessionId);
+					const recalled = recallOf(tool, ran.details, at, () => callerWindow(turn, index, windowAt), record.sessionId);
 					return recalled?.class === "recall" && recalled.turns.includes(earlier.turn) ? [tool] : [];
 				});
 			})[0];
@@ -635,14 +637,15 @@ function pullsOf(
 	for (const turn of turns) {
 		for (const [index, message] of turn.messages.entries()) {
 			if (message.role !== "toolResult") continue;
-			if (message.toolName === "write_documentation") writes++;
-			const tool = PULL_TOOLS.find((name) => name === message.toolName);
+			const ran = invokedTool(message);
+			if (ran.name === "write_documentation") writes++;
+			const tool = PULL_TOOLS.find((name) => name === ran.name);
 			if (!tool) continue;
 			pulls[tool].calls++;
 			pulls[tool].tokens += approximateTokens([message]);
 
 			const call = turn.calls[callerOf(turn, index) ?? index] ?? 0;
-			const recalled = recallOf(tool, message, turn.turnIndex, () => callerWindow(turn, index, windowAt), own);
+			const recalled = recallOf(tool, ran.details, turn.turnIndex, () => callerWindow(turn, index, windowAt), own);
 			if (recalled) {
 				const distance = recalled.turns.length > 0 ? { distance: turn.turnIndex - Math.max(...recalled.turns) } : {};
 				recalls.push({ turn: turn.turnIndex, call, tool, ...distance, class: recalled.class });
@@ -671,12 +674,12 @@ function callerWindow(
  */
 function recallOf(
 	tool: PullTool,
-	result: HarnessMessage,
+	result: unknown,
 	current: number,
 	window: () => Window,
 	own: string | undefined,
 ): { turns: number[]; class: RecallClass } | undefined {
-	const details = (result.details ?? {}) as { turns?: unknown; results?: unknown };
+	const details = (result ?? {}) as { turns?: unknown; results?: unknown };
 	if (tool === "recall_earlier_turns") {
 		// The tool returns only Turns from before the tail of the very Call
 		// that made it: the window it would be checked against.
@@ -703,16 +706,30 @@ function recallOf(
 
 /**
  * The Turns of the Run's own Conversation, `own`, a recall Pull's result
- * names; none for another tool, or a result that names no Turn or whose own
- * cannot be told.
+ * details name; none for another tool, or a result that names no Turn or
+ * whose own cannot be told.
  */
-function recalledTurns(tool: PullTool, result: HarnessMessage, own: string | undefined): number[] {
-	const details = (result.details ?? {}) as { turnIndices?: unknown; turns?: unknown };
+function recalledTurns(tool: PullTool, result: unknown, own: string | undefined): number[] {
+	const details = (result ?? {}) as { turnIndices?: unknown; turns?: unknown };
 	if (tool === "recall_earlier_turns") return Array.isArray(details.turnIndices) ? (details.turnIndices as number[]) : [];
 	if (tool !== "recall_across_conversations" || own === undefined || !Array.isArray(details.turns)) return [];
 	return (details.turns as { conversationId: string; turnIndex: number }[])
 		.filter((each) => each.conversationId === own)
 		.map((each) => each.turnIndex);
+}
+
+/**
+ * The tool a result came from, and that tool's own details. omp's tool device
+ * records a call to `xd://<tool>` as `write`, wrapping the details of the tool
+ * it ran; one that failed has none. Help mode and a `read` of `xd://<tool>`
+ * ran no tool, so they stay what the Journal recorded.
+ */
+function invokedTool(message: HarnessMessage): { name: string | undefined; details: unknown } {
+	const xdev = (message.details as { xdev?: { tool?: unknown; mode?: unknown; inner?: unknown } } | undefined)?.xdev;
+	if (xdev?.mode === "execute" && typeof xdev.tool === "string" && xdev.tool !== "") {
+		return { name: xdev.tool, details: xdev.inner ?? {} };
+	}
+	return { name: message.toolName, details: message.details };
 }
 
 function callOf(message: HarnessMessage, turn: number, subagent: boolean): Call | undefined {
@@ -765,7 +782,7 @@ function refetchesOf(turns: JournalTurn[], windowAt: (at: MessageAddress, call: 
 				call,
 				earlierTurn: earlier.turn,
 				distance: turn.turnIndex - earlier.turn,
-				tool: message.toolName ?? "",
+				tool: invokedTool(message).name ?? "",
 				class: classify(window, earlier),
 			});
 		}

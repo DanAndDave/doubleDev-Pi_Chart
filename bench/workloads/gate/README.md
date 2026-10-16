@@ -52,12 +52,12 @@ Distances and Positions are as `scripts/measures.ts` reported them for the three
 
 | Plant | Kind | Stated at | Probe | Distance | pi-chart Run 2 | pi-chart Run 3 | plain omp |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `reviewer` | literal, `notes/owners.md` | 6 | 17 | 11 | evicted, right (result) | evicted, right (result) | tail, right |
+| `reviewer` | literal, `notes/owners.md` | 6 | 17 | 11 | evicted, right (pull) | evicted, right (pull) | tail, right |
 | `test-tag` | constraint, prompt | 11 | 21 | 10 | evicted, wrong | evicted, right (tail) | tail, right |
 | `codename` | superseded, prompt | 24 | 26 | 2 | tail, right | tail, right | tail, right |
-| `ticket` | literal, prompt | 3 | 30 | 27 | evicted, right (result) | evicted, right (result) | tail, right |
+| `ticket` | literal, prompt | 3 | 30 | 27 | evicted, right (pull) | evicted, right (pull) | tail, right |
 | `owner-line` | constraint, `notes/conventions.md` | 29 | 32 | 3 | evicted, wrong | evicted, wrong | tail, right |
-| `row-limit` | superseded, `notes/limits-next.md` | 7 | 33 | 26 | evicted, right (result) | evicted, right (result) | tail, right |
+| `row-limit` | superseded, `notes/limits-next.md` | 7 | 33 | 26 | evicted, right (pull) | evicted, right (pull) | tail, right |
 | `ticket` | | 3 | 40 | 37 | evicted, wrong | evicted, wrong | tail, right |
 | `reviewer` | | 6 | 40 | 34 | evicted, wrong | evicted, wrong | tail, right |
 | `row-limit` | | 7 | 40 | 33 | evicted, wrong | evicted, wrong | tail, right |
@@ -65,16 +65,18 @@ Distances and Positions are as `scripts/measures.ts` reported them for the three
 
 `owner-line` sits in the ≤ 5 band, yet pi-chart evicted it on both Runs. The design anticipated this: only the 8–12 and ≥ 25 bands carry an eviction criterion.
 
-Every "right (result)" Source on pi-chart is a `recall_earlier_turns` Pull. pi-chart's agent calls it as `write xd://recall_earlier_turns`, so the journal records the tool as `write`, and `scripts/measures.ts` reports `Pulls, recall_earlier_turns: 0` for both Runs. The journals hold 6 such Pulls in Run 2 and 8 in Run 3. Fixing the instrument is a separate change.
+Every "right (pull)" Source on pi-chart is a `recall_earlier_turns` Pull. pi-chart's agent makes all of them through omp's tool device, as `write xd://recall_earlier_turns`. `scripts/measures.ts` counts 6 such Pulls on Run 2 and 8 on Run 3, and every one is a recall Pull.
 
 ## Revisits
 
+A Revisit marked "recall" also had a recall Pull return the Turn of its earlier read during the step.
+
 | Revisit | File | Read at | Step, first Turn | Distance | pi-chart Run 2 | pi-chart Run 3 | plain omp |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `samples` | `notes/samples.md` | 12 | `histogram`, 14 | 2 | tail, unfetched | evicted, left | tail, unfetched |
-| `rounding` | `notes/rounding.md` | 25 | `render`, 28 | 3 | tail, left | tail, held | tail, unfetched |
+| `samples` | `notes/samples.md` | 12 | `histogram`, 14 | 2 | tail, unfetched | evicted, left, recall | tail, unfetched |
+| `rounding` | `notes/rounding.md` | 25 | `render`, 28 | 3 | tail, left, recall | tail, held, recall | tail, unfetched |
 | `weights` | `notes/weights.md` | 10 | `weights`, 21 | 11 | evicted, left | evicted, left | tail, unfetched |
-| `legend` | `notes/legend.md` | 18 | `render`, 28 | 10 | evicted, left | evicted, left | tail, unfetched |
+| `legend` | `notes/legend.md` | 18 | `render`, 28 | 10 | evicted, left, recall | evicted, left, recall | tail, unfetched |
 | `layout` | `notes/format.md` | 9 | `summary`, 35 | 26 | evicted, left | evicted, left | tail, unfetched |
 | `thresholds` | `notes/buckets.md` | 1 | `summary`, 35 | 34 | evicted, left | evicted, left | tail, unfetched |
 

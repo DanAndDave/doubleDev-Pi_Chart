@@ -1,7 +1,7 @@
 # Proposal: Regression Gate
 
 Triage: needs-triage
-Blocked by: gate-workload
+Blocked by: gate-workload, pulls-through-tool-device
 
 ## Why
 

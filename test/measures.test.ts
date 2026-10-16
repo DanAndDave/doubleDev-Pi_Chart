@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { aggregate, measureRun, type RevisitScore, type RunMeasures, type Score } from "../scripts/measures.ts";
 import { readBranch } from "../src/journal.ts";
+import type { HarnessMessage } from "../src/messages.ts";
 import { approximateTokens } from "../src/tokens.ts";
 
 const fixture = (name: string) => new URL(`./fixtures/runs/${name}`, import.meta.url).pathname;
@@ -293,10 +294,17 @@ describe("compactions per Run", () => {
 	});
 });
 
-/** The estimated tokens of every result `tool` returned in the fixture's main Journal, summed. */
+/**
+ * The estimated tokens of every result `tool` returned in the fixture's main
+ * Journal, summed: called directly, or run through the tool device.
+ */
 async function returned(name: string, tool: string): Promise<number> {
 	const { turns } = await readBranch(join(fixture(name), "journal.jsonl"));
-	const results = turns.flatMap((turn) => turn.messages).filter((message) => message.toolName === tool);
+	const ran = (message: HarnessMessage) => {
+		const xdev = (message.details as { xdev?: { tool?: unknown; mode?: unknown } } | undefined)?.xdev;
+		return xdev?.mode === "execute" ? xdev.tool : message.toolName;
+	};
+	const results = turns.flatMap((turn) => turn.messages).filter((message) => ran(message) === tool);
 	return results.reduce((sum, result) => sum + approximateTokens([result]), 0);
 }
 
@@ -321,7 +329,7 @@ describe("Pulls", () => {
 	test("a write to the bundle is counted apart and is not a Pull", async () => {
 		const measures = await measureRun(fixture("pi-chart-pulls"));
 
-		expect(measures.writes).toBe(1);
+		expect(measures.writes).toBe(2);
 		expect(Object.keys(measures.pulls ?? {})).not.toContain("write_documentation");
 	});
 
