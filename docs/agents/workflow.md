@@ -60,7 +60,17 @@ Finish with `openspec validate <change-id>`. A change with no spec delta is an e
 
 ### 6. Close the slice
 
-`/skill:code-review` (parallel standards and spec axes), fix what it raises, commit, then `/opsx-archive <change-id>`: deltas merge into `openspec/specs/` and the folder moves to `openspec/changes/archive/<date>-<change-id>/`. Return to the phase 3 frontier.
+`/skill:code-review` (parallel standards and spec axes), fix what it raises, and commit.
+
+If the change's commits touch `src/`, run the Gate before archiving: `bun scripts/gate.ts --base <the commit before the change's first commit>` (the candidate defaults to `HEAD`). It runs paired Gate Workload Runs of both commits, each loaded from its own committed tree, and stops at no spend when the two differ only outside `src/`. Record the verdict and the output folder in the archive commit message. The verdict decides what happens next:
+
+- **pass**: archive.
+- **fail**: fix the change, commit, and run the Gate again.
+- **inconclusive**: the user decides.
+
+If the Gate says no A/A batch exists for its key (Workload version, model, omp version), it names `bun scripts/gate.ts --aa`; that batch costs about $44, so the user approves the spend first. A full Gate costs up to about $90 and takes over an hour.
+
+Then `/opsx-archive <change-id>`: deltas merge into `openspec/specs/` and the folder moves to `openspec/changes/archive/<date>-<change-id>/`. Return to the phase 3 frontier.
 
 ## Standing habits
 
