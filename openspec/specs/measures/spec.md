@@ -264,7 +264,7 @@ A recall Pull's distance SHALL be the Call's Turn minus the nearest Turn its res
 
 ### Requirement: Recall Lapses per Run by distance band
 
-Each recall Pull SHALL be a recovered Lapse. For each pi-chart Run, the Measures SHALL count recall Pulls and recall Pulls unknown, each in total and in the five distance bands Re-fetches use. A recall Pull unknown with no distance SHALL count in its total and in no band. These counts SHALL be reported beside the Re-fetch Lapses and never added to them. They SHALL read "n/a" for plain omp, which has no recall tool. A report covering both Arms SHALL state that the Arms recover Lapses by different routes, so that zero recall Pulls on plain omp does not read as zero Lapses.
+Each recall Pull SHALL be a recovered Lapse. For each pi-chart Run, the Measures SHALL count recall Pulls and recall Pulls unknown, each in total and in the five distance bands Re-fetches use. A recall Pull unknown with no distance SHALL count in its total and in no band. These counts SHALL be reported beside the Re-fetch Lapses and never added to them, except in the Gate's Lapses per Run, which compares pi-chart with pi-chart. They SHALL read "n/a" for plain omp, which has no recall tool. A report covering both Arms SHALL state that the Arms recover Lapses by different routes, so that zero recall Pulls on plain omp does not read as zero Lapses.
 
 #### Scenario: Recall Pulls are banded
 
@@ -387,7 +387,7 @@ Each score SHALL then be classed:
 
 ### Requirement: Failed Probes per Run by distance band
 
-A failed-Probe Lapse SHALL be a Lapse that was not recovered. For each Run, on both Arms, the Measures SHALL count failed-Probe Lapses and failed Probes unknown, each in total and in the five distance bands Re-fetches use. These counts SHALL be reported beside Re-fetch Lapses and recall Pulls and never added to them. A Run with no such score SHALL count zero in every band, not be absent.
+A failed-Probe Lapse SHALL be a Lapse that was not recovered. For each Run, on both Arms, the Measures SHALL count failed-Probe Lapses and failed Probes unknown, each in total and in the five distance bands Re-fetches use. These counts SHALL be reported beside Re-fetch Lapses and recall Pulls and never added to them, except in the Gate's Lapses per Run, which compares pi-chart with pi-chart. A Run with no such score SHALL count zero in every band, not be absent.
 
 #### Scenario: Failed Probes are banded
 
