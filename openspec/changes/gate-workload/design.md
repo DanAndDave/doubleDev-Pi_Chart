@@ -47,7 +47,7 @@ What the archived slices built, which this Workload must satisfy:
 
 ### 2. The work: one module over six steps
 
-The steps build `src/budget-table.ts`, a pure module that tabulates the token sizes of a Conversation's Turns against a Budget. It uses the repo's own `reconstructTurns`, `approximateTokens` and `shares`. Each step adds exports that its check imports from `./src/budget-table.ts` (and step 5 also from `./src/budget-render.ts`). The rules come from `overlay/notes/*.md`, written with fictional thresholds, labels and weights, so a check passes only if the agent used the notes.
+The steps build `src/budget-table.ts`, a pure module that tabulates the token sizes of a Conversation's Turns against a Budget. It uses the repo's own `reconstructTurns` and `approximateTokens`; `src/shares.ts` is only read and explained. Each step adds exports that its check imports from `./src/budget-table.ts` (and step 5 also from `./src/budget-render.ts`). The rules come from `overlay/notes/*.md`, written with fictional thresholds, labels and weights, so a check passes only if the agent used the notes.
 
 | Step | Turns | Builds |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ The steps build `src/budget-table.ts`, a pure module that tabulates the token si
 | `summary` | 35–39 | `summaryLine(...)`: the footer `notes/buckets.md` gives, laid out as `notes/format.md` says |
 | `recap` | 40 | ungraded; the final tools-forbidden Probe |
 
-Each step ends with a prompt that asks the agent to finish, run its own test file, and stop. Every prompt that is not a Probe ends "Do not modify anything under notes/ and do not spawn subagents." This keeps every Revisit file unedited and keeps every fetch in the main window.
+Each step ends with a prompt that asks the agent to finish, run its own test file, and stop. Every prompt that is not a Probe ends "Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents." (the first sentence was added after probe 1; see decision 6). This keeps every Revisit file unedited and keeps every fetch in the main window. The two work prompts that carry a constraint Probe (Turns 21 and 32) carry no suffix.
 
 Alternative considered: real changes to existing modules such as `src/assembler.ts`. Rejected because each Turn would read a 1,000-line file, as in `read-only-40`, which already costs $3.77 with no writing. A pure unit check of such a change would also pin incidental internals. A new module over small existing ones is still real code against this repo's types, and the window still fills, because pi-chart's tail evicts by Turn count as well as tokens.
 
@@ -70,7 +70,7 @@ Alternative considered: real changes to existing modules such as `src/assembler.
 | `ticket` | literal | prompt | 3 | 30 | 27 | ≥ 25 |
 | `reviewer` | literal | `notes/owners.md`, read at 6 | 6 | 17 | 11 | 8–12 |
 | `row-limit` | superseded | `notes/limits.md` (earlier, read at 4), `notes/limits-next.md` (value, read at 7) | 7 | 33 | 26 | ≥ 25 |
-| `codename` | superseded | prompt: earlier value at 22, value at 24 | 24 | 27 | 3 | ≤ 5 |
+| `codename` | superseded | prompt: earlier value at 22, value at 24 | 24 | 26 | 2 | ≤ 5 |
 | `test-tag` | constraint | prompt | 11 | 21 | 10 | 8–12 |
 | `owner-line` | constraint | `notes/conventions.md`, read at 29 | 29 | 32 | 3 | ≤ 5 |
 
@@ -92,10 +92,10 @@ The final Probe at Turn 40 forbids tools and asks for `ticket`, `reviewer`, `row
 | `weights` | `notes/weights.md` | 10 (`turn-sizes`) | `weights`, 21 | 11 | 8–12 |
 | `legend` | `notes/legend.md` | 18 (`histogram`) | `render`, 28 | 10 | 8–12 |
 | `layout` | `notes/format.md` | 9 (`turn-sizes`) | `summary`, 35 | 26 | ≥ 25 |
-| `thresholds` | `notes/buckets.md` | 1 (`buckets`) | `summary`, 35 | ≥ 28 | ≥ 25 |
+| `thresholds` | `notes/buckets.md` | 1 (`buckets`) | `summary`, 35 | 34 | ≥ 25 |
 
 - **The Revisit step's first prompt is the one that needs the file and names it.** Distance and Position are measured at the step's first Turn.
-- **No prompt between the earlier read and the step names the file.** Distance runs from the last read, so a prompt naming it in between would shorten the Revisit. An unprompted re-read by the agent does the same. That is measured, not prevented, and the README reports the distances the probe actually saw.
+- **No prompt between the earlier read and the step names the file.** Distance runs from the last read, so a prompt naming it in between would shorten the Revisit. An unprompted Re-fetch by the agent does the same. That is measured, not prevented, and the README reports the distances the probe actually saw.
 - **The step needs a part of the file that nothing before it put into code or prompts.**
   - `buckets.md` holds both the thresholds that step 1 encodes and the footer template that only step 6 uses.
   - `samples.md` is read in step 2 "for later" and used in step 3.
@@ -128,7 +128,7 @@ A step's check tests only that step's exports, plus earlier ones it calls throug
    - cut Turns that carry no Plant, Revisit or Probe, keeping every distance;
    - shorten reads.
 5. Probe spend stops at $30 for a decision from the user.
-6. **Outcome.** Probe 1 met the cost target but missed the Positions: the agent read `notes/owners.md` and `notes/conventions.md` at Turn 1, and most of `notes/` again at Turns 31–32. The fix was a suffix on every non-Probe prompt: "Read a file under notes/ only when this prompt names it." With it, Probes 2 and 3 put every Plant and Revisit at its planned Turn and evicted all eight in the 8–12 and ≥ 25 bands. They cost $3.83 and $4.91 (mean $4.37). The spread comes from agent behaviour, not the draft: `recall_earlier_turns` results of about 20k tokens each, and the tail's cache rewrite after each Eviction. The levers above save cents per Turn, so they could not close the gap reliably. The user accepted the measured mean as the per-Run figure instead of revising further.
+6. **Outcome.** Probe 1 met the cost target but missed the Positions: the agent read `notes/owners.md` and `notes/conventions.md` at Turn 1, and most of `notes/` again at Turns 31–32. The fix was a suffix on every non-Probe prompt: "Read a file under notes/ only when this prompt names it." With it, Probes 2 and 3 put every Plant and Revisit at its planned Turn and evicted all eight in the 8–12 and ≥ 25 bands. They cost $3.83 and $4.91 (mean $4.37). The spread comes from agent behaviour, not the draft: Run 3 made 8 `recall_earlier_turns` Pulls against Run 2's 6, at about 3k to 12k tokens each, and the tail's cache is rewritten after each Eviction. The levers above save cents per Turn, so they could not close the gap reliably. The user accepted the measured mean as the per-Run figure instead of revising further. The probe also showed an instrument gap: pi-chart's agent calls recall as `write xd://recall_earlier_turns`, and `scripts/measures.ts` matches Pulls by tool name, so it counts none of them. Fixing that is a separate change (Non-Goals).
 
 Pass rates are recorded, not gated. A step every Arm fails, or every Arm passes trivially, is reported to the user at freeze rather than tuned in a loop.
 
@@ -137,7 +137,7 @@ Freezing commits the Workload with a README, as in `read-only-40`. The README gi
 ## Risks / Trade-offs
 
 - [A single probe Run under $3.75 can still average over it] → freeze only with at least $0.25 headroom, or run a second pi-chart Run and judge the mean.
-- [The agent re-reads a Revisit file unprompted, shortening its distance] → measured per Run, not prevented. If the probe shows a Revisit out of band, move the read or reword the step, then probe again.
+- [The agent Re-fetches a Revisit file unprompted, shortening its distance] → measured per Run, not prevented. If the probe shows a Revisit out of band, move the read or reword the step, then probe again.
 - [The agent runs the whole repo suite, which needs Postgres and costs time] → each step's prompts name the one test file to run.
 - [The near band (≤ 5) may still be evicted when the tail drops to low water just before the Probe] → that is a real Position, recorded by the Measures. Only the 8–12 and ≥ 25 bands carry an eviction criterion.
 - [`graph.json` freshness is judged by mtimes, and a copied workspace has new ones] → `git archive` gives source files the commit time, older than the frozen graph, so the graph reads as fresh until the agent edits. The probe checks that `codebase_structure`, if called, does not mark the untouched files stale.

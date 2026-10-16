@@ -2,7 +2,7 @@
 
 The Gate Workload: 40 Turns over pi-chart's own source at `6eb0d6d`, in six graded steps and one ungraded recap. Together the steps build `src/budget-table.ts` and `src/budget-render.ts`: a small pure module that tabulates the token sizes of a Conversation's Turns against a Budget, on top of `reconstructTurns` and `approximateTokens`. The rules come from `overlay/notes/*.md`, which use fictional thresholds, weights, labels and layouts, so a check passes only if the agent followed the notes.
 
-Every prompt that is not a Probe ends with: "Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents." A Probe that allows tools ends with: "Do not modify any files and do not spawn subagents." The first part of the work-prompt suffix keeps the agent from reading notes files ahead of plan, which would put Plant values in its window early and shorten Revisit distances. The first probe Run, made without that part, did both.
+Every prompt that is not a Probe ends with: "Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents." A tools-allowed question Probe ends with: "Do not modify any files and do not spawn subagents." The two work prompts that carry a constraint Probe (Turns 21 and 32) end with neither. In every v1 probe Run, those two Turns read only the notes file they name and spawned no subagent. The first part of the work-prompt suffix keeps the agent from reading notes files ahead of plan, which would put Plant values in its window early and shorten Revisit distances. The first probe Run, made without that part, did both.
 
 Each graded step has a check in `checks/<step>.check.ts`, a pure `bun test` file with no Postgres and no network. Each step's last prompt names the one test file to run. The bundle is empty. `graphify-out/` was extracted with `--code-only` over a workspace built from this folder.
 
@@ -65,6 +65,8 @@ Distances and Positions are as `scripts/measures.ts` reported them for the three
 
 `owner-line` sits in the ≤ 5 band, yet pi-chart evicted it on both Runs. The design anticipated this: only the 8–12 and ≥ 25 bands carry an eviction criterion.
 
+Every "right (result)" Source on pi-chart is a `recall_earlier_turns` Pull. pi-chart's agent calls it as `write xd://recall_earlier_turns`, so the journal records the tool as `write`, and `scripts/measures.ts` reports `Pulls, recall_earlier_turns: 0` for both Runs. The journals hold 6 such Pulls in Run 2 and 8 in Run 3. Fixing the instrument is a separate change.
+
 ## Revisits
 
 | Revisit | File | Read at | Step, first Turn | Distance | pi-chart Run 2 | pi-chart Run 3 | plain omp |
@@ -86,9 +88,9 @@ Every Revisit step passed on every Run.
 | pi-chart, Run 3 | $4.9107 | 151 | 6 of 6 | 13 | 5 |
 | plain omp | $2.4845 | 129 | 6 of 6 | 0 | 0 |
 
-The pi-chart figure was planned at ≤ $3.75 per Run so that 20 Runs fit a $75 Gate. The two Runs of v1 average $4.37, and that figure was accepted: 20 Runs cost about $87. The difference between the two Runs comes from agent behaviour, not the prompts. Each `recall_earlier_turns` result was about 20k tokens, and after each Eviction the tail's cache is rewritten. Run 3 wrote 392k tokens of cache, against Run 2's 269k.
+The pi-chart figure was planned at ≤ $3.75 per Run so that 20 Runs fit a $75 Gate. The two Runs of v1 average $4.37, and that figure was accepted: 20 Runs cost about $87. The difference between the two Runs comes from agent behaviour, not the prompts. Run 3 made more `recall_earlier_turns` Pulls (8 against 6), whose results ran about 3k to 12k tokens each (character count / 4, from the journals). After each Eviction the tail's cache is also rewritten. Run 3 wrote 392k tokens of cache, against Run 2's 269k.
 
-The first probe Run used the earlier suffix, without the notes clause. It is not a v1 figure: the agent read `notes/owners.md` and `notes/conventions.md` at Turn 1, which put `reviewer` 16 Turns back and `owner-line` 31 back. It also re-read `notes/buckets.md` and `notes/format.md` at Turns 31–32, which moved two ≥ 25 Revisits to the near band.
+The first probe Run used the earlier suffix, without the notes clause. It is not a v1 figure: the agent read `notes/owners.md` and `notes/conventions.md` at Turn 1, which put `reviewer` 16 Turns back and `owner-line` 31 back. It also Re-fetched `notes/buckets.md` and `notes/format.md` at Turns 31–32, which moved two ≥ 25 Revisits to the near band.
 
 ## Authorship
 
