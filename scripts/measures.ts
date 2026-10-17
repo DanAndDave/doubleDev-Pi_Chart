@@ -52,10 +52,14 @@ export interface RunRecord {
 	workload: WorkloadId;
 	/** From the Journal's `model_change` entry. */
 	model?: string;
+	/** The `--thinking` level the Run passed omp; absent for omp's default. */
+	thinking?: string;
 	/** `omp --version`. */
 	omp: string;
 	cwd: string;
 	sessionId?: string;
+	/** The pi-chart commit a pi-chart Run loaded; absent when its tree did not match a commit under `src/`. */
+	piChart?: string;
 	/** As declared; one recorded before Plants had kinds has none, and is a literal. */
 	plants: (Omit<Plant, "kind"> & { kind?: PlantKind })[];
 	/** Every prompt the Run was to send, in Turn order. */
@@ -449,7 +453,7 @@ function scoresOf(
  * answered: the final reply, or a right constraint's first tool call
  * obeying it. An undeclared Plant is wrong.
  */
-function answerOf(
+export function answerOf(
 	plant: RunRecord["plants"][number] | undefined,
 	messages: HarnessMessage[],
 	reply: string,

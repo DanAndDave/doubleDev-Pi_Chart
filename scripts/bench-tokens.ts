@@ -398,6 +398,9 @@ if (reportFrom) {
 		turns: turns.length,
 		omp: (await run(["omp", "--version"])).trim(),
 	};
+	// A pi-chart Run names the commit it loaded only when this checkout's `src/` is that commit's.
+	const clean = Bun.spawnSync(["git", "-C", REPO, "diff", "--quiet", "HEAD", "--", "src/"]).exitCode === 0;
+	const commit = clean ? (await run(["git", "-C", REPO, "rev-parse", "HEAD"])).trim() : undefined;
 
 	// Built and installed once, before any Run: a Workload whose dependencies
 	// do not install stops the benchmark here, and every Run copies the same tree.
@@ -421,7 +424,7 @@ if (reportFrom) {
 		// Interleave the Arms so drift over the session (provider load, cache
 		// state) falls on both alike.
 		const jobs = Array.from({ length: runs }, (_, index) =>
-			arms.map((arm) => () => runOne({ arm, index, label: `${arm}-${index}`, source: REPO }, ctx)),
+			arms.map((arm) => () => runOne({ arm, index, label: `${arm}-${index}`, source: REPO, commit }, ctx)),
 		).flat();
 		log(`${jobs.length} Conversations × ${turns.length} Turns, ${parallel} at a time`);
 		const bench: Bench = { options, runs: await pool(jobs, parallel) };

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { holm, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "../scripts/stats.ts";
+import { holm, pooledVariance, sampleVariance, studentCdf, studentQuantile, wilson } from "../scripts/stats.ts";
 
 describe("Student t", () => {
 	test("quantiles match the tabled one-sided critical values", () => {
@@ -56,5 +56,18 @@ describe("Holm", () => {
 
 	test("the larger is not tested once the smaller is kept", () => {
 		expect(holm([0.0466, 0.03], 0.0467)).toEqual([false, false]);
+	});
+});
+
+describe("Wilson", () => {
+	test("6 of 20 gives 14.55% to 51.90%", () => {
+		const { lower, upper } = wilson(6, 20);
+		expect(lower).toBeCloseTo(0.1455, 4);
+		expect(upper).toBeCloseTo(0.519, 4);
+	});
+
+	test("the interval stays inside 0 to 1 at the extremes", () => {
+		expect(wilson(0, 10).lower).toBe(0);
+		expect(wilson(10, 10).upper).toBe(1);
 	});
 });

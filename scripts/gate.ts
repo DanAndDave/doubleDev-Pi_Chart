@@ -8,6 +8,12 @@
  *     bun scripts/gate.ts --aa [--commit <rev>]              # an A/A batch; commit defaults to HEAD
  *     bun scripts/gate.ts --report <dir>                     # re-print from gate.json
  *       [--out <dir>] [--parallel <pairs>] [--pool <file>] [--workload <name|path>] [--turn-timeout <s>]
+ *       [--ablate]
+ *
+ * With `--ablate`, once the verdict and the pool are written, Ablation
+ * (`scripts/ablate.ts`) draws 10 units per side across that side's complete
+ * Runs, with a $10 cap per side, apart from the Gate's own spend and cap.
+ * Each Run gets `ablation.json`; the report's Needed share row reads them.
  *
  * Each side loads pi-chart from a tree of its own commit (`git archive`,
  * then `bun install --frozen-lockfile`), so uncommitted edits reach neither,
@@ -37,11 +43,13 @@
  */
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { readSavedUrl } from "../src/config.ts";
+import { type AblateOptions, AblationStop, ablateRun, readAblation } from "./ablate.ts";
+import { type AblationRecord, shareLabel, summarise } from "./ablation.ts";
 import { aggregate, BANDS, bandLabel, int, measureRun, median, PULL_TOOLS, type RunMeasures, usd } from "./measures.ts";
-import { type Context, flagsOf, loadNamedWorkload, loadStore, log, type Options, runOne } from "./runs.ts";
+import { buildTree, type Context, flagsOf, loadNamedWorkload, log, type Options, resolveCommit, runOne } from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
 import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf, type WorkloadId } from "./workload.ts";
 
@@ -434,7 +442,7 @@ function aaSpread(pairs: PairFigures[]): { costSd: number; costCv: number; lapse
 	};
 }
 
-export function report(gate: GateRecord, sides: Sides): void {
+export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, AblationRecord[]>): void {
 	const { key } = gate;
 	const complete = gate.pairs.filter(isComplete).length;
 	const voids = gate.pairs.length - complete;
@@ -516,7 +524,7 @@ export function report(gate: GateRecord, sides: Sides): void {
 	for (const tool of PULL_TOOLS) {
 		row(`Pulls: ${tool}`, ({ runs }) => int(middle(runs, (run) => run.pulls?.[tool].calls)));
 	}
-	row("Needed share", () => "not measured");
+	row("Needed share", ({ side }) => neededCell(ablation[side]));
 	row("Utilisation", () => "not measured");
 
 	const probes = new Map<string, { id: string; turn: number }>();
@@ -556,30 +564,58 @@ async function measureSides(out: string, pairs: PairRun[]): Promise<Sides> {
 	return sides;
 }
 
-// ------------------------------------------------------------------ main --
+/** Units and cap per side with `--ablate` (design §12). */
+const ABLATE_UNITS = 10;
+const ABLATE_CAP = 10;
 
-/** The full sha a revision names; throws when it names no commit. */
-async function resolveCommit(revision: string): Promise<string> {
-	try {
-		return (await run(["git", "-C", REPO, "rev-parse", "--verify", "--quiet", `${revision}^{commit}`])).trim();
-	} catch {
-		throw new Error(`${revision} does not name a commit`);
+/**
+ * Ablation on one side's complete Runs, one Run at a time: 10 units spread
+ * across them, the earlier Runs taking any remainder, and the side's $10 cap
+ * shared, each Run getting what the earlier ones left.
+ */
+async function ablateSide(out: string, pairs: PairRun[], side: Side, sha: string, tree: string): Promise<void> {
+	const dirs = pairs.filter((pair) => pair[side].complete).map(({ index }) => join(out, "runs", `${side}-${index}`));
+	let spent = 0;
+	for (const [at, dir] of dirs.entries()) {
+		const units = Math.floor(ABLATE_UNITS / dirs.length) + (at < ABLATE_UNITS % dirs.length ? 1 : 0);
+		if (units === 0 || spent >= ABLATE_CAP) continue;
+		const seed = Math.floor(Math.random() * 2 ** 32);
+		const options: AblateOptions = { units, nulls: 0, controls: false, cap: ABLATE_CAP - spent, seed, commit: sha, tree, dryRun: false };
+		// A Run whose replay fails gets no record; the others still count, and so does what it spent.
+		const outcome = await ablateRun(dir, options).catch((error: unknown) => {
+			if (!(error instanceof AblationStop)) throw error;
+			spent += error.spent;
+			log(`${side}: no Ablation for ${basename(dir)}: ${error.message}`);
+			return undefined;
+		});
+		const record = outcome?.record;
+		if (!record) continue;
+		spent += record.spend;
+		log(`${side}: ablated ${basename(dir)} with seed ${record.seed}, ${record.draws.length} draws, ${usd(record.spend)}`);
 	}
 }
 
-/**
- * A pi-chart tree of `sha` in a temporary folder: its tracked files without
- * `bench/`, dependencies from its own lockfile, and a store the Runs can use.
- */
-async function buildTree(sha: string): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), `pichart-gate-${sha.slice(0, 7)}-`));
-	const archive = Bun.spawn(["git", "-C", REPO, "archive", sha, "--", ".", ":(exclude)bench"], { stdout: "pipe" });
-	const extract = Bun.spawn(["tar", "-x", "-C", dir], { stdin: archive.stdout });
-	if ((await archive.exited) !== 0 || (await extract.exited) !== 0) throw new Error(`could not extract ${sha} into ${dir}`);
-	await installDependencies(dir);
-	await loadStore(dir);
-	return dir;
+/** Each side's ablation records, from the Runs that have one. */
+async function ablationSides(out: string, pairs: PairRun[]): Promise<Record<Side, AblationRecord[]>> {
+	const records: Record<Side, AblationRecord[]> = { base: [], candidate: [] };
+	for (const { index } of pairs) {
+		for (const side of SIDES) {
+			const record = await readAblation(join(out, "runs", `${side}-${index}`));
+			if (record) records[side].push(record);
+		}
+	}
+	return records;
 }
+
+/** A side's Needed share with its interval and judged units, and what Ablation cost; "not measured" without records. */
+function neededCell(records: AblationRecord[]): string {
+	// Both sides of a Gate are pi-chart commits.
+	const summary = summarise(records).get("pi-chart");
+	if (!summary) return "not measured";
+	return `${shareLabel(summary.needed)} judged, ${usd(summary.spend)}`;
+}
+
+// ------------------------------------------------------------------ main --
 
 async function main(argv: string[]): Promise<void> {
 	const { flag, positive } = flagsOf(argv);
@@ -587,7 +623,7 @@ async function main(argv: string[]): Promise<void> {
 	const reportFrom = flag("--report");
 	if (reportFrom) {
 		const gate = JSON.parse(await readFile(join(reportFrom, "gate.json"), "utf8")) as GateRecord;
-		report(gate, await measureSides(reportFrom, gate.pairs));
+		report(gate, await measureSides(reportFrom, gate.pairs), await ablationSides(reportFrom, gate.pairs));
 		return;
 	}
 
@@ -660,7 +696,7 @@ async function main(argv: string[]): Promise<void> {
 			if (index % 2 === 1) sides.reverse();
 			const settled = await Promise.allSettled(
 				sides.map(({ side, sha }) =>
-					runOne({ arm: "pi-chart", index, label: `${side}-${index}`, source: trees.get(sha) as string }, ctx),
+					runOne({ arm: "pi-chart", index, label: `${side}-${index}`, source: trees.get(sha) as string, commit: sha }, ctx),
 				),
 			);
 			const outcome: Partial<Record<Side, RunOutcome>> = {};
@@ -746,8 +782,15 @@ async function main(argv: string[]): Promise<void> {
 		} else {
 			log(`${batch.length} complete pair${batch.length === 1 ? "" : "s"}: nothing added to the pool`);
 		}
+		if (argv.includes("--ablate")) {
+			// After the verdict and the pool write, so Needed share can change neither.
+			const sides = SIDES.map((side) => ({ side, sha: side === "base" ? base : candidate }));
+			// Both sides settle before either error surfaces: the trees go only after every replay has ended.
+			const settled = await Promise.allSettled(sides.map(({ side, sha }) => ablateSide(out, gate.pairs, side, sha, trees.get(sha) as string)));
+			for (const result of settled) if (result.status === "rejected") throw result.reason;
+		}
 		log(`record: ${out}`);
-		report(gate, await measureSides(out, gate.pairs));
+		report(gate, await measureSides(out, gate.pairs), await ablationSides(out, gate.pairs));
 	} finally {
 		for (const dir of temporary) await rm(dir, { recursive: true, force: true });
 	}

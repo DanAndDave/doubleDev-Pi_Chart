@@ -21,7 +21,7 @@
  * Conversation's Journal only there.
  */
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { SQL } from "bun";
@@ -31,7 +31,9 @@ import { SESSION_ROOT } from "../src/journal.ts";
 import { type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
 import {
 	editedFiles,
+	installDependencies,
 	loadWorkload,
+	REPO,
 	run,
 	type Step,
 	stepEndingAt,
@@ -78,6 +80,8 @@ export interface RunSpec {
 	label: string;
 	/** The root of the pi-chart tree: its extension, and its `PostgresStore`. */
 	source: string;
+	/** The commit `source` holds under `src/`, when it holds one; a pi-chart Run records it as `piChart`. */
+	commit?: string;
 }
 
 // --------------------------------------------------------------- journal --
@@ -194,7 +198,7 @@ async function runCheck(step: Step, cwd: string): Promise<CheckOutcome> {
 }
 
 /** A pi-chart Run's own database on the server, migrated before any Turn by `source`'s store. */
-async function createDatabase(server: string, name: string, source: string): Promise<string> {
+export async function createDatabase(server: string, name: string, source: string): Promise<string> {
 	const admin = new SQL(server);
 	try {
 		await admin.unsafe(`CREATE DATABASE ${name}`);
@@ -237,7 +241,7 @@ async function exportAccounting(url: string, source: string): Promise<Record<str
 	}
 }
 
-async function dropDatabase(server: string, name: string): Promise<void> {
+export async function dropDatabase(server: string, name: string): Promise<void> {
 	const admin = new SQL(server);
 	try {
 		await admin.unsafe(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
@@ -246,8 +250,59 @@ async function dropDatabase(server: string, name: string): Promise<void> {
 	}
 }
 
+/** The full sha a revision names; throws when it names no commit. */
+export async function resolveCommit(revision: string): Promise<string> {
+	try {
+		return (await run(["git", "-C", REPO, "rev-parse", "--verify", "--quiet", `${revision}^{commit}`])).trim();
+	} catch {
+		throw new Error(`${revision} does not name a commit`);
+	}
+}
+
+/**
+ * A pi-chart tree of `sha` in a temporary folder: its tracked files without
+ * `bench/`, dependencies from its own lockfile, and a store a Run can use.
+ */
+export async function buildTree(sha: string): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), `pichart-tree-${sha.slice(0, 7)}-`));
+	const archive = Bun.spawn(["git", "-C", REPO, "archive", sha, "--", ".", ":(exclude)bench"], { stdout: "pipe" });
+	const extract = Bun.spawn(["tar", "-x", "-C", dir], { stdin: archive.stdout });
+	if ((await archive.exited) !== 0 || (await extract.exited) !== 0) throw new Error(`could not extract ${sha} into ${dir}`);
+	await installDependencies(dir);
+	await loadStore(dir);
+	return dir;
+}
+
+/**
+ * Ends every process whose working directory is `dir` or under it, by
+ * process group: what a Run or a replay left running there, such as the
+ * graph extraction pi-chart starts detached. Linux only (`/proc`).
+ */
+export async function endProcessesIn(dir: string): Promise<void> {
+	const groups = new Set<number>();
+	for (const pid of await readdir("/proc").catch(() => [] as string[])) {
+		if (!/^\d+$/.test(pid)) continue;
+		const cwd = await readlink(`/proc/${pid}/cwd`).catch(() => undefined);
+		if (cwd !== dir && !cwd?.startsWith(`${dir}/`)) continue;
+		const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => undefined);
+		// Field 5 of `stat`, counted after the parenthesised command name.
+		const group = Number(stat?.slice(stat.lastIndexOf(")") + 2).split(" ")[2]);
+		if (Number.isInteger(group) && group > 1) groups.add(group);
+	}
+	// Never this process's own group: a child still running in the workspace would take the replay down with it.
+	const own = await readFile("/proc/self/stat", "utf8");
+	groups.delete(Number(own.slice(own.lastIndexOf(")") + 2).split(" ")[2]));
+	for (const group of groups) {
+		try {
+			process.kill(-group, "SIGKILL");
+		} catch {
+			// Already gone.
+		}
+	}
+}
+
 export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: RunRecord; measures: RunMeasures }> {
-	const { arm, index, label, source } = spec;
+	const { arm, index, label, source, commit } = spec;
 	const { workload, turns, options } = ctx;
 	const recordDir = join(ctx.out, "runs", label);
 	await mkdir(recordDir, { recursive: true });
@@ -261,6 +316,8 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 		cwd,
 		plants: workload.plants,
 		revisits: workload.revisits,
+		...(options.thinking ? { thinking: options.thinking } : {}),
+		...(arm === "pi-chart" && commit ? { piChart: commit } : {}),
 		prompts: turns.map(({ step, text, probes, tools }) => ({ step, text, probes, ...(tools === false ? { tools } : {}) })),
 		checks: [],
 	};
@@ -347,6 +404,7 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 		});
 	}
 	if (database) await attempt("drop its database", () => dropDatabase(ctx.server as string, database));
+	await attempt("end what still runs in its workspace", () => endProcessesIn(cwd));
 	await attempt("remove its workspace", () => rm(cwd, { recursive: true, force: true }));
 	await attempt("remove its bundle", () => rm(bundle, { recursive: true, force: true }));
 	await writeFile(join(recordDir, "run.json"), JSON.stringify(record, null, "\t"));

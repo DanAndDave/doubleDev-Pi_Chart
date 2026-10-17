@@ -70,6 +70,8 @@ If the change's commits touch `src/`, run the Gate before archiving: `bun script
 
 If the Gate says no A/A batch exists for its key (Workload name and version, model, omp version), it names `bun scripts/gate.ts --aa`; that batch cost $45.65 on gate v1, so the user approves the spend first. A full Gate costs up to about $90 and takes over an hour.
 
+`--ablate` is optional: once the verdict is in, it measures each side's Needed share (`scripts/ablate.ts`) for up to $20 more, $10 per side, and never changes the verdict.
+
 Then `/opsx-archive <change-id>`: deltas merge into `openspec/specs/` and the folder moves to `openspec/changes/archive/<date>-<change-id>/`. Return to the phase 3 frontier.
 
 ## Standing habits

@@ -1,7 +1,8 @@
 /**
- * The statistics the Gate (`scripts/gate.ts`) tests with: Student's t
- * distribution, sample and pooled variance, and Holm's correction. Pure
- * functions over numbers, with no dependency.
+ * The statistics the Gate (`scripts/gate.ts`) and Ablation (`scripts/ablation.ts`)
+ * test with: Student's t distribution, sample and pooled variance, Holm's
+ * correction and the Wilson interval. Pure functions over numbers, with no
+ * dependency.
  */
 
 /** ln Γ(x) for x > 0, by the Lanczos approximation (g = 7, nine terms). */
@@ -119,4 +120,22 @@ export function holm(pValues: number[], alpha: number): boolean[] {
 		rejected[at] = true;
 	}
 	return rejected;
+}
+
+/** z for a two-sided 95% interval. */
+const Z95 = 1.959964;
+
+/** The Wilson score 95% interval of a share of `k` in `n`; 0 to 1 when n = 0. */
+export function wilson(k: number, n: number): { lower: number; upper: number } {
+	if (n === 0) return { lower: 0, upper: 1 };
+	// The upper bound is the lower bound of the complement, so k = n gives exactly 1.
+	return { lower: wilsonLower(k, n), upper: 1 - wilsonLower(n - k, n) };
+}
+
+function wilsonLower(k: number, n: number): number {
+	const p = k / n;
+	const z2 = Z95 * Z95;
+	const centre = p + z2 / (2 * n);
+	const half = Z95 * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n));
+	return Math.max(0, (centre - half) / (1 + z2 / n));
 }
