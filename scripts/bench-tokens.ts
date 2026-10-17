@@ -54,7 +54,6 @@ import {
 	percent,
 	POSITIONS,
 	probeKey,
-	PULL_TOOLS,
 	READ_RATE,
 	REVISIT_CLASSES,
 	REVISIT_POSITIONS,
@@ -68,6 +67,8 @@ import {
 	usd,
 	WRITE_RATE,
 } from "./measures.ts";
+import { PULL_TOOLS } from "./units.ts";
+import { armHolds, CAVEATS, JUDGED_KINDS, KIND_LABEL } from "./utilisation.ts";
 import { type Arm, ARMS, type Context, flagsOf, loadNamedWorkload, log, type Options, pool, runOne } from "./runs.ts";
 import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf } from "./workload.ts";
 
@@ -171,6 +172,26 @@ function report(bench: Bench): void {
 	// A write adds nothing to the window: there are no tokens returned to count.
 	const writes = present.map((arm) => `${shown(figure(arm, pulled((r) => r.writes)), int)} | n/a`);
 	console.log(`| write_documentation (not a Pull) | ${writes.join(" | ")} |`);
+
+	// Each Run's own share, then the median: a kind the Arm cannot hold is
+	// `undefined` ("n/a"); a Run with no judged tokens of it, or a
+	// `bench.json` older than Utilisation, gives NaN ("—"). No ratio column:
+	// a ratio of shares invites reading one Arm as more Needed.
+	const used = (tally: { used: number; judged: number } | undefined) => (tally ? tally.used / tally.judged : Number.NaN);
+	console.log("\nUtilisation per Run (uncalibrated), median over complete Runs:\n");
+	console.log(`| Judged | ${present.join(" | ")} |`);
+	console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
+	const utilisationRows: [string, (run: RunMeasures) => number | undefined][] = [
+		["Total", (r) => used(r.utilisation)],
+		...JUDGED_KINDS.map((kind): [string, (run: RunMeasures) => number | undefined] => [
+			KIND_LABEL[kind],
+			(r) => (armHolds(r.arm, kind) ? used(r.utilisation?.byKind[kind]) : undefined),
+		]),
+	];
+	for (const [label, pick] of utilisationRows) {
+		console.log(`| ${label} | ${present.map((arm) => shown(figure(arm, pick), percent)).join(" | ")} |`);
+	}
+	console.log(`\n${CAVEATS.join(" ")}`);
 
 	type BandColumn = { arm: Arm; name: string; count: (run: RunMeasures, of: (banded: Banded) => number | undefined) => number | undefined };
 	const refetched = (kind: RefetchClass) => (run: RunMeasures, of: (banded: Banded) => number | undefined) =>

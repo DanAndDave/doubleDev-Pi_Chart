@@ -117,7 +117,7 @@ A judgement of whether a Call's Context Window held what its next action needed,
 _Avoid_: metric, stat, eval
 
 **Utilisation**:
-The share of a Call's Context Window, by tokens, that its next action Used. Cheap and correlational.
+The share of the tail and summary of a Call's Context Window, by tokens, that its next action Used. The Opening, the Pins and the Call's own Turn are not judged. Cheap and correlational.
 _Avoid_: relevance, hit rate, coverage
 
 **Used**:

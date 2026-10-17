@@ -234,6 +234,35 @@ describe("the window each Call sent", () => {
 	});
 });
 
+describe("Utilisation", () => {
+	test("a pi-chart Run sums its measured Calls; Turn-0 Calls are empty and Calls with no Accounting unknown", async () => {
+		const measures = await measureRun(fixture("pi-chart-evicted"));
+		const main = measures.calls.filter((call) => !call.subagent);
+		const figures = main.flatMap((call) => (typeof call.utilisation === "object" ? [call.utilisation] : []));
+
+		expect(main.filter((call) => call.turn === 0).map((call) => call.utilisation)).toEqual(["empty", "empty"]);
+		expect(main.filter((call) => call.window === "unknown").map((call) => call.utilisation)).toEqual(["unknown"]);
+		expect(measures.utilisation?.calls).toEqual({ measured: figures.length, empty: 2, unknown: 1 });
+		expect(measures.utilisation?.judged).toBe(figures.reduce((sum, figure) => sum + figure.judged, 0));
+		expect(measures.utilisation?.used).toBe(figures.reduce((sum, figure) => sum + figure.used, 0));
+		expect(measures.utilisation?.byKind.summary).toEqual({ used: 0, judged: 0 });
+	});
+
+	test("subagent Calls get no Utilisation", async () => {
+		const measures = await measureRun(fixture("complete"));
+
+		expect(measures.calls.filter((call) => call.subagent).map((call) => call.utilisation)).toEqual([undefined, undefined]);
+	});
+
+	test("a plain-omp Call after a compaction judges the summary", async () => {
+		const measures = await measureRun(fixture("vanilla-compacted"));
+		const [first] = measures.calls.filter((call) => call.turn === 9);
+
+		expect(typeof first?.utilisation === "object" && first.utilisation.byKind.summary?.judged).toBeGreaterThan(0);
+		expect(measures.utilisation?.byKind.pull).toEqual({ used: 0, judged: 0 });
+	});
+});
+
 describe("Re-fetches", () => {
 	test("a pi-chart Run's Re-fetches are held, left or unknown by the window of the Call that made them", async () => {
 		const measures = await measureRun(fixture("pi-chart-evicted"));

@@ -41,7 +41,6 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-	actionOf,
 	alone,
 	countCheck,
 	cut,
@@ -53,17 +52,16 @@ import {
 	probeMatches,
 	sham,
 	stability,
-	type Action,
 	type Condition,
 	type Counts,
 	type Fate,
 	type Rates,
 	type RequestBody,
 	type Resend,
-	type Unit,
 	type Usage,
 } from "./ablation.ts";
 import type { RunRecord } from "./measures.ts";
+import { type Action, actionOf, type Unit } from "./units.ts";
 import { isToolCall, type ContentBlock } from "../src/messages.ts";
 
 interface Block {

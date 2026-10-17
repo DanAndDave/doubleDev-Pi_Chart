@@ -48,9 +48,11 @@ import { basename, dirname, join, resolve } from "node:path";
 import { readSavedUrl } from "../src/config.ts";
 import { type AblateOptions, AblationStop, ablateRun, readAblation } from "./ablate.ts";
 import { type AblationRecord, shareLabel, summarise } from "./ablation.ts";
-import { aggregate, BANDS, bandLabel, int, measureRun, median, PULL_TOOLS, type RunMeasures, usd } from "./measures.ts";
+import { aggregate, BANDS, bandLabel, int, measureRun, median, percent, type RunMeasures, usd } from "./measures.ts";
 import { buildTree, type Context, flagsOf, loadNamedWorkload, log, type Options, resolveCommit, runOne } from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
+import { PULL_TOOLS } from "./units.ts";
+import { CAVEATS } from "./utilisation.ts";
 import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf, type WorkloadId } from "./workload.ts";
 
 /**
@@ -525,7 +527,10 @@ export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, Ab
 		row(`Pulls: ${tool}`, ({ runs }) => int(middle(runs, (run) => run.pulls?.[tool].calls)));
 	}
 	row("Needed share", ({ side }) => neededCell(ablation[side]));
-	row("Utilisation", () => "not measured");
+	row("Utilisation (uncalibrated)", ({ runs }) =>
+		percent(middle(runs, (run) => (run.utilisation ? run.utilisation.used / run.utilisation.judged : undefined))),
+	);
+	console.log(`\n${CAVEATS.join(" ")}`);
 
 	const probes = new Map<string, { id: string; turn: number }>();
 	for (const { aggregate: figures } of aggregates) {

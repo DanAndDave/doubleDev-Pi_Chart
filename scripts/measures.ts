@@ -22,6 +22,8 @@ import { readBranch, readJournal, type Compaction, type JournalTurn, type Messag
 import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
 import { pinTexts } from "../src/pins.ts";
 import { approximateTokens } from "../src/tokens.ts";
+import { PULL_TOOLS, type PullTool } from "./units.ts";
+import { armHolds, CAVEATS, type CallUtilisation, JUDGED_KINDS, KIND_LABEL, type RunUtilisation, utilisationOf } from "./utilisation.ts";
 import type { Plant, PlantKind, Revisit, Turn, WorkloadId } from "./workload.ts";
 
 export const READ_RATE = 0.1;
@@ -86,6 +88,8 @@ export interface Call {
 	floor: number;
 	/** What the Call's Context Window held; absent on a subagent's. */
 	window?: Window;
+	/** The share of its tail and summary its next action Used, or why it has none; absent on a subagent's. */
+	utilisation?: CallUtilisation | "empty" | "unknown";
 }
 
 /**
@@ -159,16 +163,6 @@ export interface Refetch {
 	tool: string;
 	class: RefetchClass;
 }
-
-/** The tools that bring content into the window because the agent asked; pi-chart's only. */
-export const PULL_TOOLS = [
-	"recall_earlier_turns",
-	"recall_across_conversations",
-	"search_documentation",
-	"walk_documentation",
-	"codebase_structure",
-] as const;
-export type PullTool = (typeof PULL_TOOLS)[number];
 
 /** Whether the window of the Call that pulled is known to have let go of what came back. */
 export type RecallClass = "recall" | "unknown";
@@ -287,6 +281,8 @@ export interface RunMeasures {
 	recall?: Record<RecallClass, Banded>;
 	/** One score per Revisit whose step the Run completed; a `bench.json` written before Revisits were scored lacks it. */
 	revisits: RevisitScore[];
+	/** Utilisation summed over the main Calls; a `bench.json` written before Utilisation was measured lacks it. */
+	utilisation?: RunUtilisation;
 }
 
 export async function readRecord(dir: string): Promise<RunRecord> {
@@ -300,14 +296,20 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 	const windowAt = await windowReader(dir, record, compactions);
 
 	const calls: Call[] = [];
+	const main: { call: Call; address: MessageAddress; window: Window }[] = [];
 	for (const turn of turns) {
 		for (const [index, message] of turn.messages.entries()) {
 			const call = callOf(message, turn.turnIndex, false);
 			if (!call) continue;
-			call.window = windowAt({ turn: turn.turnIndex, message: index }, turn.calls[index] ?? 0);
+			const address = { turn: turn.turnIndex, message: index };
+			call.window = windowAt(address, turn.calls[index] ?? 0);
 			calls.push(call);
+			main.push({ call, address, window: call.window });
 		}
 	}
+	const pins = pinTexts(entries);
+	const utilisation = utilisationOf(turns, main, compactions, pins, record.cwd);
+	for (const [at, { call }] of main.entries()) call.utilisation = utilisation.calls[at];
 	const subagentDir = join(dir, "subagents");
 	const subagentFiles = (await readdir(subagentDir).catch(() => [] as string[]))
 		.filter((name) => name.endsWith(".jsonl"))
@@ -331,7 +333,7 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		steps.push({ id: prompt.step, outcome: pass === undefined ? "not graded" : pass ? "Pass" : "Fail" });
 	}
 
-	const plants = scoresOf(record, turns, completed, windowAt, compactions, pinTexts(entries));
+	const plants = scoresOf(record, turns, completed, windowAt, compactions, pins);
 	const probeBanded = (kind: ScoreClass) =>
 		band(plants.filter((score) => score.class === kind).map((score) => score.distance));
 
@@ -357,6 +359,7 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		refetch: { held: banded("held"), left: banded("left"), unknown: banded("unknown") },
 		...(record.arm === "pi-chart" ? pullsOf(turns, windowAt, record.sessionId) : { compactions: compactions.length }),
 		revisits: revisitsOf(record, turns, completed, windowAt, steps),
+		utilisation: utilisation.run,
 	};
 }
 
@@ -1182,6 +1185,18 @@ if (import.meta.main) {
 			banded("Recall Pulls unknown", measures.recall.unknown);
 		} else {
 			console.log("Pulls: n/a");
+		}
+		const u = measures.utilisation;
+		if (u) {
+			const share = (tally: { used: number; judged: number }) => percent(tally.used / tally.judged);
+			console.log(`Utilisation (uncalibrated): ${share(u)} of ${int(u.judged)} judged tokens`);
+			const kinds = JUDGED_KINDS.map((kind) =>
+				armHolds(record.arm, kind) ? `${KIND_LABEL[kind]} ${share(u.byKind[kind])} of ${int(u.byKind[kind].judged)}` : `${KIND_LABEL[kind]} n/a`,
+			);
+			console.log(
+				`  ${kinds.join(", ")}; Calls measured ${u.calls.measured}, nothing to judge ${u.calls.empty}, unknown ${u.calls.unknown}`,
+			);
+			for (const caveat of CAVEATS) console.log(`  ${caveat}`);
 		}
 	}
 }

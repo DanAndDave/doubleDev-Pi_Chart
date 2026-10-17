@@ -33,7 +33,6 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 import {
-	actionOf,
 	addSet,
 	calibrationSet,
 	controlUnit,
@@ -47,7 +46,6 @@ import {
 	setFor,
 	shareLabel,
 	summarise,
-	unitsOf,
 	verdict,
 	type AblationRecord,
 	type CalibrationFile,
@@ -58,9 +56,9 @@ import {
 	type Fate,
 	type Rates,
 	type Resend,
-	type Unit,
 } from "./ablation.ts";
 import { measureRun, readRecord, type RunRecord, usd } from "./measures.ts";
+import { actionOf, type Unit, unitsOf } from "./units.ts";
 import { callFiles, OFFSET_BAND, replay } from "./replay.ts";
 import { journalMessages, type CallFile, type DrawResult, type Plan, type PlannedDraw } from "./replay-ext.ts";
 import { flagsOf, pool, resolveCommit } from "./runs.ts";

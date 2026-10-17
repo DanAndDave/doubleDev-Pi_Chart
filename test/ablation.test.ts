@@ -6,7 +6,6 @@ import { join } from "node:path";
 import {
 	addSet,
 	alone,
-	actionOf,
 	calibrationSet,
 	controlUnit,
 	countCheck,
@@ -22,8 +21,6 @@ import {
 	stability,
 	setFor,
 	summarise,
-	targetOf,
-	unitsOf,
 	verdict,
 	type AblationRecord,
 	type CalibrationFile,
@@ -35,10 +32,10 @@ import {
 	type Fate,
 	type Location,
 	type RequestBody,
-	type Unit,
 	type Verdict,
 } from "../scripts/ablation.ts";
 import { measureRun, type Score } from "../scripts/measures.ts";
+import { actionOf, targetOf, type Unit, unitsOf } from "../scripts/units.ts";
 import { EVICTION_NOTICE, OPENING_FRAMING } from "../src/assembler.ts";
 import type { TurnAccounting } from "../src/accounting.ts";
 import { readBranch, type JournalTurn } from "../src/journal.ts";
