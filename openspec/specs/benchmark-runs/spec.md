@@ -183,7 +183,8 @@ A step whose id has a check in `checks/` SHALL be a Graded Task. After the Turn 
 Each Run SHALL leave a record folder holding:
 - the Arm and Run index;
 - the Workload's name, version and commit;
-- the model id the Conversation ran on and the omp version;
+- the model id the Conversation ran on, the thinking level it was given, if any, and the omp version;
+- for a pi-chart Run, the commit of the pi-chart tree it loaded, when that tree matched the commit under `src/`;
 - the Workload's Plants as declared, with kind, earlier value and files;
 - the Workload's Revisits as declared;
 - the prompt of each Turn in order, with the Plants it probes and whether it forbids tools;
@@ -220,3 +221,13 @@ A Turn that fails to complete SHALL end the Run, and the record SHALL still be w
 
 - **WHEN** a Run ends and no Turn changed a Revisit's file
 - **THEN** its record SHALL name no Turn for that file
+
+#### Scenario: A Gate side's Run names its commit
+
+- **WHEN** a Gate's candidate-side pi-chart Run ends
+- **THEN** its record SHALL name the candidate commit as the pi-chart commit it loaded
+
+#### Scenario: A benchmark from an edited tree names no commit
+
+- **WHEN** a benchmark's pi-chart Run loads a tree with uncommitted changes under `src/`
+- **THEN** its record SHALL name no pi-chart commit
