@@ -137,7 +137,7 @@ Every Gate and A/A run SHALL write to its output folder each Run's record, under
 - the spend against the cap;
 - for each side over its complete Runs: Pass rate, Cost per Pass, Re-fetches held, left and unknown, Pulls per tool, and Retention per Probe and by distance band;
 - for each side, Needed share with its Wilson 95% interval and judged units, plus the Ablation spend, when the Gate ran with `--ablate`; "not measured" otherwise;
-- Utilisation as "not measured".
+- for each side, the median Utilisation per Run over its complete Runs, labelled "uncalibrated", recomputed from the Runs' records.
 
 The report SHALL be re-printable from the output folder alone, with no Run and no model Call.
 
@@ -155,3 +155,8 @@ The report SHALL be re-printable from the output folder alone, with no Run and n
 
 - **WHEN** the report is asked for from the output folder of a Gate run with `--ablate`
 - **THEN** it SHALL print each side's Needed share from the Runs' ablation records, with no model Call
+
+#### Scenario: Re-printing a Gate gives each side's Utilisation
+
+- **WHEN** the report is asked for from the output folder of a Gate whose Runs were recorded before Utilisation existed
+- **THEN** it SHALL print each side's median Utilisation per Run, labelled "uncalibrated", recomputed from the Runs' records with no model Call

@@ -2,7 +2,7 @@
  * What a main Call's Context Window is made of, outside its own Turn, and
  * what a tool call aimed at: one definition shared by Ablation, which cuts
  * the units, and Utilisation, which judges them
- * (`openspec/changes/utilisation/design.md` §1). Pure: no I/O.
+ * (`openspec/changes/archive/2026-10-17-utilisation/design.md` §1). Pure: no I/O.
  */
 import type { Compaction, JournalTurn, MessageAddress } from "../src/journal.ts";
 import { isToolCall, messageText, renderToolCall, type HarnessMessage } from "../src/messages.ts";

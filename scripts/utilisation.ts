@@ -1,7 +1,7 @@
 /**
  * Utilisation, pure: which tail and summary units of a main Call's Context
  * Window its next action Used, by lexical signals alone, and their share of
- * the window's judged tokens (`openspec/changes/utilisation/design.md`
+ * the window's judged tokens (`openspec/changes/archive/2026-10-17-utilisation/design.md`
  * §2–§9). Uncalibrated: Used is never Needed.
  */
 import type { Compaction, JournalTurn, MessageAddress } from "../src/journal.ts";
