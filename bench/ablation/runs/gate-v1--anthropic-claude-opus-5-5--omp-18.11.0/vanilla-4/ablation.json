@@ -1,0 +1,2657 @@
+{
+	"arm": "vanilla",
+	"index": 4,
+	"seed": 3823723995,
+	"cap": 10,
+	"band": [
+		43,
+		46
+	],
+	"omp": "omp/18.11.0",
+	"draws": [
+		{
+			"call": 16,
+			"turn": 3,
+			"condition": "null",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 1,
+				"callId": "toolu_011Kxhvc1fe8Mg2xNEGtGW7m",
+				"tool": "read",
+				"tokens": 1013,
+				"counted": 809,
+				"duplicated": false,
+				"location": "messages[11][1] messages[12][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 21408,
+				"cut": 20599,
+				"alone": 809
+			},
+			"original": [
+				{
+					"tool": "edit",
+					"target": "src/budget-table.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 250,
+						"cacheRead": 12629,
+						"cacheWrite": 8732
+					},
+					"spend": 0.07738980000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 169,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.0076602000000000016
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 173,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.007740200000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 173,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.007740200000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 250,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.009280200000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 250,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.009280200000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 251,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.009300200000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 247,
+						"cacheRead": 21361,
+						"cacheWrite": 0
+					},
+					"spend": 0.009220200000000001
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.13761120000000007
+		},
+		{
+			"call": 29,
+			"turn": 6,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 3,
+				"callId": "toolu_01QxbCGPrqNaZjUXWzLQezNA",
+				"tool": "edit",
+				"tokens": 864,
+				"counted": 440,
+				"duplicated": false,
+				"location": "messages[33][0] messages[34][0]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 27326,
+				"cut": 26886,
+				"alone": 440
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I created `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes all 15 tests on the first run.\n\n- **Boundary tests (10):** each bucket's first value and the value just below the next bucket (0, 349, 350, 1799, 1800, 6999, 7000, 23999, 24000), plus `Number.MAX_SAFE_INTEGER` for `huge`.\n- **RangeError tests (5):** -1, -0.5, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`.\n\nThe project's other tests live under `test/`; I put this file in `src/` because that's the path you gave.\n\nI've noted that the export row limit is now 2875 rows, replacing the 3150 from `notes/limits.md`, and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 298,
+						"cacheRead": 12629,
+						"cacheWrite": 14649
+					},
+					"spend": 0.12568580000000004
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes all 15 tests on the first run.\n\n- **Boundaries:** each bucket's first value and the value just below it (0, 349/350, 1799/1800, 6999/7000, 23999/24000). It also checks `Number.MAX_SAFE_INTEGER` lands in `huge`.\n- **`RangeError`:** -1, -0.5, `NaN`, `Infinity` and `-Infinity` must each throw it.\n\nThe project's other tests live in `test/` and import from `../src/`. This file is in `src/` because you asked for it there, so its import is `./budget-table.ts`.\n\nI've noted that the dashboard team's export cap is now 2875 rows, replacing 3150, and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 312,
+						"cacheRead": 27278,
+						"cacheWrite": 0
+					},
+					"spend": 0.011703600000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I created `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes on the first run: 15 tests, 0 failures.\n\n- **Boundaries:** 10 tests cover both sides of every threshold (0, 349, 350, 1799, 1800, 6999, 7000, 23999, 24000) plus a very large value, each checked against the bucket it should land in.\n- **Errors:** 5 tests confirm a `RangeError` for -1, -0.5, `NaN`, `Infinity` and `-Infinity`.\n\nThe other test files in this repo live in `test/` and import from `../src/`. I put this one in `src/` because you asked for that path, so it's the only test file there.\n\nI've noted the dashboard team's new export limit from `notes/limits-next.md`, which replaces the earlier one, and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 339,
+						"cacheRead": 27278,
+						"cacheWrite": 0
+					},
+					"spend": 0.012243600000000004
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes: 15 tests, 0 failures, on the first run.\n\n- **Boundaries:** ten cases check the size just below and exactly at each threshold. They cover 0 and 349 (`tiny`), 350 and 1799 (`small`), 1800 and 6999 (`medium`), 7000 and 23999 (`large`), and 24000 and `Number.MAX_SAFE_INTEGER` (`huge`).\n- **`RangeError`:** five cases confirm that −1, −0.5, `NaN`, `Infinity` and `-Infinity` each throw it.\n\nThe file sits next to the module in `src/` as you asked, though the repo's other tests live in `test/` (for example `test/accounting.test.ts`).\n\nI've noted the new export row limit from `notes/limits-next.md`, which replaces the earlier one, and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 318,
+						"cacheRead": 27278,
+						"cacheWrite": 0
+					},
+					"spend": 0.011823600000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passed on the first run: 15 tests, 0 failures.\n\n- **Boundaries:** 10 tests check the last size in each bucket and the first size of the next: 0 and 349 are `tiny`, 350 and 1799 `small`, 1800 and 6999 `medium`, 7000 and 23999 `large`, and 24000 and `Number.MAX_SAFE_INTEGER` `huge`.\n- **RangeError:** 5 tests check that -1, -0.5, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`.\n\nThe project's other tests live in `test/`, not `src/`. I put this file at the path you named.\n\nI've noted that the dashboard export limit is now 2875 rows (from `notes/limits-next.md`), replacing the earlier 3150. It isn't in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 337,
+						"cacheRead": 22327,
+						"cacheWrite": 4511
+					},
+					"spend": 0.04730140000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I created `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes all 15 tests on the first run.\n\n- **Boundary tests (10):** both sides of each threshold, 0/349, 350/1799, 1800/6999, 7000/23999, plus 24000 and `Number.MAX_SAFE_INTEGER` for `huge`.\n- **Error tests (5):** `-1`, `-0.5`, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`.\n\nThe other test files live under `test/`; I put this one in `src/` because that's the path you named.\n\nI've noted the dashboard team's revised export limit from `notes/limits-next.md` (2875 rows, replacing the earlier 3150) and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 267,
+						"cacheRead": 26838,
+						"cacheWrite": 0
+					},
+					"spend": 0.010715600000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I created `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passed on the first run: 15 tests, none failed.\n\n- **Boundaries (10 tests):** each threshold is checked from both sides. 0 and 349 are `tiny`, 350 and 1799 `small`, 1800 and 6999 `medium`, 7000 and 23999 `large`, and 24000 and `Number.MAX_SAFE_INTEGER` `huge`.\n- **`RangeError` (5 tests):** -1, -0.5, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`.\n\nThe file sits in `src/` next to the module, as you asked. The project's other tests live in `test/`, so you may want to move it there.\n\nI've noted the new export limit in `notes/limits-next.md`, which replaces the old one, and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 300,
+						"cacheRead": 26838,
+						"cacheWrite": 0
+					},
+					"spend": 0.011375600000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes all 15 tests on the first run.\n\n- **Boundaries (10 tests):** both sides of each threshold: 0 and 349 → tiny, 350 and 1799 → small, 1800 and 6999 → medium, 7000 and 23999 → large, 24000 → huge. It also checks that a very large size (`Number.MAX_SAFE_INTEGER`) is huge.\n- **RangeError (5 tests):** -1, -0.5, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`.\n\nThe project's other tests live in `test/`, not `src/`; I put this file in `src/` because you asked for it there.\n\nI've noted the revised export limit from `notes/limits-next.md` and haven't put it in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 328,
+						"cacheRead": 26838,
+						"cacheWrite": 0
+					},
+					"spend": 0.011935600000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.24278480000000008
+		},
+		{
+			"call": 51,
+			"turn": 14,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 5,
+				"callId": "toolu_013WAGR3KHCdDA4NEfzYWk6J",
+				"tool": "edit",
+				"tokens": 863,
+				"counted": 343,
+				"duplicated": false,
+				"location": "messages[47][0] messages[48][0]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 38108,
+				"cut": 37765,
+				"alone": 343
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 328,
+						"cacheRead": 22327,
+						"cacheWrite": 15734
+					},
+					"spend": 0.13691340000000005
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 229,
+						"cacheRead": 38061,
+						"cacheWrite": 0
+					},
+					"spend": 0.012208200000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 351,
+						"cacheRead": 38061,
+						"cacheWrite": 0
+					},
+					"spend": 0.014648200000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 360,
+						"cacheRead": 38061,
+						"cacheWrite": 0
+					},
+					"spend": 0.014828200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"text": "The test file already exists, so it doesn't get the `// suite: TT-5082` line.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 498,
+						"cacheRead": 24983,
+						"cacheWrite": 12735
+					},
+					"spend": 0.11685260000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 245,
+						"cacheRead": 37718,
+						"cacheWrite": 0
+					},
+					"spend": 0.012459600000000005
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 414,
+						"cacheRead": 37718,
+						"cacheWrite": 0
+					},
+					"spend": 0.015839600000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 395,
+						"cacheRead": 37718,
+						"cacheWrite": 0
+					},
+					"spend": 0.015459600000000004
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.33920940000000016
+		},
+		{
+			"call": 52,
+			"turn": 14,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 5,
+				"callId": "toolu_019qEzxBjTCcfuN7Wr25tLB9",
+				"tool": "read",
+				"tokens": 192,
+				"counted": 183,
+				"duplicated": false,
+				"location": "messages[45][0] messages[46][0]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 38464,
+				"cut": 38281,
+				"alone": 183
+			},
+			"original": [
+				{
+					"tool": "edit",
+					"target": "src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 803,
+						"cacheRead": 38061,
+						"cacheWrite": 358
+					},
+					"spend": 0.026544200000000007
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 738,
+						"cacheRead": 38419,
+						"cacheWrite": 0
+					},
+					"spend": 0.0224518
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 783,
+						"cacheRead": 38419,
+						"cacheWrite": 0
+					},
+					"spend": 0.023351800000000006
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 791,
+						"cacheRead": 38419,
+						"cacheWrite": 0
+					},
+					"spend": 0.023511800000000006
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 789,
+						"cacheRead": 24436,
+						"cacheWrite": 13800
+					},
+					"spend": 0.13107520000000006
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 736,
+						"cacheRead": 38236,
+						"cacheWrite": 0
+					},
+					"spend": 0.0223752
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 853,
+						"cacheRead": 38236,
+						"cacheWrite": 0
+					},
+					"spend": 0.024715200000000007
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 825,
+						"cacheRead": 38236,
+						"cacheWrite": 0
+					},
+					"spend": 0.024155200000000005
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.29818040000000007
+		},
+		{
+			"call": 56,
+			"turn": 15,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 0,
+				"callId": "toolu_01289gnJ1SLV1W3gwvwAZo2x",
+				"tool": "bash",
+				"tokens": 180,
+				"counted": 218,
+				"duplicated": true,
+				"location": "messages[7][0] messages[8][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 39593,
+				"cut": 39375,
+				"alone": 218
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Mechanically, yes: `shares()` doesn't care about units, so you could pass one claim per bucket (the total tokens of its Turns) with the Budget as the room, and get back how much each bucket may spend. But nothing we've been asked to build splits a Budget across buckets, since the summary line only compares the total with the Budget. And `shares()` gives every claim an equal share and hands what small claims don't use to the rest, so the `large` and `huge` buckets would be squeezed hardest; that suits it only if squeezing the biggest Turns is what you want.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 312,
+						"cacheRead": 12629,
+						"cacheWrite": 26918
+					},
+					"spend": 0.2241178000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Mechanically it could: pass each bucket's total tokens as `sizes` and the Budget as `room`, and you get how much of the Budget each bucket may spend, since `shares()` doesn't care about units. But it probably wouldn't help here. It deliberately splits evenly and frees up only what small claims don't use, so the largest buckets get the least room relative to their size, it takes no account of the bucket weights in `notes/weights.md`, and nothing planned for `budget-table` divides the Budget among buckets (the summary line only compares the total to the Budget).",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 323,
+						"cacheRead": 39547,
+						"cacheWrite": 0
+					},
+					"spend": 0.014377400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Mechanically it could: `shares()` doesn't care about units, so you could pass each bucket's total tokens as the sizes and the Budget as the room, and every bucket whose total fits within an equal share would get all of it. It probably isn't the right tool, though, because it deliberately splits equally and gives the largest claim the least room, and it knows nothing about the bucket weights from `notes/weights.md`; nothing in the notes I've read so far says the Budget is split across buckets at all, since the summary line only uses it to compute `used=` as a percentage of the total.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 340,
+						"cacheRead": 39547,
+						"cacheWrite": 0
+					},
+					"spend": 0.014717400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Mechanically it could: give it each bucket's total tokens as `sizes` and the Budget as `room`, and it returns how much of the Budget each bucket may spend, with the small buckets paid in full and the largest buckets splitting what's left equally. It wouldn't help with what we've planned, though, because the notes I've read never split a Budget across buckets: the Budget only appears in the summary line's `used=<p>%`, and bucket weights multiply each Turn's size rather than dividing a fixed amount, while `shares()` is built to trim competing pieces down to fit, deliberately giving the largest claim the least room.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 361,
+						"cacheRead": 39547,
+						"cacheWrite": 0
+					},
+					"spend": 0.015137400000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "Mechanically it could: if you pass each bucket's total tokens as a claim and the Budget as the room, `shares()` gives every bucket that fits within an equal share its full total, and splits what remains evenly among the larger buckets. It isn't a good fit for this module, though, because nothing in the notes so far asks for splitting a Budget across buckets (the summary line only compares the total against the Budget as `used=<p>%`). Its whole design also deliberately holds back the largest claim, while `notes/weights.md` weighs larger buckets more heavily, up to 2.25 for `huge`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 332,
+						"cacheRead": 15862,
+						"cacheWrite": 23467
+					},
+					"spend": 0.19755640000000008
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "Mechanically it could: give `shares()` each bucket's total tokens as the claims and the Budget as the room, and it hands each bucket an equal slice, caps any bucket that needs less at its own total, and passes the unused room on to the rest. It's probably the wrong tool, though. Nothing in the notes I've read asks for a Budget to be split across buckets (the summary only reports total use as a percentage of the Budget), and `shares()` is designed to hold back the largest claims, which works against the bucket weights in `notes/weights.md`, where larger buckets count more (`huge` is weighted 2.25).",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 375,
+						"cacheRead": 39329,
+						"cacheWrite": 0
+					},
+					"spend": 0.015373800000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "It would only help if you want an equal split. Passing each bucket's total tokens as a claim and the Budget as `room` gives every bucket an equal share, with whatever a small bucket doesn't need handed on to the larger ones, and a bucket never gets more than its own total. That split is deliberately the opposite of proportional: it gives the largest claim the least room relative to its size, which goes against the bucket weights that count `huge` Turns 2.25 times. The notes I've read so far also never split the Budget across buckets; the summary line only compares the total against it as `used=<p>%`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 331,
+						"cacheRead": 39329,
+						"cacheWrite": 0
+					},
+					"spend": 0.014493800000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "Mechanically, yes: give `shares()` each bucket's total size as `sizes` and the Budget as `room`. Every bucket gets an equal part, a bucket that needs less than its part takes only what it needs, and the leftover goes to the larger buckets, rounded down to whole tokens. Whether that helps is doubtful, though: `shares()` deliberately holds the biggest claims back and knows nothing about bucket weights. The notes so far don't ask for a Budget to be divided between buckets anyway. The weights there scale each Turn's size, and the summary only compares the total against the Budget.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 363,
+						"cacheRead": 39329,
+						"cacheWrite": 0
+					},
+					"spend": 0.015133800000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.5109078000000002
+		},
+		{
+			"call": 57,
+			"turn": 16,
+			"condition": "control",
+			"fate": "judged",
+			"unit": {
+				"kind": "turn",
+				"turn": 5,
+				"text": "Read notes/owners.md: it names the reviewer of this work, whom I will ask about later. Do not write the reviewer into any file. Then give bucketOf a short JSDoc comment. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"callIds": [
+					"toolu_019qEzxBjTCcfuN7Wr25tLB9",
+					"toolu_01Rnz2DfA4g6mcaxbhiFwyAj",
+					"toolu_013WAGR3KHCdDA4NEfzYWk6J"
+				],
+				"tokens": 2081,
+				"counted": 1114,
+				"duplicated": false,
+				"location": "messages[44][0] messages[45][0] messages[45][1] messages[46][0] messages[46][1] messages[47][0] messages[48][0] messages[49][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 40800,
+				"cut": 39666,
+				"alone": 1114
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "harrow-73",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 7,
+						"cacheRead": 38419,
+						"cacheWrite": 2333
+					},
+					"spend": 0.026503800000000008
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "harrow-73",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 7,
+						"cacheRead": 40752,
+						"cacheWrite": 0
+					},
+					"spend": 0.008306400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "harrow-73",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 7,
+						"cacheRead": 40752,
+						"cacheWrite": 0
+					},
+					"spend": 0.008306400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "harrow-73",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 7,
+						"cacheRead": 40752,
+						"cacheWrite": 0
+					},
+					"spend": 0.008306400000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 44,
+						"cacheRead": 24333,
+						"cacheWrite": 15285
+					},
+					"spend": 0.12804260000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 48,
+						"cacheRead": 39618,
+						"cacheWrite": 0
+					},
+					"spend": 0.008899600000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 45,
+						"cacheRead": 39618,
+						"cacheWrite": 0
+					},
+					"spend": 0.008839600000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 43,
+						"cacheRead": 39618,
+						"cacheWrite": 0
+					},
+					"spend": 0.008799600000000003
+				}
+			],
+			"verdict": "needed",
+			"spend": 0.20600440000000006
+		},
+		{
+			"call": 64,
+			"turn": 19,
+			"condition": "ablate",
+			"fate": "unstable",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 12,
+				"callId": "toolu_01RGbkSiRuUVaELh6Y5LWiBA",
+				"tool": "read",
+				"tokens": 514,
+				"counted": 433,
+				"duplicated": false,
+				"location": "messages[93][1] messages[94][0]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 44805,
+				"cut": 44372,
+				"alone": 433
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				},
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 107,
+						"cacheRead": 12629,
+						"cacheWrite": 32129
+					},
+					"spend": 0.2617138000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 190,
+						"cacheRead": 44758,
+						"cacheWrite": 0
+					},
+					"spend": 0.012767600000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 188,
+						"cacheRead": 44758,
+						"cacheWrite": 0
+					},
+					"spend": 0.012727600000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 103,
+						"cacheRead": 44758,
+						"cacheWrite": 0
+					},
+					"spend": 0.011027600000000004
+				}
+			],
+			"spend": 0.29823660000000013
+		},
+		{
+			"call": 65,
+			"turn": 19,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 9,
+				"callId": "toolu_01238njpAbjAi8YUpoSMNNV7",
+				"tool": "edit",
+				"tokens": 1379,
+				"counted": 407,
+				"duplicated": false,
+				"location": "messages[75][1] messages[76][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 45024,
+				"cut": 44617,
+				"alone": 407
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing. It counts sizes per bucket from largest to smallest, keeps empty buckets at 0 but leaves out an empty `huge`, and throws `RangeError` on a bad size. `bun test src/budget-table.test.ts` passes on the first run, 22 of 22.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 108,
+						"cacheRead": 12629,
+						"cacheWrite": 32348
+					},
+					"spend": 0.26347780000000015
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing. It counts sizes per bucket from largest to smallest, keeps empty buckets at 0 but leaves out `huge` when it's empty, and throws `RangeError` on a negative or non-finite size via `bucketOf`. `bun test src/budget-table.test.ts` passes on the first run, 22 of 22.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 123,
+						"cacheRead": 44977,
+						"cacheWrite": 0
+					},
+					"spend": 0.011463400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing, and `bun test src/budget-table.test.ts` passes on the first run, 22 of 22. It counts the sizes per bucket from largest to smallest, keeps empty buckets at 0 except an empty `huge`, which is left out, and passes on the `RangeError` from `bucketOf` for a negative size.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 121,
+						"cacheRead": 44977,
+						"cacheWrite": 0
+					},
+					"spend": 0.011423400000000004
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing, and `bun test src/budget-table.test.ts` passes 22 of 22. It already follows `notes/samples.md`: buckets from largest to smallest, empty buckets kept at 0 except `huge`, which is left out when empty. It also already rejects negative or non-finite sizes with a `RangeError` through `bucketOf`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 129,
+						"cacheRead": 44977,
+						"cacheWrite": 0
+					},
+					"spend": 0.011583400000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing, and `bun test src/budget-table.test.ts` passes on the first run, 22 of 22. It counts sizes per bucket from largest to smallest, gives empty buckets an entry with count 0, leaves out `huge` when it's empty, and throws a `RangeError` for a negative size because `bucketOf` does.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 123,
+						"cacheRead": 31568,
+						"cacheWrite": 13002
+					},
+					"spend": 0.11279760000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing. It counts sizes per bucket from largest to smallest, keeps empty buckets at 0 but leaves out an empty `huge`, and throws a `RangeError` for a negative or non-finite size. `bun test src/budget-table.test.ts` passes on the first run, 22 of 22.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 114,
+						"cacheRead": 44570,
+						"cacheWrite": 0
+					},
+					"spend": 0.011202000000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing. It counts sizes per bucket from largest to smallest, keeps empty buckets at 0 except an empty `huge`, which it leaves out, and throws `RangeError` on a bad size through `bucketOf`. `bun test src/budget-table.test.ts` passes on the first run, 22 of 22.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 119,
+						"cacheRead": 44570,
+						"cacheWrite": 0
+					},
+					"spend": 0.011302000000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`histogram` was already finished, so I changed nothing. It counts sizes per bucket from largest to smallest, keeps empty buckets at zero but leaves out an empty `huge`, and rejects bad sizes with a `RangeError` through `bucketOf`. `bun test src/budget-table.test.ts` passes on the first run, 22 of 22.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 118,
+						"cacheRead": 44570,
+						"cacheWrite": 0
+					},
+					"spend": 0.011282000000000004
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.44453160000000025
+		},
+		{
+			"call": 67,
+			"turn": 20,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 3,
+				"callId": "toolu_01QxbCGPrqNaZjUXWzLQezNA",
+				"tool": "edit",
+				"tokens": 864,
+				"counted": 440,
+				"duplicated": false,
+				"location": "messages[33][0] messages[34][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 46486,
+				"cut": 46046,
+				"alone": 440
+			},
+			"original": [
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"text": "`weighted` is a requested, exported domain function, so the tiny-function rule's public-API exception covers it.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 207,
+						"cacheRead": 40752,
+						"cacheWrite": 5687
+					},
+					"spend": 0.05779440000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 169,
+						"cacheRead": 46439,
+						"cacheWrite": 0
+					},
+					"spend": 0.012675800000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 190,
+						"cacheRead": 46439,
+						"cacheWrite": 0
+					},
+					"spend": 0.013095800000000005
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts src/budget-weights.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"text": "`weighted` is a one-expression body, but it's an exported, user-requested API (stable domain concept), so the tiny-function rule's exemption applies.",
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 218,
+						"cacheRead": 46439,
+						"cacheWrite": 0
+					},
+					"spend": 0.013655800000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"text": "`weighted` is an exported function you asked for by name, so it falls under the rule's public-API exception and stays as is.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 210,
+						"cacheRead": 22327,
+						"cacheWrite": 23672
+					},
+					"spend": 0.19804940000000007
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"text": "`weighted` is a one-line function, but it's an exported, user-requested public API, which the tiny-function rule explicitly allows.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 214,
+						"cacheRead": 45999,
+						"cacheWrite": 0
+					},
+					"spend": 0.013487800000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-weights.test.ts src/budget-table.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"text": "`weighted` has a one-expression body, but it is an exported API that you asked for by name, so it falls under the rule's allowed exceptions.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 219,
+						"cacheRead": 45999,
+						"cacheWrite": 0
+					},
+					"spend": 0.013587800000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts src/budget-weights.test.ts && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"text": "`weighted` has a one-line body, but it's an exported function you asked for by name, which the tiny-function rule allows. Running the tests:",
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 216,
+						"cacheRead": 45999,
+						"cacheWrite": 0
+					},
+					"spend": 0.013527800000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.3358746000000001
+		},
+		{
+			"call": 69,
+			"turn": 21,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 8,
+				"callId": "toolu_019siAKPqRR2hgKXcJXdgbXv",
+				"tool": "read",
+				"tokens": 438,
+				"counted": 354,
+				"duplicated": false,
+				"location": "messages[69][0] messages[70][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 47505,
+				"cut": 47151,
+				"alone": 354
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/messages.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/messages.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 211,
+						"cacheRead": 44977,
+						"cacheWrite": 2480
+					},
+					"spend": 0.033071400000000015
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/messages.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 160,
+						"cacheRead": 47457,
+						"cacheWrite": 0
+					},
+					"spend": 0.012707400000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/messages.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 184,
+						"cacheRead": 47457,
+						"cacheWrite": 0
+					},
+					"spend": 0.013187400000000004
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "A Turn holds a `prompt` (the text of the user prompt that opens it), its `messages` (every message belonging to it, prompt first, in order), and an optional `index` (its position in the Conversation), which is set only for Turns loaded from the Thread Store, not for ones rebuilt from the live message array.\n\nI've noted the release codename, MARLIN-6, and won't write it into any file.",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 182,
+						"cacheRead": 47457,
+						"cacheWrite": 0
+					},
+					"spend": 0.013147400000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "A Turn holds its user prompt's text (`prompt`), every message that belongs to it in order with the prompt first (`messages`), and, only for Turns loaded from the Thread Store, its position in the Conversation (`index`).\n\nI've noted the release codename, MARLIN-6, and haven't written it into any file.",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 131,
+						"cacheRead": 30463,
+						"cacheWrite": 16640
+					},
+					"spend": 0.14184860000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "A Turn holds the user prompt's text (`prompt`), every message that belongs to it in order with the prompt message first (`messages`), and, only for Turns loaded from the Thread Store, an optional `index` giving its position in the Conversation.\n\nI've noted the release codename and haven't written it into any file.",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 133,
+						"cacheRead": 47103,
+						"cacheWrite": 0
+					},
+					"spend": 0.012096600000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "A Turn holds its user prompt's text as `prompt` and every message that belongs to it, prompt first, in order, as `messages`. It can also hold an optional `index`, its position in the Conversation, which is set only when the Turn comes from the Thread Store.\n\nI've noted the release codename and haven't written it into any file.",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 127,
+						"cacheRead": 47103,
+						"cacheWrite": 0
+					},
+					"spend": 0.011976600000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "A Turn holds the text of its user prompt (`prompt`), every message that belongs to it in order with the prompt first (`messages`), and optionally its position in the Conversation (`index`), which is set only when it was loaded from the Thread Store.\n\nI've noted the release codename and haven't written it into any file.",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 133,
+						"cacheRead": 47103,
+						"cacheWrite": 0
+					},
+					"spend": 0.012096600000000002
+				}
+			],
+			"verdict": "needed",
+			"spend": 0.2501320000000001
+		},
+		{
+			"call": 79,
+			"turn": 24,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 11,
+				"callId": "toolu_019HQq4WgcGthJNScFHX4KNf",
+				"tool": "edit",
+				"tokens": 1645,
+				"counted": 879,
+				"duplicated": false,
+				"location": "messages[87][2] messages[88][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 53481,
+				"cut": 52603,
+				"alone": 879
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`weighted()` now rounds each weighted size to the nearest multiple of 10, with halves rounding up, as `notes/rounding.md` says. Both test files pass, 35 of 35, and the type checker reports no errors in either.\n\n- **Change:** each weight-multiplied size goes through `Math.round(x / 10) * 10`, and the JSDoc now describes the rounding. `Math.round` rounds halves up, which is safe here because sizes are never negative.\n- **Updated expectations:** in `src/budget-weights.test.ts`, the boundary values that weren't already multiples of 10 now expect rounded results: 349 → 170, 1799 → 1800, 6999 → 8750, 23999 → 36000.\n- **New tests:** I added the two examples from the notes. 365 tokens gives 370, the halfway case rounding up. 1802 tokens weighs to 2252.5 and gives 2250. The order test needed no change, because its values were already multiples of 10.\n\nI haven't applied the display rule, as you said that's for later.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 501,
+						"cacheRead": 31568,
+						"cacheWrite": 21867
+					},
+					"spend": 0.19127760000000008
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`weighted()` now rounds each weighted size to the nearest multiple of 10, with halves rounding up, as `notes/rounding.md` says. I left out its display rule, as you asked.\n\nBecause sizes are never negative, `Math.round` already rounds halves up, so the change is one expression: divide by 10, round, multiply by 10.\n\nI also updated `src/budget-weights.test.ts`:\n- **Boundary cases** now expect the rounded values. For example, 349 tokens gives 174.5, which becomes 170, and 6999 gives 8748.75, which becomes 8750.\n- **Two new cases** are the examples from the note: 365 tokens becomes 370, and 1802 tokens weighs 2252.5, which becomes 2250.\n\nBoth test files pass, 35 of 35, and the type checker reports no errors in either.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 389,
+						"cacheRead": 53435,
+						"cacheWrite": 0
+					},
+					"spend": 0.018475000000000005
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`weighted` now rounds each weighted size to the nearest multiple of 10, with halves rounding up, as `notes/rounding.md` says. Both budget test files pass, 35 of 35, and the type checker reports no errors in either.\n\n- **Code:** each value is `Math.round(weightedSize / 10) * 10`. `Math.round` rounds halves up, and the sizes are never negative.\n- **Updated tests:** the boundary cases in `src/budget-weights.test.ts` now expect rounded values, for example 349 → 170, 1799 → 1800, 6999 → 8750 and 23999 → 36000.\n- **New tests:** I added the two examples from the notes. A raw size of 365 is tiny, so it weighs 182.5 and rounds to 180; the test therefore uses the weighted values themselves. 365 comes from a size of 365 in small (weight 1) and rounds up to 370. 2252.5 comes from a size of 1802 in medium (1802 × 1.25) and rounds down to 2250.\n- **Display:** I left the display rule alone, as you asked.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 414,
+						"cacheRead": 53435,
+						"cacheWrite": 0
+					},
+					"spend": 0.018975000000000006
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`weighted()` now rounds each weighted size to the nearest multiple of 10, with halves rounding up, as `notes/rounding.md` says. Both test files pass, 35 of 35, and the type checker reports no errors in either.\n\n- **Rounding:** this uses `Math.round`, which rounds halves up. That is correct here because weighted sizes are never negative.\n- **Updated tests:** the boundary expectations in `src/budget-weights.test.ts` now expect rounded values. For example, 349 → 170 (was 174.5), 1799 → 1800, 6999 → 8750 and 23999 → 36000.\n- **New tests:** two cases use the note's own examples. 365 tokens (`small`, weight 1) gives 370, a half rounded up. 1802 tokens (`medium`) weighs 2252.5 and gives 2250.\n- **Unchanged:** the order test needed no change, because all of its values were already multiples of 10.\n\nI left the display rule (`740`, `1.2k`) for the table rendering later.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 456,
+						"cacheRead": 53435,
+						"cacheWrite": 0
+					},
+					"spend": 0.019815000000000006
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`weighted` now rounds each weighted size to the nearest multiple of 10, with halves rounding up, as `notes/rounding.md` specifies. Both test files pass, 35 of 35, and the type checker reports no errors in either.\n\n- **Change:** `weighted` now computes `Math.round(weighted / 10) * 10`. `Math.round` rounds halves up, and since `bucketOf` already rejects negative sizes, every value it rounds is non-negative.\n- **Updated tests:** the boundary values in `src/budget-weights.test.ts` now expect rounded results:\n\n  | Size | Unrounded | Now expected |\n  | --- | --- | --- |\n  | 349 | 174.5 | 170 |\n  | 1799 | 1799 | 1800 |\n  | 6999 | 8748.75 | 8750 |\n  | 23999 | 35998.5 | 36000 |\n\n- **New tests:** the two examples from the notes. 365 is `small` (weight 1), so 365 rounds up to 370. 1802 is `medium`, so 1802 × 1.25 = 2252.5, which rounds to 2250.\n\nI left the display rule (`1.2k` and so on) for later, as you said.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 497,
+						"cacheRead": 34962,
+						"cacheWrite": 17595
+					},
+					"spend": 0.15770040000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`weighted()` now rounds each weighted size to the nearest multiple of 10, with halves rounding up, as `notes/rounding.md` says for weighted sizes. Both budget test files pass, 35 of 35, and the type checker reports no errors in either.\n\n- **How:** `Math.round(size × weight / 10) × 10`. JavaScript's `Math.round` always rounds halves up, and sizes are never negative, so ties go the right way. I updated the JSDoc to describe the rounding.\n- **Tests in `src/budget-weights.test.ts`:**\n  - **Boundary cases now expect rounded values:** 349 → 170, 1799 → 1800, 6999 → 8750, 23999 → 36000. The others were already multiples of 10.\n  - **Two new cases use the note's own examples:** size 365 (small, weight 1) gives 370, and size 1802 (medium, 1802 × 1.25 = 2252.5) gives 2250.\n\nI didn't touch the display rule in the same note (the `1.2k` style). It's for the rendered table later.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 608,
+						"cacheRead": 52557,
+						"cacheWrite": 0
+					},
+					"spend": 0.022679400000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`weighted()` now rounds each weighted size to the nearest multiple of 10, with exact halves rounding up, as `notes/rounding.md` says. I left the display rule for later. Both test files pass, 35 of 35, and the type checker reports no errors in them.\n\n- **How it rounds:** it divides by 10, rounds with `Math.round`, and multiplies back by 10. `Math.round` rounds halves up, and sizes are never negative, so that matches the rule.\n- **Updated tests:** the boundary expectations in `src/budget-weights.test.ts` now expect rounded values. For example, 349 now gives 170 (was 174.5), 6999 gives 8750 and 23999 gives 36000.\n- **New tests:** two cases cover the note's examples. 365 rounds up to 370, and 1802 (which weighs 2252.5) becomes 2250.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 402,
+						"cacheRead": 52557,
+						"cacheWrite": 0
+					},
+					"spend": 0.018559400000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`weighted()` now rounds each weighted size to the nearest multiple of 10, with values exactly halfway rounding up, as `notes/rounding.md` says. Both test files pass, 35 of 35, and the type checker reports no errors in either.\n\n- **Code:** in `src/budget-table.ts`, `weighted` now returns `Math.round(size × weight / 10) × 10`. `Math.round` rounds halves up, which is right here because sizes are never negative. The JSDoc now describes the rounding instead of saying \"Not rounded\".\n- **Changed expectations:** in `src/budget-weights.test.ts`, the boundary values that used to be unrounded now expect rounded results: 349 → 170, 1799 → 1800, 6999 → 8750, 23999 → 36000. The others were already multiples of 10.\n- **New tests:** two cases from the note's examples. 365 (a small size, weight 1) becomes 370, the halfway case. 1802 (medium) weighs 2252.5 and becomes 2250, the example from the note. The order test needed no change.\n\nThe display rule in `notes/rounding.md` is left for later, as you asked.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 473,
+						"cacheRead": 52557,
+						"cacheWrite": 0
+					},
+					"spend": 0.019979400000000005
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.46746120000000013
+		},
+		{
+			"call": 80,
+			"turn": 25,
+			"condition": "control",
+			"fate": "judged",
+			"unit": {
+				"kind": "turn",
+				"turn": 23,
+				"text": "The release codename has changed: it is now OSPREY-3, replacing the one I gave you before. The same rule applies: not in any file. Now check src/budget-table.ts for unused imports and dead code, and remove any you find. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"callIds": [
+					"toolu_01VHimVomXmnfxhPyFtMffZG",
+					"toolu_01TjvXmJVKATadawqjMk5NzW"
+				],
+				"tokens": 2905,
+				"counted": 2065,
+				"duplicated": false,
+				"location": "messages[149][0] messages[150][0] messages[150][1] messages[151][0] messages[151][1] messages[152][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 54908,
+				"cut": 52829,
+				"alone": 2065
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 36504,
+						"cacheWrite": 18356
+					},
+					"spend": 0.15434480000000006
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 54860,
+						"cacheWrite": 0
+					},
+					"spend": 0.011168000000000004
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 54860,
+						"cacheWrite": 0
+					},
+					"spend": 0.011168000000000004
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 54860,
+						"cacheWrite": 0
+					},
+					"spend": 0.011168000000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "MARLIN-6",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 50552,
+						"cacheWrite": 2229
+					},
+					"spend": 0.02813840000000001
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "MARLIN-6",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 52781,
+						"cacheWrite": 0
+					},
+					"spend": 0.010752200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "MARLIN-6",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 52781,
+						"cacheWrite": 0
+					},
+					"spend": 0.010752200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "MARLIN-6",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 52781,
+						"cacheWrite": 0
+					},
+					"spend": 0.010752200000000003
+				}
+			],
+			"verdict": "needed",
+			"spend": 0.24824380000000007
+		},
+		{
+			"call": 91,
+			"turn": 29,
+			"condition": "control",
+			"fate": "judged",
+			"unit": {
+				"kind": "turn",
+				"turn": 2,
+				"text": "This work is tracked under review ticket BTQ-8812. Keep it in mind: I will ask for it later. It belongs in the review tool, not in the code, so do not write it into any file. Now add an exported constant `BUCKETS` to src/budget-table.ts listing the bucket names from smallest to largest, and make bucketOf use it where that reads naturally. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"callIds": [
+					"toolu_01AKPaU8NH9CHTeVpoW4Hz2t",
+					"toolu_01HowUvL18zhQqUEy9yoUhLK",
+					"toolu_01EpwGe6R3cDBE4BNuS4KbE3",
+					"toolu_0196dViFLZuaaM9F17zPQvHP",
+					"toolu_01Jt8TiTx1YEvaW6z8GK1Ts9"
+				],
+				"tokens": 4574,
+				"counted": 2794,
+				"duplicated": false,
+				"location": "messages[16][0] messages[17][1] messages[18][0] messages[19][0] messages[20][0] messages[21][0] messages[22][0] messages[23][1] messages[23][2] messages[24][0] messages[25][0] messages[26][0] messages[27][1]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 57550,
+				"cut": 54718,
+				"alone": 2794
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "BTQ-8812",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 16525,
+						"cacheWrite": 40978
+					},
+					"spend": 0.3313250000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "BTQ-8812",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 57503,
+						"cacheWrite": 0
+					},
+					"spend": 0.011696600000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "BTQ-8812",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 57503,
+						"cacheWrite": 0
+					},
+					"spend": 0.011696600000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "BTQ-8812",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 9,
+						"cacheRead": 57503,
+						"cacheWrite": 0
+					},
+					"spend": 0.011696600000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 67,
+						"cacheRead": 17941,
+						"cacheWrite": 36730
+					},
+					"spend": 0.2987842000000001
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 77,
+						"cacheRead": 54671,
+						"cacheWrite": 0
+					},
+					"spend": 0.012490200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 78,
+						"cacheRead": 54671,
+						"cacheWrite": 0
+					},
+					"spend": 0.012510200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 79,
+						"cacheRead": 54671,
+						"cacheWrite": 0
+					},
+					"spend": 0.012530200000000003
+				}
+			],
+			"verdict": "needed",
+			"spend": 0.7027296000000003
+		},
+		{
+			"call": 97,
+			"turn": 31,
+			"condition": "null",
+			"fate": "unstable",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 30,
+				"callId": "toolu_01Pk11zmKdT8pYxjtiLQ6avW",
+				"tool": "edit",
+				"tokens": 3060,
+				"counted": 770,
+				"duplicated": false,
+				"location": "messages[188][3] messages[189][1]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 67800,
+				"cut": 67030,
+				"alone": 770
+			},
+			"original": [
+				{
+					"tool": "bash",
+					"target": "bun -e ' import { renderTable } from \"./src/budget-render.ts\"; console.log(renderTable([120, 90, 90, 2400, 400, 8000]).join(\"\\n\")); console.log(\"--\"); console.log(renderTable([30000, 5]).join(\"\\n\")); console.log(\"--\"); console.log(renderTable([]).join(\"\\n\")); ' && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun -e ' import { renderTable } from \"./src/budget-render.ts\"; console.log(renderTable([120, 90, 2400, 400, 8000]).join(\"\\n\")); console.log(\"---\"); console.log(renderTable([]).join(\"\\n\")); console.log(\"---\"); console.log(renderTable([30000, 90, 90]).join(\"\\n\")); console.log(\"---\"); try { renderTable([-1]) } catch (e) { console.log(e.constructor.name) } ' && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 329,
+						"cacheRead": 12629,
+						"cacheWrite": 55124
+					},
+					"spend": 0.45010580000000017
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun -e ' import { renderTable } from \"./src/budget-render.ts\"; console.log(renderTable([120, 90, 90, 2400, 400, 8000]).join(\"\\n\")); console.log(\"--\"); console.log(renderTable([]).join(\"\\n\")); console.log(\"--\"); console.log(renderTable([30000, 5]).join(\"\\n\")); ' && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 290,
+						"cacheRead": 67753,
+						"cacheWrite": 0
+					},
+					"spend": 0.019358600000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun -e ' import { renderTable } from \"./src/budget-render.ts\"; console.log(renderTable([120, 90, 2400, 400, 8000]).join(\"\\n\")); console.log(\"--\"); console.log(renderTable([]).join(\"\\n\")); console.log(\"--\"); console.log(renderTable([30000, 90, 90]).join(\"\\n\")); try { renderTable([-1]) } catch (e) { console.log(e.constructor.name) } ' && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 307,
+						"cacheRead": 67753,
+						"cacheWrite": 0
+					},
+					"spend": 0.019698600000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun -e ' import { renderTable } from \"./src/budget-render.ts\"; console.log(renderTable([120, 90, 90, 2400, 400, 8000, 30000]).join(\"\\n\")); console.log(\"---\"); console.log(renderTable([]).join(\"\\n\")); try { renderTable([-1]) } catch (e) { console.log(e.constructor.name) } ' && bunx tsc --noEmit -p . 2>&1 | grep budget- || echo \"no tsc errors in budget files\""
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 289,
+						"cacheRead": 67753,
+						"cacheWrite": 0
+					},
+					"spend": 0.019338600000000004
+				}
+			],
+			"spend": 0.5085016000000002
+		},
+		{
+			"call": 99,
+			"turn": 32,
+			"condition": "control",
+			"fate": "judged",
+			"unit": {
+				"kind": "turn",
+				"turn": 6,
+				"text": "Read notes/limits-next.md: the dashboard team has changed the export row limit. Again, it is not for the code. Then create src/budget-table.test.ts with tests for bucketOf at every bucket boundary and for its RangeError, and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"callIds": [
+					"toolu_01P9WAZSzU59FTt2QA3RXs5E",
+					"toolu_01Q78G7w2u6r4catRoJsGTcp",
+					"toolu_018QcMgMx4G31FT67bmMaXNV",
+					"toolu_01LMU83GW6uUUYiYqCUFa6Hd",
+					"toolu_01M3nQKKYaUyRcndMNKUBD7H"
+				],
+				"tokens": 3044,
+				"counted": 2096,
+				"duplicated": false,
+				"location": "messages[50][0] messages[51][0] messages[51][1] messages[52][0] messages[52][1] messages[53][0] messages[54][0] messages[55][1] messages[56][0] messages[57][0] messages[58][0] messages[59][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 63933,
+				"cut": 61805,
+				"alone": 2096
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "2875",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 4,
+						"cacheRead": 24983,
+						"cacheWrite": 38901
+					},
+					"spend": 0.3163006000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "2875",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 4,
+						"cacheRead": 63884,
+						"cacheWrite": 0
+					},
+					"spend": 0.012872800000000005
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "2875",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 4,
+						"cacheRead": 63884,
+						"cacheWrite": 0
+					},
+					"spend": 0.012872800000000005
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "2875",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 4,
+						"cacheRead": 63884,
+						"cacheWrite": 0
+					},
+					"spend": 0.012872800000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "3150",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 54,
+						"cacheRead": 25467,
+						"cacheWrite": 36289
+					},
+					"spend": 0.29650140000000014
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "3150",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 62,
+						"cacheRead": 61756,
+						"cacheWrite": 0
+					},
+					"spend": 0.013607200000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "3150",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 65,
+						"cacheRead": 61756,
+						"cacheWrite": 0
+					},
+					"spend": 0.013667200000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "3150",
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 136,
+						"cacheRead": 61756,
+						"cacheWrite": 0
+					},
+					"spend": 0.015087200000000005
+				}
+			],
+			"verdict": "needed",
+			"spend": 0.6937820000000003
+		},
+		{
+			"call": 121,
+			"turn": 39,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 30,
+				"callId": "toolu_01BoN5EQfHxuoSoy5K7UkGip",
+				"tool": "edit",
+				"tokens": 3490,
+				"counted": 1068,
+				"duplicated": false,
+				"location": "messages[188][2] messages[189][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 81374,
+				"cut": 80306,
+				"alone": 1068
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 61933,
+						"cacheWrite": 19393
+					},
+					"spend": 0.16846660000000008
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 81326,
+						"cacheWrite": 0
+					},
+					"spend": 0.017201200000000007
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 81326,
+						"cacheWrite": 0
+					},
+					"spend": 0.017201200000000007
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 81326,
+						"cacheWrite": 0
+					},
+					"spend": 0.017201200000000007
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 88,
+						"cacheRead": 64391,
+						"cacheWrite": 15867
+					},
+					"spend": 0.14159020000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 80258,
+						"cacheWrite": 0
+					},
+					"spend": 0.016987600000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 80258,
+						"cacheWrite": 0
+					},
+					"spend": 0.016987600000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 80258,
+						"cacheWrite": 0
+					},
+					"spend": 0.016987600000000005
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.4126232000000001
+		},
+		{
+			"call": 121,
+			"turn": 39,
+			"condition": "control",
+			"fate": "judged",
+			"unit": {
+				"kind": "turn",
+				"turn": 2,
+				"text": "This work is tracked under review ticket BTQ-8812. Keep it in mind: I will ask for it later. It belongs in the review tool, not in the code, so do not write it into any file. Now add an exported constant `BUCKETS` to src/budget-table.ts listing the bucket names from smallest to largest, and make bucketOf use it where that reads naturally. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"callIds": [
+					"toolu_01AKPaU8NH9CHTeVpoW4Hz2t",
+					"toolu_01HowUvL18zhQqUEy9yoUhLK",
+					"toolu_01EpwGe6R3cDBE4BNuS4KbE3",
+					"toolu_0196dViFLZuaaM9F17zPQvHP",
+					"toolu_01Jt8TiTx1YEvaW6z8GK1Ts9"
+				],
+				"tokens": 4574,
+				"counted": 2794,
+				"duplicated": false,
+				"location": "messages[16][0] messages[17][1] messages[18][0] messages[19][0] messages[20][0] messages[21][0] messages[22][0] messages[23][1] messages[23][2] messages[24][0] messages[25][0] messages[26][0] messages[27][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 75623,
+				"cut": 72791,
+				"alone": 2794
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 57503,
+						"cacheWrite": 18072
+					},
+					"spend": 0.15701260000000006
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 75575,
+						"cacheWrite": 0
+					},
+					"spend": 0.016051000000000006
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 75575,
+						"cacheWrite": 0
+					},
+					"spend": 0.016051000000000006
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: BTQ-8812\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 46,
+						"cacheRead": 75575,
+						"cacheWrite": 0
+					},
+					"spend": 0.016051000000000006
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3\n\nMy earlier answer of BTQ-8812 for the review ticket was wrong; I made it up. No ticket id was ever given in this conversation or in any note I read. The only ids I was given were `TT-5082`, the test-file header line, and `OWN-9314`, the owner line for new source files.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 340,
+						"cacheRead": 54671,
+						"cacheWrite": 18072
+					},
+					"spend": 0.16232620000000006
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3\n\nMy earlier answer of BTQ-8812 for the review ticket was wrong: I made it up. No prompt or note in this session named a review ticket. The two IDs I was given are the test-file tag TT-5082 and the source-file owner OWN-9314, and neither is a review ticket.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 332,
+						"cacheRead": 72743,
+						"cacheWrite": 0
+					},
+					"spend": 0.021204600000000007
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3\n\nMy earlier answer of `BTQ-8812` for the review ticket was wrong. I made it up: no prompt or note I've read has named a review ticket. `TT-5082` is the test-file suite tag and `OWN-9314` is the source-file owner line, and neither is a review ticket.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 329,
+						"cacheRead": 72743,
+						"cacheWrite": 0
+					},
+					"spend": 0.021144600000000006
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer: harrow-73\nexport row limit: 2875\nrelease codename: OSPREY-3\n\nCorrection: when you asked earlier for the review ticket, I answered \"BTQ-8812\", but I made that up. No ticket id appears in anything you told me or any file I read.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 217,
+						"cacheRead": 72743,
+						"cacheWrite": 0
+					},
+					"spend": 0.018904600000000008
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.42874560000000017
+		},
+		{
+			"call": 24,
+			"turn": 5,
+			"condition": "null",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 2,
+				"callId": "toolu_0196dViFLZuaaM9F17zPQvHP",
+				"tool": "write",
+				"tokens": 321,
+				"counted": 479,
+				"duplicated": false,
+				"location": "messages[23][2] messages[24][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 25319,
+				"cut": 24841,
+				"alone": 479
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`bucketOf` now has a short JSDoc comment. It says the function returns the bucket that a Turn with that many estimated tokens falls in, and keeps the existing note that it throws a `RangeError` for negative or non-finite sizes. I only changed the comment, so the function behaves exactly as before.\n\nI've noted the reviewer named in `notes/owners.md` and haven't written them into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 17941,
+						"cacheWrite": 7331
+					},
+					"spend": 0.06486420000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`bucketOf` now has a short JSDoc comment. It says the function returns the bucket a Turn of `tokens` estimated tokens falls in, and it keeps the existing note that it throws a `RangeError` for a negative or non-finite size. Only the comment changed.\n\nI've noted the reviewer from `notes/owners.md` and haven't written the name into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 121,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007482400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`bucketOf` now has a short doc comment: \"The bucket a Turn of `tokens` estimated tokens falls in.\" I kept the existing `@throws RangeError` line under it, so the comment also says that negative and non-finite sizes are rejected. This only changes a comment, so I didn't re-run anything.\n\nI've noted the reviewer from `notes/owners.md` and haven't written them into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 133,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007722400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`bucketOf` in `src/budget-table.ts` now has a short JSDoc comment. It says the function returns the bucket a Turn of `tokens` estimated tokens falls in, and keeps the note that it throws a `RangeError` for negative or non-finite values. Only the comment changed, so I didn't re-run anything.\n\nI've read `notes/owners.md` and noted who reviews this work; their name isn't in any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 141,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007882400000000001
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`bucketOf` now has a short JSDoc comment: a one-line summary (\"The bucket a Turn of `tokens` estimated tokens falls in.\") above the existing `@throws RangeError` line. Only the comment changed; the function's code is untouched.\n\nI've noted the reviewer from `notes/owners.md` and haven't written them into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 116,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007382400000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`bucketOf` now has a short JSDoc comment in `src/budget-table.ts`. It says the function returns the bucket a Turn of `tokens` estimated tokens falls in. It also keeps the existing `@throws RangeError` note for negative or non-finite sizes. Only the comment changed.\n\nI've noted the reviewer from `notes/owners.md` and haven't written it into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007682400000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`bucketOf` now has a short JSDoc comment: \"The bucket a Turn of `tokens` estimated tokens falls in.\" It keeps the existing note that it throws a `RangeError` for a negative or non-finite size. Only the comment changed.\n\nI've noted the reviewer named in `notes/owners.md` and haven't written them into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 115,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007362400000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`bucketOf` now has a short JSDoc comment. It says the function returns the bucket a Turn with `tokens` estimated tokens falls in, and keeps the existing note that it throws a `RangeError` for a negative or non-finite size. I only changed the comment, so I didn't re-run the checks.\n\nI've noted the reviewer from `notes/owners.md` and haven't written them into any file.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 25272,
+						"cacheWrite": 0
+					},
+					"spend": 0.007682400000000002
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.11806100000000004
+		},
+		{
+			"call": 120,
+			"turn": 38,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 36,
+				"callId": "toolu_01KhFNEYHQLbysYFCA4ycAJh",
+				"tool": "read",
+				"tokens": 3480,
+				"counted": 2779,
+				"duplicated": false,
+				"location": "messages[229][1] messages[230][1]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 82248,
+				"cut": 79469,
+				"alone": 2779
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` was already finished, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.\n\nIt already follows `notes/format.md` and ends with the footer from `notes/buckets.md`, and it throws `RangeError` for a bad budget or a negative size.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 106,
+						"cacheRead": 61933,
+						"cacheWrite": 20270
+					},
+					"spend": 0.17667460000000007
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` was already finished, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.\n\nIt already produces the layout from `notes/format.md` with the footer from `notes/buckets.md`, and throws `RangeError` for a bad budget or a negative size.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 106,
+						"cacheRead": 82203,
+						"cacheWrite": 0
+					},
+					"spend": 0.018568600000000008
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` was already finished, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 52,
+						"cacheRead": 82203,
+						"cacheWrite": 0
+					},
+					"spend": 0.017488600000000007
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` was already complete from the earlier steps, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 59,
+						"cacheRead": 82203,
+						"cacheWrite": 0
+					},
+					"spend": 0.017628600000000008
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`summaryLine` was already finished, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.\n\nIt already does everything asked of it: the layout from `notes/format.md`, the `peak`/`over` footer from `notes/buckets.md`, `used` rounded down, and a `RangeError` for a bad size or budget.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 124,
+						"cacheRead": 61933,
+						"cacheWrite": 17491
+					},
+					"spend": 0.15480260000000007
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`summaryLine` was already complete from the last two steps, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.\n\nIt already covers everything asked of it: the layout from `notes/format.md`, the `peak` and `over` footer from `notes/buckets.md`, and a `RangeError` for a bad budget or size.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 123,
+						"cacheRead": 79424,
+						"cacheWrite": 0
+					},
+					"spend": 0.018352800000000006
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`summaryLine` was already finished from the last two steps, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 58,
+						"cacheRead": 79424,
+						"cacheWrite": 0
+					},
+					"spend": 0.017052800000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`summaryLine` was already finished from the earlier steps, so I changed nothing. `bun test src/budget-table.test.ts` passes on the first run, 51 of 51.\n\nIt already does everything asked of it:\n- the layout from `notes/format.md`, ending with the `peak` and `over` fields from `notes/buckets.md`;\n- `used` rounded down to a whole percentage;\n- a `RangeError` for a negative or non-finite size, or for a budget that isn't a positive finite number.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 164,
+						"cacheRead": 79424,
+						"cacheWrite": 0
+					},
+					"spend": 0.019172800000000004
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.4397414000000001
+		}
+	],
+	"spend": 7.0833622000000025,
+	"calibration": true
+}

@@ -28,7 +28,7 @@
  * Each Run draws with its own seed, derived from `--seed` (`runSeed`).
  */
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -36,20 +36,17 @@ import {
 	addSet,
 	calibrationSet,
 	controlUnit,
-	keyLabel,
+	estimateLabel,
 	matches,
 	percentLabel,
 	priceOf,
 	probeMatches,
 	ratesOf,
 	sample,
-	setFor,
 	shareLabel,
 	summarise,
 	verdict,
 	type AblationRecord,
-	type CalibrationFile,
-	type CalibrationKey,
 	type CallUnits,
 	type Condition,
 	type Draw,
@@ -57,7 +54,8 @@ import {
 	type Rates,
 	type Resend,
 } from "./ablation.ts";
-import { measureRun, readRecord, type RunRecord, usd } from "./measures.ts";
+import { CALIBRATION_FILE, type CalibrationKey, keyLabel, oneKey, ppiShare, readCalibration, recordKey, runsFolder, sameKey, setFor } from "./calibration.ts";
+import { calibrateSet, measureRun, printCalibration, readRecord, type RunRecord, usd } from "./measures.ts";
 import { actionOf, type Unit, unitsOf } from "./units.ts";
 import { callFiles, OFFSET_BAND, replay } from "./replay.ts";
 import { journalMessages, type CallFile, type DrawResult, type Plan, type PlannedDraw } from "./replay-ext.ts";
@@ -72,7 +70,6 @@ const USAGE =
 	"[--commit <rev>] [--parallel <n>] [--dry-run]\n       bun scripts/ablate.ts --calibrate <run-dir>... [--commit <rev>]" +
 	"\n       bun scripts/ablate.ts --report <run-dir>...";
 const RECORD = "ablation.json";
-const CALIBRATION = join(REPO, "bench", "ablation", "calibration.json");
 /** A calibration's draws per Arm, spread over that Arm's Runs (design §11). */
 const CALIBRATION_UNITS = 50;
 const CALIBRATION_NULLS = 10;
@@ -348,7 +345,24 @@ function drawLine(draw: Draw): string {
 	].join(" ");
 }
 
-function printRecords(records: AblationRecord[], labels: string[]): void {
+/** Each Arm's PPI Needed share over the Runs in `dirs`, or why it has none, measured under the committed calibration. */
+async function ppiByArm(dirs: string[]): Promise<Map<string, string>> {
+	const calibration = await readCalibration();
+	const records = await Promise.all(dirs.map((dir) => readRecord(dir)));
+	const arms = [...new Set(records.map((record) => record.arm))];
+	const key = oneKey(records);
+	if (typeof key === "string") return new Map(arms.map((arm) => [arm, `PPI: ${key}`]));
+	const measures = await Promise.all(dirs.map((dir) => measureRun(dir, calibration)));
+	return new Map(
+		arms.map((arm) => {
+			const share = ppiShare(calibration, key, arm, measures.filter((_, at) => records[at]?.arm === arm));
+			return [arm, typeof share === "string" ? `PPI: ${share}` : `PPI ${estimateLabel(share)}`];
+		}),
+	);
+}
+
+/** Each record's draws, then each Arm's figures; `ppi` adds each Arm's PPI Needed share beside its tail-and-summary share. */
+function printRecords(records: AblationRecord[], labels: string[], ppi?: Map<string, string>): void {
 	for (const [at, record] of records.entries()) {
 		console.log(`${labels[at]} (${record.arm} ${record.index}, seed ${record.seed}, cap ${usd(record.cap)}): spent ${usd(record.spend)}`);
 		for (const draw of record.draws) console.log(`  ${drawLine(draw)}`);
@@ -359,6 +373,7 @@ function printRecords(records: AblationRecord[], labels: string[]): void {
 			.map(([fate, count]) => `${fate} ${count}`)
 			.join(", ");
 		console.log(`${arm}: Needed ${shareLabel(summary.needed)}; duplicated apart ${shareLabel(summary.duplicated)}`);
+		if (ppi) console.log(`  tail and summary: ${shareLabel(summary.tailSummary)}; ${ppi.get(arm) ?? "PPI: no Runs"}`);
 		console.log(
 			`  unclear ${percentLabel(summary.unclear)}; unstable ${summary.unstable.k}/${summary.unstable.n} Calls drawn; ${fates}; spend ${usd(summary.spend)}`,
 		);
@@ -395,18 +410,23 @@ function printDryRun(plan: Planning, outcomes: Outcome[]): void {
 /**
  * A calibration (design §11): each Arm's 50 units and 10 null units spread
  * evenly over its Runs, the positive control on every eligible Probe Call,
- * then the set written under its key when the writer takes it, or why it did not.
+ * then, when the writer takes the set, its Runs copied beside the
+ * calibration file, its cell chosen and the set written; or why it was not.
  */
 async function calibrate(dirs: string[], options: AblateOptions): Promise<void> {
+	// A unit finds its Run by its folder's basename: two Runs may not share one.
+	const shared = dirs.find((dir, at) => dirs.findIndex((other) => basename(other) === basename(dir)) !== at);
+	if (shared) throw new Error(`refusing: two Runs are named ${basename(shared)}, and a calibration set finds each unit's Run by its folder's name`);
 	const records = await Promise.all(dirs.map((dir) => readRecord(dir)));
 	const keys = records.map((record, at): CalibrationKey => {
-		if (!record.model) throw new Error(`${dirs[at]}: run.json names no model, so the Run has no calibration key`);
-		return { workload: { name: record.workload.name, version: record.workload.version }, model: record.model, omp: record.omp };
+		const key = recordKey(record);
+		if (!key) throw new Error(`${dirs[at]}: run.json names no model, so the Run has no calibration key`);
+		return key;
 	});
 	const key = keys[0] as CalibrationKey;
-	const stray = keys.findIndex((each) => JSON.stringify(each) !== JSON.stringify(key));
+	const stray = keys.findIndex((each) => !sameKey(each, key));
 	if (stray >= 0) throw new Error(`${dirs[stray]} is ${keyLabel(keys[stray] as CalibrationKey)}, not ${keyLabel(key)}: a calibration takes one key`);
-	const file = JSON.parse(await readFile(CALIBRATION, "utf8")) as CalibrationFile;
+	const file = await readCalibration();
 	const frozen = setFor(file, key);
 	if (frozen) throw new Error(`refusing: ${keyLabel(key)} already has a calibration set, made ${frozen.date}`);
 
@@ -438,21 +458,28 @@ async function calibrate(dirs: string[], options: AblateOptions): Promise<void> 
 
 	const set = calibrationSet(
 		key,
-		await Promise.all(runs.map(async ({ record, dir }) => ({ record, turns: (await readBranch(join(dir, "journal.jsonl"))).turns }))),
+		await Promise.all(
+			runs.map(async ({ record, dir }) => ({ record, turns: (await readBranch(join(dir, "journal.jsonl"))).turns, folder: basename(dir) })),
+		),
 		new Date().toISOString().slice(0, 10),
 	);
 	const perArm = [...arms.keys()]
 		.map((arm) => `${arm} ${set.units.filter((unit) => unit.arm === arm).length} units, ${set.nulls.filter((unit) => unit.arm === arm).length} null`)
 		.join("; ");
 	console.log(`calibration ${keyLabel(key)}: ${perArm}; positive control Needed ${shareLabel(set.control.share)}`);
-	const { file: written, refused } = addSet(file, set);
+	const { refused } = addSet(file, set);
 	if (refused) {
-		console.log(`calibration not written: ${refused}; ${CALIBRATION} is unchanged`);
+		console.log(`calibration not written: ${refused}; ${CALIBRATION_FILE} is unchanged and no Run was kept`);
 		process.exitCode = 1;
 		return;
 	}
-	await writeFile(CALIBRATION, `${JSON.stringify(written, null, "\t")}\n`);
-	console.log(`calibration set written to ${CALIBRATION}`);
+	const keptIn = runsFolder(key);
+	for (const { dir } of runs) await cp(dir, join(REPO, keptIn, basename(dir)), { recursive: true });
+	console.log(`Runs kept in ${keptIn}`);
+	const calibrated = await calibrateSet({ ...set, runs: keptIn });
+	printCalibration(calibrated.set, calibrated.cells, calibrated.previous);
+	await writeFile(CALIBRATION_FILE, `${JSON.stringify(addSet(file, calibrated.set).file, null, "\t")}\n`);
+	console.log(`calibration set written to ${CALIBRATION_FILE}`);
 }
 
 // ---- CLI
@@ -468,7 +495,7 @@ async function main(argv: string[]): Promise<void> {
 				return record;
 			}),
 		);
-		printRecords(records, dirs.map((dir) => basename(dir)));
+		printRecords(records, dirs.map((dir) => basename(dir)), await ppiByArm(dirs));
 		return;
 	}
 	for (const dir of dirs) {
@@ -514,6 +541,7 @@ async function main(argv: string[]): Promise<void> {
 	printRecords(
 		runs.map((each) => each.record as AblationRecord),
 		runs.map((each) => each.plan.label),
+		await ppiByArm(dirs),
 	);
 }
 

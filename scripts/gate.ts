@@ -47,12 +47,13 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { readSavedUrl } from "../src/config.ts";
 import { type AblateOptions, AblationStop, ablateRun, readAblation } from "./ablate.ts";
-import { type AblationRecord, shareLabel, summarise } from "./ablation.ts";
+import { type AblationRecord, type CalibrationFile, estimateLabel, shareLabel, summarise } from "./ablation.ts";
+import { ppiShare, readCalibration } from "./calibration.ts";
 import { aggregate, BANDS, bandLabel, int, measureRun, median, percent, type RunMeasures, usd } from "./measures.ts";
 import { buildTree, type Context, flagsOf, loadNamedWorkload, log, type Options, resolveCommit, runOne } from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
 import { PULL_TOOLS } from "./units.ts";
-import { CAVEATS, share } from "./utilisation.ts";
+import { CAVEATS, share, utilisationLabel } from "./utilisation.ts";
 import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf, type WorkloadId } from "./workload.ts";
 
 /**
@@ -444,7 +445,7 @@ function aaSpread(pairs: PairFigures[]): { costSd: number; costCv: number; lapse
 	};
 }
 
-export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, AblationRecord[]>): void {
+export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, AblationRecord[]>, calibration: CalibrationFile): void {
 	const { key } = gate;
 	const complete = gate.pairs.filter(isComplete).length;
 	const voids = gate.pairs.length - complete;
@@ -527,7 +528,12 @@ export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, Ab
 		row(`Pulls: ${tool}`, ({ runs }) => int(middle(runs, (run) => run.pulls?.[tool].calls)));
 	}
 	row("Needed share", ({ side }) => neededCell(ablation[side]));
-	row("Utilisation (uncalibrated)", ({ runs }) =>
+	// Both Gate sides are pi-chart, so each side's correction is the pi-chart units'.
+	row("Needed share (PPI)", ({ runs }) => {
+		const estimate = ppiShare(calibration, key, "pi-chart", runs);
+		return typeof estimate === "string" ? estimate : estimateLabel(estimate);
+	});
+	row(`Utilisation (${utilisationLabel(aggregates.flatMap(({ runs }) => runs.map((run) => run.utilisation)))})`, ({ runs }) =>
 		percent(middle(runs, (run) => (run.utilisation ? share(run.utilisation) : undefined))),
 	);
 	console.log(`\n${CAVEATS.join(" ")}`);
@@ -558,12 +564,13 @@ export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, Ab
 	}
 }
 
-/** Each side's Measures, recomputed from the record folders the Gate left. */
+/** Each side's Measures, recomputed from the record folders the Gate left, under the committed calibration. */
 async function measureSides(out: string, pairs: PairRun[]): Promise<Sides> {
+	const calibration = await readCalibration();
 	const sides: Sides = { base: [], candidate: [] };
 	for (const { index } of pairs) {
 		for (const side of SIDES) {
-			sides[side].push(await measureRun(join(out, "runs", `${side}-${index}`)));
+			sides[side].push(await measureRun(join(out, "runs", `${side}-${index}`), calibration));
 		}
 	}
 	return sides;
@@ -628,7 +635,7 @@ async function main(argv: string[]): Promise<void> {
 	const reportFrom = flag("--report");
 	if (reportFrom) {
 		const gate = JSON.parse(await readFile(join(reportFrom, "gate.json"), "utf8")) as GateRecord;
-		report(gate, await measureSides(reportFrom, gate.pairs), await ablationSides(reportFrom, gate.pairs));
+		report(gate, await measureSides(reportFrom, gate.pairs), await ablationSides(reportFrom, gate.pairs), await readCalibration());
 		return;
 	}
 
@@ -795,7 +802,7 @@ async function main(argv: string[]): Promise<void> {
 			for (const result of settled) if (result.status === "rejected") throw result.reason;
 		}
 		log(`record: ${out}`);
-		report(gate, await measureSides(out, gate.pairs), await ablationSides(out, gate.pairs));
+		report(gate, await measureSides(out, gate.pairs), await ablationSides(out, gate.pairs), await readCalibration());
 	} finally {
 		for (const dir of temporary) await rm(dir, { recursive: true, force: true });
 	}

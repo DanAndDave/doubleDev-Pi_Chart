@@ -19,12 +19,10 @@ import {
 	sample,
 	sham,
 	stability,
-	setFor,
 	summarise,
 	verdict,
 	type AblationRecord,
 	type CalibrationFile,
-	type CalibrationKey,
 	type BodyBlock,
 	type CallUnits,
 	type Condition,
@@ -34,6 +32,7 @@ import {
 	type RequestBody,
 	type Verdict,
 } from "../scripts/ablation.ts";
+import { type CalibrationKey, setFor } from "../scripts/calibration.ts";
 import { measureRun, type Score } from "../scripts/measures.ts";
 import { actionOf, targetOf, type Unit, unitsOf } from "../scripts/units.ts";
 import { EVICTION_NOTICE, OPENING_FRAMING } from "../src/assembler.ts";
@@ -545,6 +544,21 @@ describe("summarise", () => {
 		),
 	];
 
+	test("the tail-and-summary share counts duplicated units, and leaves out unclear, Opening and Pin units", () => {
+		const as = (draw: Draw, unit: Draw["unit"]): Draw => ({ ...draw, unit });
+		const draws = [
+			drawn("ablate", "judged", "needed"),
+			drawn("ablate", "judged", "not-needed", true),
+			drawn("ablate", "judged", "unclear"),
+			as(drawn("ablate", "judged", "not-needed"), { kind: "summary", text: "So far.", tokens: 50 }),
+			as(drawn("ablate", "judged", "needed"), { kind: "opening", turn: 0, text: "Build it.", tokens: 20 }),
+			as(drawn("ablate", "judged", "needed"), { kind: "pin", pin: 1, text: "Use tabs.", tokens: 3 }),
+			drawn("null", "judged", "needed"),
+		];
+
+		expect(summarise([record("vanilla", draws, 1)]).get("vanilla")?.tailSummary).toMatchObject({ k: 1, n: 3 });
+	});
+
 	test("6 of 20 judged, non-duplicated units Needed reads 30%, 14.5% to 51.9%", () => {
 		const summary = summarise(pichart).get("pi-chart");
 
@@ -638,6 +652,7 @@ describe("calibration set", () => {
 						spend: 9,
 					},
 					turns: [],
+					folder: "vanilla-0",
 				},
 			],
 			"2026-10-16",
@@ -705,9 +720,10 @@ describe("calibration set", () => {
 		};
 		const record: AblationRecord = { arm: "pi-chart", index: 3, seed: 7, cap: 10, band: [43, 46], omp: key.omp, draws: [draw], spend: 1 };
 
-		expect(calibrationSet(key, [{ record, turns }], "2026-10-16").units).toEqual([
+		expect(calibrationSet(key, [{ record, turns, folder: "pi-chart-3" }], "2026-10-16").units).toEqual([
 			{
 				arm: "pi-chart",
+				folder: "pi-chart-3",
 				run: 3,
 				call: 2,
 				turn: 1,
@@ -746,7 +762,7 @@ describe("calibration set", () => {
 		const draw: Draw = { ...drawn("null", "not-needed"), unit: { kind: "prose", turn: 0, text: "Read a.", tokens: 9 } };
 		const record: AblationRecord = { arm: "vanilla", index: 1, seed: 7, cap: 10, band: [43, 46], omp: key.omp, draws: [draw], spend: 1 };
 
-		expect(calibrationSet(key, [{ record, turns }], "2026-10-16").nulls.map((unit) => unit.content)).toEqual([
+		expect(calibrationSet(key, [{ record, turns, folder: "vanilla-1" }], "2026-10-16").nulls.map((unit) => unit.content)).toEqual([
 			"Read a.\nReading it.\na is 1.",
 		]);
 	});

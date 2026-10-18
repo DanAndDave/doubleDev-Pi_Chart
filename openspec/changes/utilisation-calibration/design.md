@@ -64,7 +64,7 @@ Its imports from `ablation.ts` are type-only.
 
 `bun scripts/measures.ts --calibrate` walks every set in `calibration.json` that has `runs`:
 1. For each Run folder, it loads `mainCalls` once, then calls `judgeRun` once per cell. The *s*-gram index depends on *s*, so the Run's index is rebuilt per cell.
-2. It sets each comparable unit's `used` to `{ s6k1: boolean, … }`, chooses the cell, and stores `rule: { s, k, kappa }` on the set.
+2. It sets each comparable unit's `used` to `{ s6k1: boolean, … }`, chooses the cell, and stores `rule: { s, k, kappa }` on the set; `kappa` is `null` when no cell has a defined κ.
 3. It prints, per set, the 9 cells' pooled κ and per-Arm κ, precision, recall and counts, the chosen cell, and the previous cell if it changed.
 4. It writes the file.
 
@@ -74,7 +74,7 @@ The same function ends `ablate.ts --calibrate`. Running it again replaces the st
 
 `measureRun(dir, calibration?: CalibrationFile)` builds the key from `run.json` and judges at `ruleFor(setFor(file, key))`. A record with no `model` gets the default. `RunUtilisation` gains `rule` and, when calibrated, `kappa`.
 
-The callers that pass `readCalibration()` are the `measures.ts` CLI, `gate.ts` `measureSides`, `bench-tokens.ts` at Run end, and the Ablation report.
+The callers that pass `readCalibration()` are the `measures.ts` CLI, `gate.ts` `measureSides`, `runs.ts` `runOne` at Run end (shared by `bench-tokens.ts` and the Gate), and the Ablation report.
 
 `utilisationLabel(runs)` in `utilisation.ts` returns `κ 0.52, s 6, k 1` when every Run carries the same `rule` and `kappa`. Otherwise it returns `uncalibrated`, which covers a missing `rule` (an old `bench.json`). It replaces the literal `(uncalibrated)` at `measures.ts`, `gate.ts` and `bench-tokens.ts`. `CAVEATS[0]` becomes "Utilisation is lexical: Used is not Needed.", because the label now carries the calibration.
 
@@ -84,14 +84,15 @@ The callers that pass `readCalibration()` are the `measures.ts` CLI, `gate.ts` `
 
 Ablation's Needed share estimates P(Needed) for a unit drawn as a uniform Call, then a token-proportional unit. Restricted to tail and summary draws, the calibration units are a sample of that draw conditioned on kind. The prediction term must average Used over the same conditioned draw.
 
-For Call *c* in the reported Runs (main, known window, `unitTokens` > 0), let *T* be the tokens of all its units, *A* its judged tokens and *U* its Used tokens:
+For Call *c* in the reported Runs (main, known window, at least one tail or summary unit; a Call without one adds 0 to both sums, and `judgeRun` reports it `"empty"`), let *T* be the tokens of all its units, *A* its judged tokens and *U* its Used tokens:
 - prediction term θ̂_f = Σ(*U*/*T*) / Σ(*A*/*T*), a ratio over Calls;
 - correction r̄ = mean of (Used − Needed) over the Arm's comparable units, at the chosen cell's `used`;
 - θ̂ = θ̂_f − r̄;
 - variance: Var(*U*/*T* − θ̂_f · *A*/*T*) / (*N* · mean(*A*/*T*)²), the delta-method ratio variance over *N* Calls, plus sampleVariance(r) / *n*;
 - interval θ̂ ± 1.96 · √variance, and the point and both bounds clamped to [0, 1].
+- no figure with fewer than 2 residuals or Calls, where the variance is undefined, or when the Calls judged nothing (Σ*A* = 0), where the term is.
 
-Duplicated units stay in both terms, because the prediction side can't drop them (Context). So PPI is compared with Ablation's own tail-and-summary share, duplicated included, which the Ablation report prints beside it. Faithful-band eligibility can't be known offline, so every main Call with units stands in for the eligible ones.
+Duplicated units stay in both terms, because the prediction side can't drop them (Context). So PPI is compared with Ablation's own tail-and-summary share, duplicated included, which the Ablation report prints beside it. Faithful-band eligibility can't be known offline, so every main Call with a tail or summary unit stands in for the eligible ones.
 
 The correction is per Arm. Gate sides are both pi-chart, so both use the pi-chart units.
 

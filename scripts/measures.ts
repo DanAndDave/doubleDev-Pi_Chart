@@ -6,6 +6,7 @@
  *
  *     bun scripts/measures.ts <run-dir>          # one Run's Measures
  *     bun scripts/measures.ts <run-dir> --json   # the same, as RunMeasures JSON
+ *     bun scripts/measures.ts --calibrate        # judge every calibration set's units at every cell; choose each set's cell
  *
  * A record folder, as `bench-tokens` writes it:
  *
@@ -14,7 +15,7 @@
  *     subagents/<n>.jsonl subagent Journals
  *     accounting.json     pi-chart Runs only: what each Call's window carried
  */
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { CallAccounting, TurnAccounting } from "../src/accounting.ts";
@@ -22,18 +23,37 @@ import { readBranch, readJournal, type Compaction, type JournalTurn, type Messag
 import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
 import { pinTexts } from "../src/pins.ts";
 import { approximateTokens } from "../src/tokens.ts";
+import type { CalibrationFile, CalibrationSet, CalibrationUnit } from "./ablation.ts";
+import {
+	CALIBRATION_FILE,
+	type CellFigures,
+	chooseCell,
+	cellId,
+	comparable,
+	GRID,
+	KAPPA_FLOOR,
+	keyLabel,
+	readCalibration,
+	recordKey,
+	ruleFor,
+	setFor,
+} from "./calibration.ts";
 import { PULL_TOOLS, type PullTool } from "./units.ts";
 import {
 	armHolds,
 	CAVEATS,
+	DEFAULT_RULE,
 	type CallUtilisation,
+	judgeRun,
 	JUDGED_KINDS,
 	KIND_LABEL,
 	type RunUtilisation,
 	share,
+	unitIdentity,
+	utilisationLabel,
 	utilisationOf,
 } from "./utilisation.ts";
-import type { Plant, PlantKind, Revisit, Turn, WorkloadId } from "./workload.ts";
+import { type Plant, type PlantKind, REPO, type Revisit, type Turn, type WorkloadId } from "./workload.ts";
 
 export const READ_RATE = 0.1;
 export const WRITE_RATE = 1.25;
@@ -301,26 +321,46 @@ export async function readRecord(dir: string): Promise<RunRecord> {
 	return JSON.parse(await readFile(join(dir, "run.json"), "utf8")) as RunRecord;
 }
 
-/** Every Measure of the Run recorded in `dir`. */
-export async function measureRun(dir: string): Promise<RunMeasures> {
+/** A Run's main Calls with their addresses and windows, and what judging them needs, as every Measure reads them. */
+export interface MainCalls {
+	record: RunRecord;
+	turns: JournalTurn[];
+	compactions: Compaction[];
+	pins: Map<number, string>;
+	main: { call: Call; address: MessageAddress; window: Window }[];
+	windowAt: (at: MessageAddress, call: number) => Window;
+}
+
+/** The main Calls of the Run recorded in `dir`, in Journal order. */
+export async function mainCalls(dir: string): Promise<MainCalls> {
 	const record = await readRecord(dir);
 	const { turns, compactions, entries } = await readBranch(join(dir, "journal.jsonl"));
 	const windowAt = await windowReader(dir, record, compactions);
-
-	const calls: Call[] = [];
-	const main: { call: Call; address: MessageAddress; window: Window }[] = [];
+	const main: MainCalls["main"] = [];
 	for (const turn of turns) {
 		for (const [index, message] of turn.messages.entries()) {
 			const call = callOf(message, turn.turnIndex, false);
 			if (!call) continue;
 			const address = { turn: turn.turnIndex, message: index };
 			call.window = windowAt(address, turn.calls[index] ?? 0);
-			calls.push(call);
 			main.push({ call, address, window: call.window });
 		}
 	}
-	const pins = pinTexts(entries);
-	const utilisation = utilisationOf(turns, main, compactions, pins, record.cwd);
+	return { record, turns, compactions, pins: pinTexts(entries), main, windowAt };
+}
+
+/**
+ * Every Measure of the Run recorded in `dir`. Utilisation is judged at the
+ * rule `calibration` gives the Run's key (`ruleFor`); without one, or for a
+ * record naming no model, at the defaults.
+ */
+export async function measureRun(dir: string, calibration?: CalibrationFile): Promise<RunMeasures> {
+	const { record, turns, compactions, pins, main, windowAt } = await mainCalls(dir);
+	const calls: Call[] = main.map(({ call }) => call);
+	const key = recordKey(record);
+	const { rule, kappa } = ruleFor(calibration && key ? setFor(calibration, key) : undefined);
+	const utilisation = utilisationOf(turns, main, compactions, pins, record.cwd, rule);
+	if (kappa !== undefined) utilisation.run.kappa = kappa;
 	for (const [at, { call }] of main.entries()) call.utilisation = utilisation.calls[at];
 	const subagentDir = join(dir, "subagents");
 	const subagentFiles = (await readdir(subagentDir).catch(() => [] as string[]))
@@ -372,6 +412,49 @@ export async function measureRun(dir: string): Promise<RunMeasures> {
 		...(record.arm === "pi-chart" ? pullsOf(turns, windowAt, record.sessionId) : { compactions: compactions.length }),
 		revisits: revisitsOf(record, turns, completed, windowAt, steps),
 		utilisation: utilisation.run,
+	};
+}
+
+/**
+ * `set` calibrated (design §4): each compared unit's Used verdict at every
+ * cell, judged on its own Run's Call exactly as `measureRun` judges it, and
+ * the chosen cell with its pooled κ. `previous` is the cell it replaces.
+ * Throws when a unit's folder holds another Run, or its Call holds no such unit.
+ */
+export async function calibrateSet(set: CalibrationSet): Promise<{ set: CalibrationSet; cells: CellFigures[]; previous?: CalibrationSet["rule"] }> {
+	if (!set.runs) throw new Error(`${keyLabel(set.key)} keeps no Run folders to calibrate on`);
+	const compared = comparable(set.units);
+	const verdicts = new Map<CalibrationUnit, Record<string, boolean>>(compared.map((unit) => [unit, {}]));
+	for (const folder of new Set(compared.map((unit) => unit.folder))) {
+		const { record, turns, compactions, pins, main } = await mainCalls(join(REPO, set.runs, folder));
+		const mine = compared.filter((unit) => unit.folder === folder);
+		for (const unit of mine) {
+			if (unit.arm !== record.arm || unit.run !== record.index) {
+				throw new Error(`${folder} holds ${record.arm} ${record.index}, not the ${unit.arm} ${unit.run} of a unit drawn from it`);
+			}
+		}
+		for (const cell of GRID) {
+			const judged = judgeRun(turns, main, compactions, pins, record.cwd, cell);
+			for (const unit of mine) {
+				const call = judged[unit.call];
+				const id = call !== undefined && typeof call !== "string" ? unitIdentity(unit.unit, call.window) : undefined;
+				if (id === undefined || !call || typeof call === "string" || !call.units.some((each) => each.id === id)) {
+					throw new Error(`${folder}: Call ${unit.call} holds no judged ${unit.unit.kind} unit ${id ?? `(the Call is ${call ?? "absent"})`}`);
+				}
+				(verdicts.get(unit) as Record<string, boolean>)[cellId(cell)] = call.used.has(id);
+			}
+		}
+	}
+	const units = set.units.map((unit) => {
+		const { used: _stale, ...rest } = unit;
+		const used = verdicts.get(unit);
+		return used ? { ...rest, used } : rest;
+	});
+	const { cells, chosen, kappa } = chooseCell(units);
+	return {
+		set: { ...set, units, rule: { ...chosen, kappa: Number.isFinite(kappa) ? kappa : null } },
+		cells,
+		...(set.rule ? { previous: set.rule } : {}),
 	};
 }
 
@@ -1144,13 +1227,57 @@ export function revisitLine(score: RevisitScore): string {
 	return `${score.id} (${score.file}, step ${score.step}): ${parts.join(", ")}`;
 }
 
+/** A calibrated set's grid: each cell's pooled κ, per-Arm κ, precision, recall and counts; the chosen cell, and the one it replaced. */
+export function printCalibration(set: CalibrationSet, cells: CellFigures[], previous: CalibrationSet["rule"]): void {
+	const kappa = (value: number) => (Number.isFinite(value) ? value.toFixed(2) : "undefined");
+	const of = (k: number, n: number) => `${k}/${n} ${percent(k / n)}`;
+	console.log(`${keyLabel(set.key)}, made ${set.date}: ${cells[0]?.pooled.n ?? 0} units compared`);
+	for (const { cell, pooled, arms } of cells) {
+		const perArm = Object.entries(arms).map(
+			([arm, figures]) =>
+				`${arm} κ ${kappa(figures.kappa)}, precision ${of(figures.both, figures.both + figures.usedOnly)}, ` +
+				`recall ${of(figures.both, figures.both + figures.neededOnly)} ` +
+				`(both ${figures.both}, Used only ${figures.usedOnly}, Needed only ${figures.neededOnly}, neither ${figures.neither})`,
+		);
+		console.log(`  s ${cell.s}, k ${cell.k}: κ ${kappa(pooled.kappa)} over ${pooled.n}; ${perArm.join("; ")}`);
+	}
+	const rule = set.rule as NonNullable<CalibrationSet["rule"]>;
+	const { kappa: calibrated } = ruleFor(set);
+	console.log(
+		`  chosen s ${rule.s}, k ${rule.k}, κ ${kappa(rule.kappa ?? Number.NaN)}: ` +
+			(calibrated === undefined
+				? `below ${KAPPA_FLOOR}, so Runs of this key stay at s ${DEFAULT_RULE.s}, k ${DEFAULT_RULE.k}, uncalibrated`
+				: "Runs of this key are judged at it"),
+	);
+	if (previous && (previous.s !== rule.s || previous.k !== rule.k || previous.kappa !== rule.kappa)) {
+		console.log(`  replaces s ${previous.s}, k ${previous.k}, κ ${kappa(previous.kappa ?? Number.NaN)}`);
+	}
+}
+
 if (import.meta.main) {
 	const [dir, ...rest] = process.argv.slice(2);
+	if (dir === "--calibrate") {
+		const file = await readCalibration();
+		const sets: CalibrationSet[] = [];
+		for (const set of file.sets) {
+			if (!set.runs) {
+				console.log(`${keyLabel(set.key)}: keeps no Run folders, not calibrated`);
+				sets.push(set);
+				continue;
+			}
+			const { set: calibrated, cells, previous } = await calibrateSet(set);
+			printCalibration(calibrated, cells, previous);
+			sets.push(calibrated);
+		}
+		await writeFile(CALIBRATION_FILE, `${JSON.stringify({ ...file, sets }, null, "\t")}\n`);
+		console.log(`written to ${CALIBRATION_FILE}`);
+		process.exit(0);
+	}
 	if (!dir) {
-		console.error("usage: bun scripts/measures.ts <run-dir> [--json]");
+		console.error("usage: bun scripts/measures.ts <run-dir> [--json]\n       bun scripts/measures.ts --calibrate");
 		process.exit(2);
 	}
-	const measures = await measureRun(dir);
+	const measures = await measureRun(dir, await readCalibration());
 	if (rest.includes("--json")) {
 		console.log(JSON.stringify(measures, null, "\t"));
 	} else {
@@ -1200,7 +1327,7 @@ if (import.meta.main) {
 		}
 		const u = measures.utilisation;
 		if (u) {
-			console.log(`Utilisation (uncalibrated): ${percent(share(u))} of ${int(u.judged)} judged tokens`);
+			console.log(`Utilisation (${utilisationLabel([u])}): ${percent(share(u))} of ${int(u.judged)} judged tokens`);
 			const kinds = JUDGED_KINDS.map((kind) =>
 				armHolds(record.arm, kind)
 					? `${KIND_LABEL[kind]} ${percent(share(u.byKind[kind]))} of ${int(u.byKind[kind].judged)}`

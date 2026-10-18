@@ -28,6 +28,7 @@ import { SQL } from "bun";
 
 import type { TurnAccounting } from "../src/accounting.ts";
 import { SESSION_ROOT } from "../src/journal.ts";
+import { readCalibration } from "./calibration.ts";
 import { type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
 import {
 	editedFiles,
@@ -409,7 +410,7 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 	await attempt("remove its bundle", () => rm(bundle, { recursive: true, force: true }));
 	await writeFile(join(recordDir, "run.json"), JSON.stringify(record, null, "\t"));
 	if (failure !== undefined) throw failure;
-	return { record, measures: await measureRun(recordDir) };
+	return { record, measures: await measureRun(recordDir, await readCalibration()) };
 }
 
 export function log(message: string): void {

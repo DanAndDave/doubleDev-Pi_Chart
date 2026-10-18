@@ -1,0 +1,2166 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"seed": 3328023483,
+	"cap": 10,
+	"band": [
+		43,
+		46
+	],
+	"commit": "fd96df4d4de5af61e4ca00adf9dd9be5f9422a6c",
+	"omp": "omp/18.11.0",
+	"draws": [
+		{
+			"call": 124,
+			"turn": 31,
+			"condition": "null",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 30,
+				"callId": "toolu_01Tn9KQk5Y4JE4zhXWMCzQRZ",
+				"tool": "edit",
+				"tokens": 3327,
+				"counted": 741,
+				"duplicated": false,
+				"location": "messages[5][2] messages[6][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 24729,
+				"cut": 23988,
+				"alone": 741
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I created `src/budget-render.ts`, exporting `renderTable(sizes: number[]): string[]`. It returns the header `bucket | turns | weighted`, then one `<label> | <count> | <weighted total>` row per histogram entry, in histogram order. Columns are joined by ` | ` with no padding, as `notes/legend.md` says. Labels come from `labelOf`, and totals come from `bucketTotals` shown through `formatCount`.\n\nThe histogram lists buckets that have no Turns, but `bucketTotals` leaves them out. Those rows show a weighted total of `0`.\n\nI ran it on three inputs and the output was:\n\n```\n[8000, 90, 120, 2400, 90, 400]    [30000]               []\nbucket | turns | weighted         bucket | turns | weighted   bucket | turns | weighted\nfeasts | 1 | 12.0k                banquets | 1 | 67.5k        feasts | 0 | 0\nmeals | 1 | 3.0k                  feasts | 0 | 0              meals | 0 | 0\nbites | 1 | 400                   meals | 0 | 0               bites | 0 | 0\ncrumbs | 3 | 160                  bites | 0 | 0               crumbs | 0 | 0\n                                  crumbs | 0 | 0\n```\n\nThe `banquets` row appears only when a size falls in the `huge` bucket. That follows the histogram's rule, not anything in the renderer.\n\n`tsc --noEmit` passes. The full `bun test` run had 985 passes and 7 failures, all in `test/workload.test.ts`. Each failure says that commit `c6fe5165…` \"does not resolve in\" this repo. I didn't look into those failures, and this change doesn't touch the workload code. I didn't add a test file for `renderTable` because you didn't ask for one; the three runs above are the only check on it.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 785,
+						"cacheRead": 13903,
+						"cacheWrite": 10780
+					},
+					"spend": 0.10472859999999999
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I created `src/budget-render.ts` with `renderTable(sizes: number[]): string[]`. A sample run produced the table laid out as `notes/legend.md` says, and `tsc --noEmit` reports no errors. The full `bun test` run had 985 passing and 7 failing. All 7 failures are in `test/workload.test.ts`, which fails because commit `c6fe5165…` doesn't exist in this checkout. That test doesn't import either budget module.\n\nIt builds the header row, then one row per `histogram` entry in histogram order: label from `labelOf`, the Turn count, and the bucket's total from `bucketTotals` shown through `formatCount`. Columns are joined with ` | ` and no padding.\n\n`histogram` lists buckets that have no Turns (all except `huge`), but `bucketTotals` leaves them out. I show those buckets with a weighted total of `0`. Neither prompt nor `notes/legend.md` says what to do there, so change it if you want something else.\n\nOutput from a sample run:\n```\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n```\nWith `[30000]`, the table starts with `banquets | 1 | 67.5k`, followed by four empty rows reading `0 | 0`. With `[]`, the header is followed by the four non-`huge` rows, each `0 | 0`.\n\nYou didn't ask for a test this time, so I didn't add `src/budget-render.test.ts`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 732,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.019584599999999997
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I created `src/budget-render.ts`, which exports `renderTable(sizes: number[]): string[]`. It returns the header `bucket | turns | weighted`, then one `<label> | <count> | <weighted total>` row per histogram entry, in histogram order. Columns are joined by ` | ` with no padding, as `notes/legend.md` says. Labels come from `labelOf`, and each weighted total comes from `bucketTotals` and is shown through `formatCount`.\n\nI ran it by hand on three inputs. I didn't add a test file, since you didn't ask for one.\n\n`[8000, 90, 120, 2400, 90, 400]`:\n```\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n```\n`[30000]` puts `banquets | 1 | 67.5k` first. Every other bucket shows `0 | 0`. `[]` gives the header plus four rows of zeros; there's no `banquets` row because `histogram` drops `huge` when it's empty.\n\n**Empty buckets:** `histogram` lists them with a count of 0, but `bucketTotals` leaves them out. So `renderTable` shows their weighted total as `0`. The legend doesn't cover this case.\n\n**Checks:** `tsc --noEmit` passes. In the full `bun test` run, 985 tests pass and 7 fail. All 7 failures are in `test/workload.test.ts`, which says commit `c6fe5165…` doesn't exist in this repo. None of those tests import the budget modules.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 671,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.018364599999999995
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I created `src/budget-render.ts` exporting `renderTable(sizes: number[]): string[]`. Its output matches the layout in `notes/legend.md`. Typecheck is clean, but the full `bun test` run had 7 failures, all in `test/workload.test.ts`; I didn't look into them.\n\nHow it builds the table:\n- **Header row:** `bucket | turns | weighted`.\n- **Body rows:** one per `histogram(sizes)` entry, in the histogram's order (largest bucket first). Each row is `labelOf(bucket) | count | formatCount(total)`, where the total comes from `bucketTotals`.\n- **Spacing:** columns are joined with ` | ` and nothing is padded or aligned.\n\n**Empty buckets show 0.** `histogram` keeps every bucket except `huge` even when it has no Turns, but `bucketTotals` leaves those buckets out. So a bucket with no Turns renders as `feasts | 0 | 0`. The legend doesn't say what an empty row should show, and 0 was the obvious choice.\n\nOutput from a quick script:\n```\nrenderTable([8000, 90, 120, 2400, 90, 400])\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n\nrenderTable([30000])\nbucket | turns | weighted\nbanquets | 1 | 67.5k\nfeasts | 0 | 0\n…\ncrumbs | 0 | 0\n\nrenderTable([])          → header plus the four non-huge rows, all \"0 | 0\"\n```\n\n**Checks:**\n- `tsc --noEmit` is clean.\n- `bun test` gave 985 passing and 7 failing. Every failure is `loadWorkload` reporting \"commit c6fe516… does not resolve in /tmp/pichart-bench-IbdmHS\". That code path doesn't touch the budget modules, and the new module isn't imported anywhere yet.\n- You didn't ask for a test this time, so I didn't add one to the repo; the script output above is the only check of `renderTable`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 913,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.0232046
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "I created `src/budget-render.ts` with `renderTable(sizes: number[]): string[]`. A test run on sample sizes gives the layout `notes/legend.md` describes, and `tsc --noEmit` reports no errors. I added no permanent test because the prompt didn't ask for one.\n\nHow it builds the table:\n- **Header:** the first row is `bucket | turns | weighted`.\n- **Rows:** one per `histogram(sizes)` entry, in histogram order (largest bucket first), as `labelOf(bucket) | count | formatCount(weighted total)`. The weighted total comes from `bucketTotals(sizes)`.\n- **Spacing:** columns are joined by ` | ` with no padding.\n\n**Choice for you:** `histogram` lists every bucket except `huge` even when it has no Turns, but `bucketTotals` leaves empty buckets out. I show those empty rows as `0`, which the legend note doesn't cover. Say if you want something else.\n\nOutput from the test run:\n```\n[8000, 90, 120, 2400, 90, 400]\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n\n[30000]  → banquets | 1 | 67.5k, then feasts/meals/bites/crumbs | 0 | 0\n[]       → header, then feasts/meals/bites/crumbs | 0 | 0\n```\n\n**Test suite:** `bun test` passes 985 tests and fails 7. All 7 are in `test/workload.test.ts` (`loadWorkload`, `gradedSteps`, `buildWorkspace`). They fail because commit `c6fe5165…` doesn't exist in this checkout; that test file doesn't touch the budget-table code.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 744,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.019824599999999998
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "I created `src/budget-render.ts`, which exports `renderTable(sizes)` built on `histogram`, `bucketTotals`, `labelOf` and `formatCount`. Running it gives the layout `notes/legend.md` describes, and `tsc --noEmit` passes. The full `bun test` run had 985 passes and 7 failures, all in `test/workload.test.ts`, so not in the budget-table code.\n\nOutput from `renderTable([8000, 90, 120, 2400, 90, 400])`:\n```\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n```\n`renderTable([30000])` adds `banquets | 1 | 67.5k` first. `renderTable([])` gives the header and four rows, from `feasts` down to `crumbs`, each `0 | 0`.\n\n- **Row order:** rows follow the histogram, so they run largest bucket first. That is the reverse of `bucketTotals`, which runs smallest first.\n- **Empty buckets:** `histogram` still lists `tiny` to `large` when they have no Turns, but `bucketTotals` leaves them out. So `renderTable` shows those rows with a weighted total of `0`, and the code comment says so.\n- **Bad sizes:** a negative or non-finite size throws the same `RangeError` as `bucketOf`.\n\nAll 7 test failures report `commit c6fe5165… does not resolve` in this checkout. That is a missing git commit in `scripts/workload.ts`, which this change doesn't touch.\n\nYou didn't ask for a test, so there's no `budget-render.test.ts`; I checked the output with a throwaway `bun -e` run.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 768,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.020304599999999996
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "I created `src/budget-render.ts` exporting `renderTable(sizes: number[]): string[]`, laid out as `notes/legend.md` describes. I checked it by running it on sample sizes, and the type check passes. I didn't add a permanent test because you didn't ask for one.\n\n`renderTable([8000, 90, 120, 2400, 90, 400])` returns:\n```\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n```\n\nHow it works:\n- Each row comes from `histogram()`, so the order is largest bucket first, and `huge` only appears when a Turn falls in it. `[30000]` gives a first row of `banquets | 1 | 67.5k`.\n- The totals come from `bucketTotals()`, which only has entries for buckets that contain Turns. `histogram()` also lists empty buckets with a count of 0, so those rows show `0`. `renderTable([])` gives the header plus four rows like `feasts | 0 | 0`.\n- A negative or non-finite size throws `RangeError`, as `bucketOf` does.\n\nThe full `bun test` run had 985 passing and 7 failing. All 7 failures are in `test/workload.test.ts`, which doesn't use the budget modules. They fail because `loadWorkload` can't find commit `c6fe5165…` in this checkout.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 721,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.019364599999999996
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "I created `src/budget-render.ts`, exporting `renderTable(sizes: number[]): string[]`. It returns the header `bucket | turns | weighted`, then one `<label> | <count> | <weighted total>` row per histogram entry, in histogram order. Columns are joined by ` | ` with no padding. Labels come from `labelOf`, and each total is the bucket's value from `bucketTotals`, formatted with `formatCount`.\n\nRunning it on `[8000, 90, 120, 2400, 90, 400]` gives:\n```\nbucket | turns | weighted\nfeasts | 1 | 12.0k\nmeals | 1 | 3.0k\nbites | 1 | 400\ncrumbs | 3 | 160\n```\n`[30000]` puts `banquets | 1 | 67.5k` first, and `[]` gives the header plus four rows of `0 | 0`.\n\n**Empty buckets show 0.** `histogram` includes buckets with a count of 0, but `bucketTotals` leaves them out. When a bucket has no total, the row shows 0 (`totals.get(bucket) ?? 0`).\n\n**Tests:** `tsc --noEmit` is clean. `bun test` passed 985 and failed 7. All 7 failures are in `test/workload.test.ts`, where `loadWorkload` stops on `commit c6fe5165… does not resolve` in this checkout. That test doesn't touch the budget modules. I didn't add a permanent test for `renderTable`, since you didn't ask for one; the check above was a one-off run.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 613,
+						"cacheRead": 24683,
+						"cacheWrite": 0
+					},
+					"spend": 0.017204599999999997
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.24258079999999996
+		},
+		{
+			"call": 126,
+			"turn": 32,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 30,
+				"callId": "toolu_01Tn9KQk5Y4JE4zhXWMCzQRZ",
+				"tool": "edit",
+				"tokens": 3327,
+				"counted": 741,
+				"duplicated": false,
+				"location": "messages[5][2] messages[6][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 25632,
+				"cut": 24891,
+				"alone": 741
+			},
+			"original": [
+				{
+					"tool": "recall_earlier_turns"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 24683,
+						"cacheWrite": 903
+					},
+					"spend": 0.0147886
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 25586,
+						"cacheWrite": 0
+					},
+					"spend": 0.007745200000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 25586,
+						"cacheWrite": 0
+					},
+					"spend": 0.007745200000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 25586,
+						"cacheWrite": 0
+					},
+					"spend": 0.007745200000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 130,
+						"cacheRead": 13903,
+						"cacheWrite": 10942
+					},
+					"spend": 0.0929246
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 24845,
+						"cacheWrite": 0
+					},
+					"spend": 0.007597000000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 131,
+						"cacheRead": 24845,
+						"cacheWrite": 0
+					},
+					"spend": 0.007597000000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 127,
+						"cacheRead": 24845,
+						"cacheWrite": 0
+					},
+					"spend": 0.007517000000000001
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.15365979999999999
+		},
+		{
+			"call": 132,
+			"turn": 33,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 30,
+				"callId": "toolu_01L2Q9BKRLZY5VDjjrHWs57i",
+				"tool": "read",
+				"tokens": 1126,
+				"counted": 1029,
+				"duplicated": false,
+				"location": "messages[1][1] messages[2][0]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 26944,
+				"cut": 25915,
+				"alone": 1029
+			},
+			"original": [
+				{
+					"tool": "edit",
+					"target": "src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 708,
+						"cacheRead": 25586,
+						"cacheWrite": 1310
+					},
+					"spend": 0.029765199999999995
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 835,
+						"cacheRead": 26896,
+						"cacheWrite": 0
+					},
+					"spend": 0.022087199999999998
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 832,
+						"cacheRead": 26896,
+						"cacheWrite": 0
+					},
+					"spend": 0.022027199999999997
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 679,
+						"cacheRead": 26896,
+						"cacheWrite": 0
+					},
+					"spend": 0.018967199999999997
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 710,
+						"cacheRead": 14399,
+						"cacheWrite": 11468
+					},
+					"spend": 0.10883179999999999
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 621,
+						"cacheRead": 25867,
+						"cacheWrite": 0
+					},
+					"spend": 0.017601399999999996
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 623,
+						"cacheRead": 25867,
+						"cacheWrite": 0
+					},
+					"spend": 0.017641399999999998
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 594,
+						"cacheRead": 25867,
+						"cacheWrite": 0
+					},
+					"spend": 0.017061399999999997
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.25398279999999995
+		},
+		{
+			"call": 133,
+			"turn": 33,
+			"condition": "ablate",
+			"fate": "unstable",
+			"unit": {
+				"kind": "prose",
+				"turn": 31,
+				"text": "Create src/budget-render.ts exporting `renderTable(sizes: number[]): string[]`: the header row, then one row per histogram entry, laid out as notes/legend.md says, with each weighted total shown through formatCount.",
+				"tokens": 492,
+				"counted": 669,
+				"duplicated": false,
+				"location": "messages[11][0] messages[18][1]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 27831,
+				"cut": 27153,
+				"alone": 669
+			},
+			"original": [
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 26896,
+						"cacheWrite": 887
+					},
+					"spend": 0.014243200000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 27783,
+						"cacheWrite": 0
+					},
+					"spend": 0.0073246000000000006
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts && npx tsc --noEmit -p ."
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 102,
+						"cacheRead": 27783,
+						"cacheWrite": 0
+					},
+					"spend": 0.0076046
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts && npx tsc --noEmit -p ."
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 102,
+						"cacheRead": 27783,
+						"cacheWrite": 0
+					},
+					"spend": 0.0076046
+				}
+			],
+			"spend": 0.036777000000000004
+		},
+		{
+			"call": 134,
+			"turn": 33,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 30,
+				"callId": "toolu_017xtN2TWjvwH9MkWSfahnXN",
+				"tool": "bash",
+				"tokens": 158,
+				"counted": 181,
+				"duplicated": false,
+				"location": "messages[8][1] messages[9][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 27983,
+				"cut": 27802,
+				"alone": 181
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added four `renderTable` tests to `src/budget-table.test.ts`. `bun test src/budget-table.test.ts` passed on the first run: 47 pass, 0 fail.\n\n`renderTable` itself needed no changes. It already followed `notes/legend.md` from the last turn, so finishing it was just the tests. They check:\n- **Mixed sizes:** `[8000, 90, 120, 2400, 90, 400]` gives the header, then `feasts | 1 | 12.0k`, `meals | 1 | 3.0k`, `bites | 1 | 400` and `crumbs | 3 | 160`, largest bucket first. The 160 is each Turn's weighted size, rounded, then summed.\n- **One huge Turn:** `[30000]` adds a `banquets | 1 | 67.5k` row, and the four buckets with no Turns show `0 | 0`.\n- **No sizes:** the header plus feasts down to crumbs, each `0 | 0`, with no banquets row.\n- **Bad input:** a negative size throws `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 395,
+						"cacheRead": 27783,
+						"cacheWrite": 153
+					},
+					"spend": 0.014688599999999996
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`bun test src/budget-table.test.ts` passes: 47 tests, 0 failures.\n\n`renderTable` in `src/budget-render.ts` already did everything `notes/legend.md` asks for, so I didn't change it. \"Finishing\" it meant adding the tests, which are in a `renderTable` block in `src/budget-table.test.ts`:\n\n- **Mixed sizes:** `[8000, 90, 120, 2400, 90, 400]` gives the header, then the rows in histogram order from feasts down to crumbs. Totals go through `formatCount` (`12.0k`, `3.0k`), and the 160 for crumbs is each Turn rounded before summing.\n- **One huge Turn:** `[30000]` adds a `banquets | 1 | 67.5k` row, and buckets with no Turns show `0 | 0`.\n- **No sizes:** an empty list gives the header plus every bucket except banquets, all at 0.\n- **Bad input:** a negative size throws `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 369,
+						"cacheRead": 27936,
+						"cacheWrite": 0
+					},
+					"spend": 0.0129752
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`renderTable` needed no code changes. It already matched every layout rule in `notes/legend.md`, so finishing it meant adding the tests. `bun test src/budget-table.test.ts` passed on the first run: 47 tests, 0 failures.\n\nThe four new tests are in a `renderTable` section of `src/budget-table.test.ts`, which now imports from `./budget-render.ts`:\n- **Mixed sizes:** `[8000, 90, 120, 2400, 90, 400]` gives the header, then the feasts, meals, bites and crumbs rows in that order, ending with `crumbs | 3 | 160`. The 160 checks that each Turn is rounded before the bucket's total is summed.\n- **One huge Turn:** `[30000]` adds a `banquets | 1 | 67.5k` row first, and the buckets with no Turns show `0 | 0`.\n- **No sizes:** an empty list gives the header and the four rows from feasts down to crumbs, all at 0, with no banquets row.\n- **Bad size:** a negative size throws `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 383,
+						"cacheRead": 27936,
+						"cacheWrite": 0
+					},
+					"spend": 0.0132552
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added four `renderTable` tests to `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` now passes: 47 tests, 0 failures, on the first run.\n\n`renderTable` in `src/budget-render.ts` needed no changes. It already does everything `notes/legend.md` asks for, and the new tests pass against it unchanged.\n\nThe new tests pin down exact output for:\n- **Mixed sizes:** the header, then the feasts, meals, bites and crumbs rows. Their totals are `12.0k`, `3.0k`, `400` and `160`, where 160 confirms each Turn's weighted size is rounded before the bucket is summed.\n- **One huge Turn:** a `banquets | 1 | 67.5k` row comes first, and the empty buckets show `0 | 0`.\n- **No sizes:** every bucket except banquets appears at `0 | 0`, because `histogram` leaves out `huge` when it holds no Turns.\n- **Negative size:** throws `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 371,
+						"cacheRead": 27936,
+						"cacheWrite": 0
+					},
+					"spend": 0.0130152
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added four `renderTable` tests to `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` now passes (47 tests). `renderTable` needed no code changes: its output already matched notes/legend.md when I ran it last turn, so these tests lock that in.\n\nThe four tests check:\n- **Mixed sizes:** the header, then the feasts, meals, bites and crumbs rows in that order, with totals shown through `formatCount` (`12.0k`, `3.0k`, `400`, `160`). The crumbs total of 160 checks that each Turn is rounded before summing.\n- **One huge Turn:** a banquets row shows up first, and the other four buckets show `0 | 0`.\n- **No sizes:** the header plus feasts down to crumbs, each `0 | 0`, with no banquets row.\n- **Negative size:** `renderTable` throws `RangeError`.\n\nThe tests import `renderTable` from `./budget-render.ts`, since that's where the function lives.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 369,
+						"cacheRead": 18743,
+						"cacheWrite": 9012
+					},
+					"spend": 0.08323259999999999
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`renderTable` needed no code changes: `src/budget-render.ts` already worked. I added four tests for it to `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes on the first run (47 tests, 0 fail).\n\nThe tests pin the exact rows for these cases:\n- **Mixed sizes** (`[8000, 90, 120, 2400, 90, 400]`): rows come largest bucket first, and totals go through `formatCount`, so feasts shows `12.0k`. Crumbs shows `160`, which also confirms each Turn is rounded before the bucket is summed.\n- **One huge Turn** (`[30000]`): a `banquets | 1 | 67.5k` row appears, and the empty buckets show `0 | 0`.\n- **No sizes**: the header plus feasts, meals, bites and crumbs at `0 | 0`, with no banquets row.\n- **A negative size** throws `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 385,
+						"cacheRead": 27755,
+						"cacheWrite": 0
+					},
+					"spend": 0.013259
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "`renderTable` needed no changes: it already follows `notes/legend.md`. I added its tests to `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes on the first run (47 pass, 0 fail).\n\nThe new `renderTable` tests check:\n- **Mixed sizes:** exact rows, largest bucket first, with totals shown through `formatCount` (`12.0k`, `3.0k`, `400`, `160`). The `160` for crumbs (the tiny bucket) is only right if each Turn is rounded before the bucket is summed.\n- **One huge Turn:** a `banquets | 1 | 67.5k` row comes first, and the empty buckets show `0 | 0`.\n- **No sizes:** the header plus the four rows from feasts down to crumbs, with no banquets row.\n- **Negative size:** throws `RangeError`.\n\nThe tests import `renderTable` from `./budget-render.ts`, alongside the existing imports.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 424,
+						"cacheRead": 27755,
+						"cacheWrite": 0
+					},
+					"spend": 0.014039
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added four `renderTable` tests to `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes (47 tests) on the first run. `renderTable` itself needed no changes, so `src/budget-render.ts` is as it was. The new tests are in a `describe(\"renderTable\")` block, and the file imports `renderTable` from `./budget-render.ts`.\n\nWhat the tests check:\n- **Mixed sizes:** the header and four rows come back in histogram order, largest bucket first, with exact strings. That includes `12.0k` and `3.0k` from `formatCount`, and a tiny-bucket total of `160`, which is only right if each Turn's weighted size is rounded before summing.\n- **One huge Turn:** a `banquets | 1 | 67.5k` row appears first. The empty buckets still get rows, each showing a count and total of `0`.\n- **No sizes:** you get the header plus feasts, meals, bites and crumbs at 0, with no banquets row.\n- **A negative size:** throws `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 387,
+						"cacheRead": 27755,
+						"cacheWrite": 0
+					},
+					"spend": 0.013298999999999998
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.17776379999999997
+		},
+		{
+			"call": 136,
+			"turn": 34,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 33,
+				"callId": "toolu_01GrXgCG5Ujr53JudGHYqu4e",
+				"tool": "edit",
+				"tokens": 4010,
+				"counted": 887,
+				"duplicated": false,
+				"location": "messages[3][1] messages[4][0]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 18372,
+				"cut": 17485,
+				"alone": 887
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 161,
+						"cacheRead": 13903,
+						"cacheWrite": 4424
+					},
+					"spend": 0.0414006
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 338,
+						"cacheRead": 18327,
+						"cacheWrite": 0
+					},
+					"spend": 0.010433399999999999
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 121,
+						"cacheRead": 18327,
+						"cacheWrite": 0
+					},
+					"spend": 0.0060934000000000006
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 151,
+						"cacheRead": 18327,
+						"cacheWrite": 0
+					},
+					"spend": 0.0066934
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 125,
+						"cacheRead": 14885,
+						"cacheWrite": 2555
+					},
+					"spend": 0.025925
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 133,
+						"cacheRead": 17440,
+						"cacheWrite": 0
+					},
+					"spend": 0.006156
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"renderTable\",\"src\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 305,
+						"cacheRead": 17440,
+						"cacheWrite": 0
+					},
+					"spend": 0.009596
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 174,
+						"cacheRead": 17440,
+						"cacheWrite": 0
+					},
+					"spend": 0.0069759999999999996
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.1132738
+		},
+		{
+			"call": 138,
+			"turn": 34,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 33,
+				"callId": "toolu_01GrXgCG5Ujr53JudGHYqu4e",
+				"tool": "edit",
+				"tokens": 4010,
+				"counted": 887,
+				"duplicated": false,
+				"location": "messages[3][1] messages[4][0]"
+			},
+			"counts": {
+				"offset": 43,
+				"sham": 20124,
+				"cut": 19237,
+				"alone": 887
+			},
+			"original": [
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 18327,
+						"cacheWrite": 1752
+					},
+					"spend": 0.0194494
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 20079,
+						"cacheWrite": 0
+					},
+					"spend": 0.0057838
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 20079,
+						"cacheWrite": 0
+					},
+					"spend": 0.0057838
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 20079,
+						"cacheWrite": 0
+					},
+					"spend": 0.0057838
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 323,
+						"cacheRead": 17440,
+						"cacheWrite": 1752
+					},
+					"spend": 0.023972
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 325,
+						"cacheRead": 19192,
+						"cacheWrite": 0
+					},
+					"spend": 0.010346399999999999
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 263,
+						"cacheRead": 19192,
+						"cacheWrite": 0
+					},
+					"spend": 0.0091064
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 325,
+						"cacheRead": 19192,
+						"cacheWrite": 0
+					},
+					"spend": 0.010346399999999999
+				}
+			],
+			"verdict": "unclear",
+			"spend": 0.09057199999999999
+		},
+		{
+			"call": 140,
+			"turn": 35,
+			"condition": "null",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 34,
+				"callId": "toolu_01CrfZanFXZL73zeUpBeRn63",
+				"tool": "read",
+				"tokens": 1304,
+				"counted": 1177,
+				"duplicated": false,
+				"location": "messages[9][3] messages[10][2]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 21140,
+				"cut": 19963,
+				"alone": 1177
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				},
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 98,
+						"cacheRead": 16339,
+						"cacheWrite": 4753
+					},
+					"spend": 0.043267799999999995
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 171,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0076544
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 98,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0061944
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 86,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0059544
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 86,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0059544
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 98,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0061944
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 98,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0061944
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 98,
+						"cacheRead": 21092,
+						"cacheWrite": 0
+					},
+					"spend": 0.0061944
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.08760860000000001
+		},
+		{
+			"call": 141,
+			"turn": 35,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "prose",
+				"turn": 33,
+				"text": "Finish renderTable, add tests for it to src/budget-table.test.ts rather than a new file, and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"tokens": 309,
+				"counted": 398,
+				"duplicated": false,
+				"location": "messages[0][1] messages[7][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 21815,
+				"cut": 21413,
+				"alone": 398
+			},
+			"original": [
+				{
+					"tool": "edit",
+					"target": "src/budget-table.ts"
+				},
+				{
+					"tool": "read",
+					"target": "src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 442,
+						"cacheRead": 13903,
+						"cacheWrite": 7866
+					},
+					"spend": 0.0745566
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 457,
+						"cacheRead": 21769,
+						"cacheWrite": 0
+					},
+					"spend": 0.013501799999999998
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 457,
+						"cacheRead": 21769,
+						"cacheWrite": 0
+					},
+					"spend": 0.013501799999999998
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 456,
+						"cacheRead": 21769,
+						"cacheWrite": 0
+					},
+					"spend": 0.013481799999999999
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 459,
+						"cacheRead": 14281,
+						"cacheWrite": 7086
+					},
+					"spend": 0.0687322
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 459,
+						"cacheRead": 21367,
+						"cacheWrite": 0
+					},
+					"spend": 0.013461399999999998
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 537,
+						"cacheRead": 21367,
+						"cacheWrite": 0
+					},
+					"spend": 0.015021399999999997
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "edit",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 453,
+						"cacheRead": 21367,
+						"cacheWrite": 0
+					},
+					"spend": 0.013341399999999996
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.2255984
+		},
+		{
+			"call": 143,
+			"turn": 35,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "prose",
+				"turn": 34,
+				"text": "Add `summaryLine(sizes: number[], budget: number): string` to src/budget-table.ts: the one-line summary laid out as notes/format.md says, ending with the footer that notes/buckets.md gives. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"tokens": 458,
+				"counted": 593,
+				"duplicated": false,
+				"location": "messages[8][0] messages[17][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 23181,
+				"cut": 22579,
+				"alone": 593
+			},
+			"original": [
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 20079,
+						"cacheWrite": 3056
+					},
+					"spend": 0.030231799999999996
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 23135,
+						"cacheWrite": 0
+					},
+					"spend": 0.0063950000000000005
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 23135,
+						"cacheWrite": 0
+					},
+					"spend": 0.0063950000000000005
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 23135,
+						"cacheWrite": 0
+					},
+					"spend": 0.0063950000000000005
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 16227,
+						"cacheWrite": 6306
+					},
+					"spend": 0.0554614
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 22533,
+						"cacheWrite": 0
+					},
+					"spend": 0.006274600000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 22533,
+						"cacheWrite": 0
+					},
+					"spend": 0.006274600000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 22533,
+						"cacheWrite": 0
+					},
+					"spend": 0.006274600000000001
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.123702
+		},
+		{
+			"call": 148,
+			"turn": 37,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "prose",
+				"turn": 35,
+				"text": "Make summaryLine throw a RangeError when budget is not a positive finite number. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"tokens": 283,
+				"counted": 338,
+				"duplicated": false,
+				"location": "messages[0][1] messages[9][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 21272,
+				"cut": 20930,
+				"alone": 338
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.test.ts"
+				},
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 115,
+						"cacheRead": 14281,
+						"cacheWrite": 6942
+					},
+					"spend": 0.0607082
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 199,
+						"cacheRead": 21223,
+						"cacheWrite": 0
+					},
+					"spend": 0.0082406
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 199,
+						"cacheRead": 21223,
+						"cacheWrite": 0
+					},
+					"spend": 0.0082406
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 120,
+						"cacheRead": 21223,
+						"cacheWrite": 0
+					},
+					"spend": 0.006660600000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 211,
+						"cacheRead": 14281,
+						"cacheWrite": 6600
+					},
+					"spend": 0.0598922
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 198,
+						"cacheRead": 20881,
+						"cacheWrite": 0
+					},
+					"spend": 0.0081522
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 203,
+						"cacheRead": 20881,
+						"cacheWrite": 0
+					},
+					"spend": 0.008252200000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 209,
+						"cacheRead": 20881,
+						"cacheWrite": 0
+					},
+					"spend": 0.0083722
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.16851880000000002
+		},
+		{
+			"call": 150,
+			"turn": 37,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 35,
+				"callId": "toolu_01UFJfMQuwP9NDqRGDLJ8UCF",
+				"tool": "read",
+				"tokens": 687,
+				"counted": 615,
+				"duplicated": false,
+				"location": "messages[1][0] messages[2][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 23400,
+				"cut": 22785,
+				"alone": 615
+			},
+			"original": [
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 21223,
+						"cacheWrite": 2130
+					},
+					"spend": 0.0230526
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 23353,
+						"cacheWrite": 0
+					},
+					"spend": 0.006438600000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 23353,
+						"cacheWrite": 0
+					},
+					"spend": 0.006438600000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 23353,
+						"cacheWrite": 0
+					},
+					"spend": 0.006438600000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 14347,
+						"cacheWrite": 8391
+					},
+					"spend": 0.0717654
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 22738,
+						"cacheWrite": 0
+					},
+					"spend": 0.0063156
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 22738,
+						"cacheWrite": 0
+					},
+					"spend": 0.0063156
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 88,
+						"cacheRead": 22738,
+						"cacheWrite": 0
+					},
+					"spend": 0.0063156
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.13308060000000002
+		},
+		{
+			"call": 128,
+			"turn": 32,
+			"condition": "ablate",
+			"fate": "unstable",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 31,
+				"callId": "toolu_01RZka2m2sqqo2ucooLH4Dg9",
+				"tool": "read",
+				"tokens": 1692,
+				"counted": 1398,
+				"duplicated": false,
+				"location": "messages[12][2] messages[13][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 25976,
+				"cut": 24578,
+				"alone": 1398
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "xd://recall_across_conversations"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 9,
+						"cacheRead": 19511,
+						"cacheWrite": 6419
+					},
+					"spend": 0.0554422
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 9,
+						"cacheRead": 25930,
+						"cacheWrite": 0
+					},
+					"spend": 0.005374000000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 9,
+						"cacheRead": 25930,
+						"cacheWrite": 0
+					},
+					"spend": 0.005374000000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "UNKNOWN",
+					"match": false,
+					"usage": {
+						"input": 2,
+						"output": 9,
+						"cacheRead": 25930,
+						"cacheWrite": 0
+					},
+					"spend": 0.005374000000000001
+				}
+			],
+			"spend": 0.07156420000000001
+		},
+		{
+			"call": 155,
+			"turn": 39,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 37,
+				"callId": "toolu_01FN49TBvf7EadmPC49okaAb",
+				"tool": "edit",
+				"tokens": 5010,
+				"counted": 871,
+				"duplicated": false,
+				"location": "messages[3][1] messages[4][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 18595,
+				"cut": 17724,
+				"alone": 871
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 111,
+						"cacheRead": 14281,
+						"cacheWrite": 4266
+					},
+					"spend": 0.0392202
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 134,
+						"cacheRead": 18547,
+						"cacheWrite": 0
+					},
+					"spend": 0.0064054
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 122,
+						"cacheRead": 18547,
+						"cacheWrite": 0
+					},
+					"spend": 0.0061654
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 127,
+						"cacheRead": 18547,
+						"cacheWrite": 0
+					},
+					"spend": 0.0062654
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN\n\nNone of these appear in the turns I can still see. Older turns may have mentioned them, but I couldn't search for them without tools.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 149,
+						"cacheRead": 15610,
+						"cacheWrite": 2066
+					},
+					"spend": 0.022646
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 110,
+						"cacheRead": 17676,
+						"cacheWrite": 0
+					},
+					"spend": 0.0057512
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN\n\nNone of these appear in the part of the conversation I can still see. Earlier turns may have mentioned them, but searching those would need a tool.",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 144,
+						"cacheRead": 17676,
+						"cacheWrite": 0
+					},
+					"spend": 0.0064312
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "review ticket: UNKNOWN\nreviewer handle: UNKNOWN\ndashboard export row limit: UNKNOWN\nrelease codename: UNKNOWN",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 116,
+						"cacheRead": 17676,
+						"cacheWrite": 0
+					},
+					"spend": 0.0058712
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.09875599999999998
+		}
+	],
+	"spend": 1.9774385999999997,
+	"calibration": true
+}

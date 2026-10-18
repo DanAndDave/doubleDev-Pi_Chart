@@ -2,7 +2,7 @@
 
 ### Requirement: The Used rule is calibrated against Needed per key
 
-A calibration SHALL give every tail and summary unit of a calibration set a Used verdict at each cell of *s* ∈ {6, 8, 12} × *k* ∈ {1, 2, 3}, judged on the unit's own Run and Call exactly as the Measures judge that Run. It SHALL compare those verdicts with the units' Needed verdicts, pooled across Arms, over units judged Needed or not Needed. Unclear units SHALL be excluded, and duplicated units SHALL be kept. Opening, Pin and null units SHALL never be compared.
+A calibration SHALL give every tail and summary unit of a calibration set judged Needed or not Needed a Used verdict at each cell of *s* ∈ {6, 8, 12} × *k* ∈ {1, 2, 3}, judged on the unit's own Run and Call exactly as the Measures judge that Run. It SHALL compare those verdicts with the units' Needed verdicts, pooled across Arms, over units judged Needed or not Needed. Unclear units SHALL be excluded, and duplicated units SHALL be kept. Opening, Pin and null units SHALL never be compared.
 
 For each cell it SHALL give Cohen's κ pooled, and per Arm κ, precision (Needed among Used), recall (Used among Needed) and the counts behind them. The chosen cell SHALL be the one with the highest pooled κ. Ties SHALL go to the smaller *s*, then the smaller *k*. A cell whose κ is undefined, because Used or Needed holds a single value across the units, SHALL never be chosen while another cell has a κ.
 
@@ -43,11 +43,11 @@ The Measures of a Run SHALL use the cell of the set frozen for the Run's key whe
 ### Requirement: The PPI Needed share
 
 For one Arm, the PPI Needed share SHALL estimate Ablation's Needed share over tail and summary units, duplicated units included, from Utilisation and the calibration set of the reported Runs' key:
-- **The prediction term:** each reported main Call with a known window and at least one unit of any kind gives its Used tail-and-summary tokens and its tail-and-summary tokens, each over the tokens of all its units. The term SHALL be the sum of the first over the sum of the second. This is the Used share of a unit drawn the way Ablation draws: a uniform Call, then a unit in proportion to its tokens, kept only when it is a tail or summary unit.
+- **The prediction term:** each reported main Call with a known window and at least one tail or summary unit gives its Used tail-and-summary tokens and its tail-and-summary tokens, each over the tokens of all its units. The term SHALL be the sum of the first over the sum of the second. This is the Used share of a unit drawn the way Ablation draws: a uniform Call, then a unit in proportion to its tokens, kept only when it is a tail or summary unit. A Call with no tail or summary unit would add 0 to both sums, so it is left out.
 - **The correction:** the mean of (Used − Needed) over the Arm's compared calibration units at the set's chosen cell, with Used and Needed as 1 or 0.
 - **The estimate:** the prediction term minus the correction, with a 95% interval from the variance of both terms, each clamped to 0–100%.
 
-It SHALL be given only when the set's κ is at least 0.4, and the reported Runs all hold the set's key, and the Arm has at least 2 compared calibration units. It SHALL be labelled "PPI" and never shown as Ablation's own Needed share.
+It SHALL be given only when the set's κ is at least 0.4, and the reported Runs all hold the set's key, and the Arm has at least 2 compared calibration units, and the reported Runs have at least 2 such Calls. It SHALL be labelled "PPI" and never shown as Ablation's own Needed share.
 
 #### Scenario: The prediction term is weighted the way Ablation draws
 

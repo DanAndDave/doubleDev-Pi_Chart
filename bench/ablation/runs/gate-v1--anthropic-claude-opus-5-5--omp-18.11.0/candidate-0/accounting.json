@@ -1,0 +1,5220 @@
+{
+	"01a14551-d9ab-77b0-9204-3c1f15c1a615": [
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 0,
+			"calls": [
+				{
+					"turnIndex": 0,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 1462,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 1414,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 0,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 2237,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 14453,
+					"cacheWrite": 777,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 0,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 2932,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 15230,
+					"cacheWrite": 695,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 0,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 3326,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 15925,
+					"cacheWrite": 394,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 0,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 3542,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 16319,
+					"cacheWrite": 216,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 3542,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 1,
+			"calls": [
+				{
+					"turnIndex": 1,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 3965,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 16535,
+					"cacheWrite": 421,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 1,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 5146,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 16956,
+					"cacheWrite": 1183,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 1,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 5476,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 18139,
+					"cacheWrite": 330,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 5476,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 2,
+			"calls": [
+				{
+					"turnIndex": 2,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 5867,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 18469,
+					"cacheWrite": 389,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 2,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 6668,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 18858,
+					"cacheWrite": 803,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 2,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 7490,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19661,
+					"cacheWrite": 822,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 2,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 7819,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20483,
+					"cacheWrite": 329,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 7819,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 3,
+			"calls": [
+				{
+					"turnIndex": 3,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 8352,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20812,
+					"cacheWrite": 531,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 3,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 8507,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21343,
+					"cacheWrite": 157,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 3,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 9615,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21500,
+					"cacheWrite": 1108,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 3,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 10083,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 22608,
+					"cacheWrite": 468,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 10083,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 4,
+			"calls": [
+				{
+					"turnIndex": 4,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 10475,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23076,
+					"cacheWrite": 390,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 4,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 10678,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23466,
+					"cacheWrite": 205,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 4,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 11140,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23671,
+					"cacheWrite": 462,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 11140,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 5,
+			"calls": [
+				{
+					"turnIndex": 5,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 11398,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 24133,
+					"cacheWrite": 256,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 5,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 12191,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 24389,
+					"cacheWrite": 795,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 5,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 12491,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25184,
+					"cacheWrite": 300,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 12491,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 6,
+			"calls": [
+				{
+					"turnIndex": 6,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 12826,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25484,
+					"cacheWrite": 333,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 6,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 13222,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25817,
+					"cacheWrite": 398,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 6,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 13839,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26215,
+					"cacheWrite": 617,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 6,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 14393,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26832,
+					"cacheWrite": 554,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 6,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 14547,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 27386,
+					"cacheWrite": 154,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 14547,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 7,
+			"calls": [
+				{
+					"turnIndex": 7,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 15030,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 27540,
+					"cacheWrite": 481,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 7,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 15502,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 28021,
+					"cacheWrite": 474,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 7,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 16150,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 28495,
+					"cacheWrite": 648,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 7,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 16714,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 29143,
+					"cacheWrite": 564,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 16714,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 8,
+			"calls": [
+				{
+					"turnIndex": 8,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 17199,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 29707,
+					"cacheWrite": 483,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 8,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 17553,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 30190,
+					"cacheWrite": 356,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 17553,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 9,
+			"calls": [
+				{
+					"turnIndex": 9,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 1880,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 1832,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 9,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 2998,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 14871,
+					"cacheWrite": 1120,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 9,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 3544,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 15991,
+					"cacheWrite": 546,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 9,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 4035,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 16537,
+					"cacheWrite": 491,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 9,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 4143,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 17028,
+					"cacheWrite": 108,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 4143,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 10,
+			"calls": [
+				{
+					"turnIndex": 10,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 4541,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 17136,
+					"cacheWrite": 396,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 10,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 5284,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 17532,
+					"cacheWrite": 745,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 5284,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 11,
+			"calls": [
+				{
+					"turnIndex": 11,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 5624,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 18277,
+					"cacheWrite": 338,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 11,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 7795,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 18615,
+					"cacheWrite": 2173,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 11,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 8753,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20788,
+					"cacheWrite": 958,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 11,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 9951,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21746,
+					"cacheWrite": 1198,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 11,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 10130,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 22944,
+					"cacheWrite": 179,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 10130,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 12,
+			"calls": [
+				{
+					"turnIndex": 12,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 10543,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23123,
+					"cacheWrite": 411,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 12,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 11240,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23534,
+					"cacheWrite": 699,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 11240,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 13,
+			"calls": [
+				{
+					"turnIndex": 13,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 11442,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 24233,
+					"cacheWrite": 200,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 13,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 12921,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 24433,
+					"cacheWrite": 1481,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 13,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 13102,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25914,
+					"cacheWrite": 181,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 13102,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 14,
+			"calls": [
+				{
+					"turnIndex": 14,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 13511,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26095,
+					"cacheWrite": 407,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 14,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 14262,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26502,
+					"cacheWrite": 753,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 14,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 14859,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 27255,
+					"cacheWrite": 597,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 14,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 15011,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 27852,
+					"cacheWrite": 152,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 15011,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 15,
+			"calls": [
+				{
+					"turnIndex": 15,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 2909,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 2861,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 15,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 3652,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 15900,
+					"cacheWrite": 745,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 3652,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 16,
+			"calls": [
+				{
+					"turnIndex": 16,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 4127,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 16645,
+					"cacheWrite": 473,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 16,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 4399,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 17118,
+					"cacheWrite": 274,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 16,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 12545,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 17392,
+					"cacheWrite": 8146,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 12545,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 17,
+			"calls": [
+				{
+					"turnIndex": 17,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 12653,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25538,
+					"cacheWrite": 106,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 17,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 13532,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25644,
+					"cacheWrite": 881,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 17,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 14588,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26525,
+					"cacheWrite": 1056,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 17,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 15416,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 27581,
+					"cacheWrite": 828,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 17,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 15722,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 28715,
+					"cacheWrite": 0,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 17,
+					"callIndex": 5,
+					"parts": [],
+					"packTokens": 15874,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 28715,
+					"cacheWrite": 152,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 15874,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 18,
+			"calls": [
+				{
+					"turnIndex": 18,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 16290,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 28867,
+					"cacheWrite": 414,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 18,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 17076,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 29281,
+					"cacheWrite": 788,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 18,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 17874,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 30069,
+					"cacheWrite": 798,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 18,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 18337,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 30867,
+					"cacheWrite": 463,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 18,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 18518,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 31330,
+					"cacheWrite": 181,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 18518,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 19,
+			"calls": [
+				{
+					"turnIndex": 19,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 3919,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 3871,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 19,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 6344,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 16910,
+					"cacheWrite": 2427,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 19,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 6513,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19337,
+					"cacheWrite": 169,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 6513,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 20,
+			"calls": [
+				{
+					"turnIndex": 20,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 6816,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19506,
+					"cacheWrite": 301,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 20,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 7066,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19807,
+					"cacheWrite": 252,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 20,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 8692,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20059,
+					"cacheWrite": 1626,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 20,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 8936,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21685,
+					"cacheWrite": 244,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 8936,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 21,
+			"calls": [
+				{
+					"turnIndex": 21,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 9450,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21929,
+					"cacheWrite": 512,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 21,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 10260,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 22441,
+					"cacheWrite": 812,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 21,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 10637,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23253,
+					"cacheWrite": 377,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 10637,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 22,
+			"calls": [
+				{
+					"turnIndex": 22,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 10807,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23630,
+					"cacheWrite": 168,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 22,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 11645,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23798,
+					"cacheWrite": 840,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 22,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 12277,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 24638,
+					"cacheWrite": 632,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 22,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 12520,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25270,
+					"cacheWrite": 243,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 12520,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 23,
+			"calls": [
+				{
+					"turnIndex": 23,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 12867,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25513,
+					"cacheWrite": 345,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 23,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 17410,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 25858,
+					"cacheWrite": 4545,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 23,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 18512,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 30403,
+					"cacheWrite": 1102,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 23,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 18841,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 31505,
+					"cacheWrite": 329,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 23,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 19034,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 31834,
+					"cacheWrite": 193,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 19034,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 24,
+			"calls": [
+				{
+					"turnIndex": 24,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 6969,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 6921,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 7777,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19960,
+					"cacheWrite": 810,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 8798,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20770,
+					"cacheWrite": 1021,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 10537,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21791,
+					"cacheWrite": 1739,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 10890,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23530,
+					"cacheWrite": 353,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 5,
+					"parts": [],
+					"packTokens": 11653,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 23883,
+					"cacheWrite": 763,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 6,
+					"parts": [],
+					"packTokens": 13064,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 24646,
+					"cacheWrite": 1411,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 7,
+					"parts": [],
+					"packTokens": 13351,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26057,
+					"cacheWrite": 287,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 24,
+					"callIndex": 8,
+					"parts": [],
+					"packTokens": 13630,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26344,
+					"cacheWrite": 279,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 13630,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 25,
+			"calls": [
+				{
+					"turnIndex": 25,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 14208,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 26623,
+					"cacheWrite": 576,
+					"inputTokens": 4
+				}
+			],
+			"packTokens": 14208,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 26,
+			"calls": [
+				{
+					"turnIndex": 26,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 1444,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 1396,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 26,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 2167,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 14435,
+					"cacheWrite": 725,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 26,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 24166,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 15160,
+					"cacheWrite": 21999,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 26,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 24787,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 37159,
+					"cacheWrite": 621,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 24787,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 27,
+			"calls": [
+				{
+					"turnIndex": 27,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 25255,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 37780,
+					"cacheWrite": 466,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 27,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 26021,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 38246,
+					"cacheWrite": 768,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 27,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 27426,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 39014,
+					"cacheWrite": 1405,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 27,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 28670,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 40419,
+					"cacheWrite": 1244,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 27,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 29014,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 41663,
+					"cacheWrite": 344,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 29014,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 28,
+			"calls": [
+				{
+					"turnIndex": 28,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 4688,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 4640,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 28,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 5533,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 17679,
+					"cacheWrite": 847,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 28,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 6320,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 18526,
+					"cacheWrite": 787,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 28,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 6954,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19313,
+					"cacheWrite": 634,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 28,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 7162,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19947,
+					"cacheWrite": 208,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 7162,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 29,
+			"calls": [
+				{
+					"turnIndex": 29,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 7546,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20155,
+					"cacheWrite": 382,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 29,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 7890,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20537,
+					"cacheWrite": 346,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 29,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 25917,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 20883,
+					"cacheWrite": 18027,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 25917,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 30,
+			"calls": [
+				{
+					"turnIndex": 30,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 19748,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 19700,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 30,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 21918,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 32739,
+					"cacheWrite": 2172,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 30,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 22828,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 34911,
+					"cacheWrite": 910,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 30,
+					"callIndex": 3,
+					"parts": [],
+					"packTokens": 24922,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 35821,
+					"cacheWrite": 2094,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 30,
+					"callIndex": 4,
+					"parts": [],
+					"packTokens": 25176,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 37915,
+					"cacheWrite": 254,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 25176,
+			"floorTokens": 12995
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 31,
+			"calls": [
+				{
+					"turnIndex": 31,
+					"callIndex": 0,
+					"parts": [],
+					"packTokens": 6520,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 13039,
+					"cacheWrite": 6472,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 31,
+					"callIndex": 1,
+					"parts": [],
+					"packTokens": 8320,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 19511,
+					"cacheWrite": 1802,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 31,
+					"callIndex": 2,
+					"parts": [],
+					"packTokens": 8989,
+					"floorTokens": 12995,
+					"compactionEpoch": 0,
+					"cacheRead": 21313,
+					"cacheWrite": 669,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 31,
+					"callIndex": 3,
+					"at": "2026-10-16T15:44:28.213Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 12888,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								30
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 31,
+							"excluded": {
+								"evicted": 30
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 23,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 22,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 21,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 20,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 19,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 18,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 5533,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								31
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 18614,
+					"packTokens": 12080,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 18614,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 21982,
+					"cacheWrite": 2898,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 12080,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 32,
+			"calls": [
+				{
+					"turnIndex": 32,
+					"callIndex": 0,
+					"at": "2026-10-16T15:44:50.215Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 19454,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								30,
+								31
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 59,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								32
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 19706,
+					"packTokens": 12822,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 19706,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 24880,
+					"cacheWrite": 740,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 32,
+					"callIndex": 1,
+					"at": "2026-10-16T15:44:54.094Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 19454,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								30,
+								31
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 962,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								32
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 20609,
+					"packTokens": 13104,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 20609,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 25620,
+					"cacheWrite": 284,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 32,
+					"callIndex": 2,
+					"at": "2026-10-16T15:44:57.344Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 19454,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								30,
+								31
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 1334,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								32
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 20981,
+					"packTokens": 13253,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 20981,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 25904,
+					"cacheWrite": 149,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 32,
+					"callIndex": 3,
+					"at": "2026-10-16T15:45:00.631Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 19454,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								30,
+								31
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 1705,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								32
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 21352,
+					"packTokens": 13404,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 21352,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 26053,
+					"cacheWrite": 151,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 32,
+					"callIndex": 4,
+					"at": "2026-10-16T15:45:05.117Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 19454,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								30,
+								31
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 2662,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								32
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 22309,
+					"packTokens": 13685,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 22309,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 26204,
+					"cacheWrite": 281,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 32,
+					"callIndex": 5,
+					"at": "2026-10-16T15:45:08.269Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 19454,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								30,
+								31
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 24,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 3044,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								32
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 22691,
+					"packTokens": 13829,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 22691,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 26485,
+					"cacheWrite": 144,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 13829,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 33,
+			"calls": [
+				{
+					"turnIndex": 33,
+					"callIndex": 0,
+					"at": "2026-10-16T15:45:16.259Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 22763,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								30,
+								31,
+								32
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 5
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 89,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 23045,
+					"packTokens": 13942,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 23045,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 26629,
+					"cacheWrite": 111,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 33,
+					"callIndex": 1,
+					"at": "2026-10-16T15:45:22.851Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 22763,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								30,
+								31,
+								32
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 5
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 1295,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 24251,
+					"packTokens": 14527,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 24251,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 26740,
+					"cacheWrite": 587,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 33,
+					"callIndex": 2,
+					"at": "2026-10-16T15:45:33.228Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 22763,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								30,
+								31,
+								32
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 5
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 5911,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 28867,
+					"packTokens": 15489,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 28867,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 27327,
+					"cacheWrite": 962,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 33,
+					"callIndex": 3,
+					"at": "2026-10-16T15:45:36.842Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 22763,
+							"approximate": true,
+							"carried": 3,
+							"turnIndices": [
+								30,
+								31,
+								32
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 5
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 25,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 6261,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 29217,
+					"packTokens": 15642,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 29217,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 28289,
+					"cacheWrite": 153,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 15642,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 34,
+			"calls": [
+				{
+					"turnIndex": 34,
+					"callIndex": 0,
+					"at": "2026-10-16T15:45:51.226Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 7016,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 96,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								34
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 7305,
+					"packTokens": 3541,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 7305,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 13039,
+					"cacheWrite": 3300,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 34,
+					"callIndex": 1,
+					"at": "2026-10-16T15:45:59.578Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 7016,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 3185,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								34
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 10394,
+					"packTokens": 5832,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 10394,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 16339,
+					"cacheWrite": 2293,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 34,
+					"callIndex": 2,
+					"at": "2026-10-16T15:46:02.316Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 7016,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 3847,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								34
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 11056,
+					"packTokens": 6263,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 11056,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 18632,
+					"cacheWrite": 431,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 34,
+					"callIndex": 3,
+					"at": "2026-10-16T15:46:19.322Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 7016,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 12271,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								34
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 19480,
+					"packTokens": 7817,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 19480,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 19063,
+					"cacheWrite": 1554,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 34,
+					"callIndex": 4,
+					"at": "2026-10-16T15:46:23.232Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 7016,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								33
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 26,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 12599,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								34
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 19808,
+					"packTokens": 7970,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 19808,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 20617,
+					"cacheWrite": 153,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 7970,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 35,
+			"calls": [
+				{
+					"turnIndex": 35,
+					"callIndex": 0,
+					"at": "2026-10-16T15:46:38.691Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 20671,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								33,
+								34
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 69,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 20933,
+					"packTokens": 8691,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 20933,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 20770,
+					"cacheWrite": 719,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 35,
+					"callIndex": 1,
+					"at": "2026-10-16T15:46:42.565Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 20671,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								33,
+								34
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 1448,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 22312,
+					"packTokens": 9669,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 22312,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 21489,
+					"cacheWrite": 980,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 35,
+					"callIndex": 2,
+					"at": "2026-10-16T15:46:52.600Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 20671,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								33,
+								34
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 5673,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 26537,
+					"packTokens": 10554,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 26537,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 22469,
+					"cacheWrite": 885,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 35,
+					"callIndex": 3,
+					"at": "2026-10-16T15:46:57.254Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 20671,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								33,
+								34
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 10124,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 30988,
+					"packTokens": 11037,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 30988,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 23354,
+					"cacheWrite": 483,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 35,
+					"callIndex": 4,
+					"at": "2026-10-16T15:47:00.529Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 20671,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								33,
+								34
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 27,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 10450,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 31314,
+					"packTokens": 11190,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 31314,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 23837,
+					"cacheWrite": 153,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 11190,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 36,
+			"calls": [
+				{
+					"turnIndex": 36,
+					"callIndex": 0,
+					"at": "2026-10-16T15:47:11.164Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 10847,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 86,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								36
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 11126,
+					"packTokens": 4417,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 11126,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 13039,
+					"cacheWrite": 4176,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 36,
+					"callIndex": 1,
+					"at": "2026-10-16T15:47:15.805Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 10847,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 2255,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								36
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 13295,
+					"packTokens": 6248,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 13295,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 17215,
+					"cacheWrite": 1833,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 36,
+					"callIndex": 2,
+					"at": "2026-10-16T15:47:20.720Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 10847,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								35
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 28,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 4931,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								36
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 15971,
+					"packTokens": 8163,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 15971,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 19048,
+					"cacheWrite": 1915,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 8163,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 37,
+			"calls": [
+				{
+					"turnIndex": 37,
+					"callIndex": 0,
+					"at": "2026-10-16T15:47:32.801Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 16547,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								35,
+								36
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 71,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 16811,
+					"packTokens": 8593,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 16811,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 20963,
+					"cacheWrite": 428,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 37,
+					"callIndex": 1,
+					"at": "2026-10-16T15:47:37.342Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 16547,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								35,
+								36
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 1965,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 18705,
+					"packTokens": 9869,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 18705,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 21391,
+					"cacheWrite": 1278,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 37,
+					"callIndex": 2,
+					"at": "2026-10-16T15:47:50.919Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 16547,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								35,
+								36
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 7905,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 24645,
+					"packTokens": 11234,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 24645,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 22669,
+					"cacheWrite": 1365,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 37,
+					"callIndex": 3,
+					"at": "2026-10-16T15:47:53.030Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 16547,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								35,
+								36
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 29,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 8156,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 24896,
+					"packTokens": 11387,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 24896,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 24034,
+					"cacheWrite": 153,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 11387,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 38,
+			"calls": [
+				{
+					"turnIndex": 38,
+					"callIndex": 0,
+					"at": "2026-10-16T15:48:03.163Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 8561,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 36,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 35,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 72,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								38
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 8826,
+					"packTokens": 4332,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 8826,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 13039,
+					"cacheWrite": 4091,
+					"inputTokens": 4
+				},
+				{
+					"turnIndex": 38,
+					"callIndex": 1,
+					"at": "2026-10-16T15:48:07.482Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 8561,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 36,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 35,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 1045,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								38
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 9799,
+					"packTokens": 4855,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 9799,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 17130,
+					"cacheWrite": 525,
+					"inputTokens": 2
+				},
+				{
+					"turnIndex": 38,
+					"callIndex": 2,
+					"at": "2026-10-16T15:48:09.290Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 8561,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								37
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 7
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 36,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 35,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 30,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 2073,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								38
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 10827,
+					"packTokens": 5573,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 10827,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 17655,
+					"cacheWrite": 718,
+					"inputTokens": 2
+				}
+			],
+			"packTokens": 5573,
+			"floorTokens": 12802
+		},
+		{
+			"conversationId": "01a14551-d9ab-77b0-9204-3c1f15c1a615",
+			"turnIndex": 39,
+			"calls": [
+				{
+					"turnIndex": 39,
+					"callIndex": 0,
+					"at": "2026-10-16T15:48:18.182Z",
+					"parts": [
+						{
+							"source": "pinned",
+							"approximateTokens": 0,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 0,
+							"pinIds": [],
+							"budget": {
+								"count": 8,
+								"tokens": 2000
+							},
+							"candidates": 0,
+							"excludedCandidates": [],
+							"absent": "none"
+						},
+						{
+							"source": "opening",
+							"approximateTokens": 163,
+							"approximate": true,
+							"placement": "system-prompt",
+							"carried": 1,
+							"turnIndices": [
+								0
+							],
+							"budget": {
+								"count": 1,
+								"tokens": 1000
+							},
+							"candidates": 1,
+							"excludedCandidates": []
+						},
+						{
+							"source": "verbatim-tail",
+							"approximateTokens": 11287,
+							"approximate": true,
+							"carried": 2,
+							"turnIndices": [
+								37,
+								38
+							],
+							"budget": {
+								"count": 8,
+								"tokens": 25000
+							},
+							"candidates": 8,
+							"excluded": {
+								"evicted": 6
+							},
+							"excludedCandidates": [
+								{
+									"turnIndex": 36,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 35,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 34,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 33,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 32,
+									"reason": "evicted"
+								},
+								{
+									"turnIndex": 31,
+									"reason": "evicted"
+								}
+							]
+						},
+						{
+							"source": "current-turn",
+							"approximateTokens": 87,
+							"approximate": true,
+							"carried": 1,
+							"turnIndices": [
+								39
+							],
+							"excludedCandidates": []
+						}
+					],
+					"approximateTokens": 11567,
+					"packTokens": 5875,
+					"floorTokens": 12802,
+					"tailSource": "harness",
+					"budgets": {
+						"tail": 8,
+						"opening": 1,
+						"pins": 8
+					},
+					"systemTokens": 193,
+					"ceiling": 300000,
+					"beforeCeiling": 11567,
+					"compactionEpoch": 0,
+					"memoryBackend": "off",
+					"cacheRead": 18373,
+					"cacheWrite": 300,
+					"inputTokens": 4
+				}
+			],
+			"packTokens": 5875,
+			"floorTokens": 12802
+		}
+	]
+}

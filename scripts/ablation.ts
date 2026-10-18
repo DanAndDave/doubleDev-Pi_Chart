@@ -8,6 +8,7 @@ import { EVICTION_NOTICE, OPENING_FRAMING } from "../src/assembler.ts";
 import type { JournalTurn } from "../src/journal.ts";
 import { isToolCall, messageText, renderToolCall, type HarnessMessage } from "../src/messages.ts";
 import { approximateTokens } from "../src/tokens.ts";
+import { type CalibrationKey, isCompared, keyLabel, type PpiEstimate, setFor } from "./calibration.ts";
 import { answerOf, type RunRecord, type Score } from "./measures.ts";
 import { wilson } from "./stats.ts";
 import { type Action, type Unit, unitContent } from "./units.ts";
@@ -261,6 +262,11 @@ export interface Summary {
 	needed: Share;
 	/** Ablate draws judged and duplicated: k = needed. */
 	duplicated: Share;
+	/**
+	 * Ablate draws judged Needed or not Needed whose unit is a tail or summary
+	 * unit, duplicated ones included: the population a PPI Needed share estimates.
+	 */
+	tailSummary: Share;
 	/** Unclear over judged non-duplicated ablate draws; NaN when none was judged. */
 	unclear: number;
 	/** Unstable Calls over Calls drawn (ablate and null). */
@@ -297,6 +303,7 @@ export function summarise(records: AblationRecord[]): Map<string, Summary> {
 		summaries.set(arm, {
 			needed: neededShare(plain),
 			duplicated: neededShare(ablated.filter((draw) => draw.unit.duplicated)),
+			tailSummary: neededShare(ablated.filter(isCompared)),
 			unclear: plain.filter((draw) => draw.verdict === "unclear").length / plain.length,
 			unstable: { k: drawn.filter((draw) => draw.fate === "unstable").length, n: drawn.length },
 			fates,
@@ -322,18 +329,17 @@ export const percentLabel = (share: number) => (Number.isFinite(share) ? `${(sha
 export const shareLabel = (share: Share) =>
 	`${share.k}/${share.n} ${percentLabel(share.share)} [${percentLabel(share.lower)}, ${percentLabel(share.upper)}]`;
 
+/** How every report prints a PPI Needed share: `share [lower, upper]`. */
+export const estimateLabel = (estimate: PpiEstimate) =>
+	`${percentLabel(estimate.share)} [${percentLabel(estimate.lower)}, ${percentLabel(estimate.upper)}]`;
+
 // ---- calibration set (spec: "A calibration set is frozen per key")
 
-/** What a calibration set is frozen under: the Workload's name and version, the model, the omp version. */
-export interface CalibrationKey {
-	workload: { name: string; version: number };
-	model: string;
-	omp: string;
-}
-
-/** A judged unit kept for `utilisation-calibration`: its content, its Call's original next action, its verdict. */
+/** A judged unit kept for `utilisation-calibration`: its Run's folder, its content, its Call's original next action, its verdict. */
 export interface CalibrationUnit {
 	arm: string;
+	/** The basename of the Run's folder, under the set's `runs`: what finds the unit's Run, never its Arm and index. */
+	folder: string;
 	/** The Run's index in its Arm. */
 	run: number;
 	call: number;
@@ -343,6 +349,8 @@ export interface CalibrationUnit {
 	content: string;
 	original: Action;
 	verdict: Verdict;
+	/** Once calibrated, on a tail or summary unit judged Needed or not Needed: its Used verdict per cell, by `cellId`. */
+	used?: Record<string, boolean>;
 }
 
 export interface CalibrationSet {
@@ -355,6 +363,10 @@ export interface CalibrationSet {
 	nulls: CalibrationUnit[];
 	/** The positive control over every Arm's judged control units. */
 	control: { share: Share; trusted: boolean };
+	/** The Run folders the units draw from, relative to the repository; absent on a set made before they were kept. */
+	runs?: string;
+	/** The chosen cell and its pooled κ, once calibrated; κ is null when no cell had one. */
+	rule?: { s: number; k: number; kappa: number | null };
 }
 
 /** `bench/ablation/calibration.json`. */
@@ -362,15 +374,20 @@ export interface CalibrationFile {
 	sets: CalibrationSet[];
 }
 
-/** A calibration's set under `key`, from its Runs' ablation records and their Journals' Turns. */
-export function calibrationSet(key: CalibrationKey, runs: { record: AblationRecord; turns: JournalTurn[] }[], date: string): CalibrationSet {
+/** A calibration's set under `key`, from its Runs' ablation records, their Journals' Turns and their folders' basenames. */
+export function calibrationSet(
+	key: CalibrationKey,
+	runs: { record: AblationRecord; turns: JournalTurn[]; folder: string }[],
+	date: string,
+): CalibrationSet {
 	const kept = (condition: Condition) =>
-		runs.flatMap(({ record, turns }) =>
+		runs.flatMap(({ record, turns, folder }) =>
 			record.draws
 				.filter((draw) => draw.condition === condition && draw.fate === "judged")
 				.map(
 					(draw): CalibrationUnit => ({
 						arm: record.arm,
+						folder,
 						run: record.index,
 						call: draw.call,
 						turn: draw.turn,
@@ -384,11 +401,6 @@ export function calibrationSet(key: CalibrationKey, runs: { record: AblationReco
 	const share = neededShare(runs.flatMap(({ record }) => record.draws.filter((draw) => draw.condition === "control" && draw.fate === "judged")));
 	return { key, date, units: kept("ablate"), nulls: kept("null"), control: { share, trusted: share.share >= TRUSTED } };
 }
-/** How a report names a key: `gate v3, claude-opus-4-5, omp/18.11.0`. */
-export function keyLabel(key: CalibrationKey): string {
-	return `${key.workload.name} v${key.workload.version}, ${key.model}, ${key.omp}`;
-}
-
 /**
  * `file` with `set` added; `file` itself, and why, when its key already has
  * a set or its positive control does not hold.
@@ -402,17 +414,6 @@ export function addSet(file: CalibrationFile, set: CalibrationSet): { file: Cali
 		return { file, refused: `the positive control came out ${shareLabel(share)} Needed, below ${TRUSTED * 100}%: the instrument is not trusted` };
 	}
 	return { file: { sets: [...file.sets, set] } };
-}
-
-/** The set frozen under `key`, if any: every field of the key equal, never a near one. */
-export function setFor(file: CalibrationFile, key: CalibrationKey): CalibrationSet | undefined {
-	return file.sets.find(
-		({ key: frozen }) =>
-			frozen.workload.name === key.workload.name &&
-			frozen.workload.version === key.workload.version &&
-			frozen.model === key.model &&
-			frozen.omp === key.omp,
-	);
 }
 
 // ------------------------------------------------------- the request body --

@@ -1,0 +1,353 @@
+{
+	"arm": "pi-chart",
+	"index": 0,
+	"workload": {
+		"name": "gate",
+		"version": 1,
+		"commit": "6eb0d6de51cc718973b65fe925f039a4aec95b7e"
+	},
+	"omp": "omp/18.11.0",
+	"cwd": "/tmp/pichart-bench-hISzG3",
+	"plants": [
+		{
+			"id": "ticket",
+			"kind": "literal",
+			"value": "BTQ-8812"
+		},
+		{
+			"id": "reviewer",
+			"kind": "literal",
+			"value": "harrow-73",
+			"file": "notes/owners.md"
+		},
+		{
+			"id": "row-limit",
+			"kind": "superseded",
+			"value": "2875",
+			"earlier": "3150",
+			"file": "notes/limits-next.md",
+			"earlierFile": "notes/limits.md"
+		},
+		{
+			"id": "codename",
+			"kind": "superseded",
+			"value": "OSPREY-3",
+			"earlier": "MARLIN-6"
+		},
+		{
+			"id": "test-tag",
+			"kind": "constraint",
+			"value": "TT-5082"
+		},
+		{
+			"id": "owner-line",
+			"kind": "constraint",
+			"value": "OWN-9314",
+			"file": "notes/conventions.md"
+		}
+	],
+	"revisits": [
+		{
+			"id": "samples",
+			"file": "notes/samples.md",
+			"earlier": "turn-sizes",
+			"step": "histogram"
+		},
+		{
+			"id": "rounding",
+			"file": "notes/rounding.md",
+			"earlier": "weights",
+			"step": "render"
+		},
+		{
+			"id": "weights",
+			"file": "notes/weights.md",
+			"earlier": "turn-sizes",
+			"step": "weights"
+		},
+		{
+			"id": "legend",
+			"file": "notes/legend.md",
+			"earlier": "histogram",
+			"step": "render"
+		},
+		{
+			"id": "layout",
+			"file": "notes/format.md",
+			"earlier": "turn-sizes",
+			"step": "summary"
+		},
+		{
+			"id": "thresholds",
+			"file": "notes/buckets.md",
+			"earlier": "buckets",
+			"step": "summary"
+		}
+	],
+	"prompts": [
+		{
+			"step": "buckets",
+			"text": "We are building src/budget-table.ts, a small pure module that tabulates the token sizes of a Conversation's Turns against a Budget. Read notes/buckets.md and create src/budget-table.ts exporting a type `Bucket`, the union of the bucket names, and a function `bucketOf(tokens: number): Bucket` returning the bucket its thresholds give. Only the thresholds matter for now. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "buckets",
+			"text": "Read src/tokens.ts and src/messages.ts. In three sentences: how does approximateTokens estimate the size of a list of messages, and which message fields does it leave out? Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "buckets",
+			"text": "This work is tracked under review ticket BTQ-8812. Keep it in mind: I will ask for it later. It belongs in the review tool, not in the code, so do not write it into any file. Now add an exported constant `BUCKETS` to src/budget-table.ts listing the bucket names from smallest to largest, and make bucketOf use it where that reads naturally. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "buckets",
+			"text": "Read notes/limits.md: it holds the dashboard team's export row limit, which I will ask about later. It is their setting, not something our code enforces, so do not put it in any file. Then make bucketOf throw a RangeError for a negative or non-finite size. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "buckets",
+			"text": "Read src/turns.ts. In two sentences: how does reconstructTurns group messages, and what happens to messages that come before the first user prompt? Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "buckets",
+			"text": "Read notes/owners.md: it names the reviewer of this work, whom I will ask about later. Do not write the reviewer into any file. Then give bucketOf a short JSDoc comment. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "buckets",
+			"text": "Read notes/limits-next.md: the dashboard team has changed the export row limit. Again, it is not for the code. Then create src/budget-table.test.ts with tests for bucketOf at every bucket boundary and for its RangeError, and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "turn-sizes",
+			"text": "Add to src/budget-table.ts `turnSizes(messages: HarnessMessage[]): number[]`, importing HarnessMessage from src/messages.ts: one size per Turn that reconstructTurns finds, each the approximateTokens estimate over that Turn's messages. A leading Turn with no prompt (messages before the first user prompt) is dropped. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "turn-sizes",
+			"text": "Read notes/format.md now: it lays out the summary line we will build at the very end. There is nothing to code from it yet, so just confirm you have read it, in one sentence, without restating it. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "turn-sizes",
+			"text": "Read notes/weights.md too: the weighting step later on needs it. There is nothing to code from it yet. Meanwhile, give turnSizes a JSDoc comment that explains the leading-Turn rule. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "turn-sizes",
+			"text": "A house rule for test files: every new test file you create from now on must begin with the line `// suite: TT-5082`. Do not add that line to test files that already exist. Now read src/shares.ts and tell me in two sentences what shares() returns when every claim is larger than the room. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "turn-sizes",
+			"text": "Read notes/samples.md: it shows the histogram we will build next. There is nothing to code from it yet. Then add tests for turnSizes to src/budget-table.test.ts, using a small hand-built message list: one assistant message before the first prompt, then two user prompts each followed by an assistant reply. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "turn-sizes",
+			"text": "Finish turnSizes and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "histogram",
+			"text": "Add `histogram(sizes: number[]): { bucket: Bucket; count: number }[]` to src/budget-table.ts, counting the sizes per bucket, with the order and the empty-bucket rule that notes/samples.md gives. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "histogram",
+			"text": "Add tests for histogram to src/budget-table.test.ts: the sample from earlier, a list with no huge size, and an empty list. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "histogram",
+			"text": "Read src/shares.ts again and tell me in two sentences whether shares() would help split a Budget across buckets, and why or why not. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "histogram",
+			"text": "Who reviews the budget-table work? Reply with just their handle, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+			"probes": [
+				"reviewer"
+			]
+		},
+		{
+			"step": "histogram",
+			"text": "Read notes/legend.md: the table we render later follows it. There is nothing to code from it yet. Then make histogram reject a negative size with a RangeError, through bucketOf. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "histogram",
+			"text": "Add to src/budget-table.ts `totalOf(sizes: number[]): number`, the plain sum of the sizes, with a test in src/budget-table.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "histogram",
+			"text": "Finish histogram and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "weights",
+			"text": "Add `weighted(sizes: number[]): number[]` to src/budget-table.ts: each size times its bucket's weight from notes/weights.md, in the same order as the sizes. Leave rounding aside for now. Create a new test file, src/budget-weights.test.ts, with tests for weighted.",
+			"probes": [
+				"test-tag"
+			]
+		},
+		{
+			"step": "weights",
+			"text": "The release codename is MARLIN-6. I will ask for it later. It is for the release notes, not the code, so do not write it into any file. Now read src/messages.ts and tell me in one sentence what a Turn holds. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "weights",
+			"text": "Make weighted reject a negative size the same way bucketOf does, and add a test for that to src/budget-weights.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "weights",
+			"text": "The release codename has changed: it is now OSPREY-3, replacing the one I gave you before. The same rule applies: not in any file. Now check src/budget-table.ts for unused imports and dead code, and remove any you find. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "weights",
+			"text": "Read notes/rounding.md and apply its rule for weighted sizes to weighted(). Its display rule is for later. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "weights",
+			"text": "What is the current release codename? Reply with just the codename, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+			"probes": [
+				"codename"
+			]
+		},
+		{
+			"step": "weights",
+			"text": "Finish weighted, update src/budget-weights.test.ts for the rounding, and run `bun test src/budget-weights.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "render",
+			"text": "Add to src/budget-table.ts `formatCount(n: number): string`, showing a number the way notes/rounding.md's display rule says, and `labelOf(bucket: Bucket): string`, returning the row label notes/legend.md gives. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "render",
+			"text": "Read notes/conventions.md: it applies to files you create from now on, not to existing ones. Then add tests for formatCount and labelOf to src/budget-table.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "render",
+			"text": "Which review ticket is this work tracked under? Reply with just the ticket id, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+			"probes": [
+				"ticket"
+			]
+		},
+		{
+			"step": "render",
+			"text": "Add to src/budget-table.ts `bucketTotals(sizes: number[]): Map<Bucket, number>`, the sum of the weighted sizes of the Turns in each bucket, with a test in src/budget-table.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "render",
+			"text": "Create src/budget-render.ts exporting `renderTable(sizes: number[]): string[]`: the header row, then one row per histogram entry, laid out as notes/legend.md says, with each weighted total shown through formatCount.",
+			"probes": [
+				"owner-line"
+			]
+		},
+		{
+			"step": "render",
+			"text": "What is the dashboard team's export row limit now? Reply with just the number, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+			"probes": [
+				"row-limit"
+			]
+		},
+		{
+			"step": "render",
+			"text": "Finish renderTable, add tests for it to src/budget-table.test.ts rather than a new file, and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "summary",
+			"text": "Add `summaryLine(sizes: number[], budget: number): string` to src/budget-table.ts: the one-line summary laid out as notes/format.md says, ending with the footer that notes/buckets.md gives. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "summary",
+			"text": "Make summaryLine throw a RangeError when budget is not a positive finite number. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "summary",
+			"text": "Read src/budget-render.ts and src/budget-table.ts and tell me in three sentences whether anything is duplicated between them. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "summary",
+			"text": "Add tests for summaryLine to src/budget-table.test.ts, including a list with no Turns. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "summary",
+			"text": "Finish summaryLine and run `bun test src/budget-table.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+			"probes": []
+		},
+		{
+			"step": "recap",
+			"text": "Answer from memory: the review ticket this work is tracked under, the reviewer's handle, the dashboard team's export row limit now, and the current release codename. One per line, in that order, as `name: value`, with UNKNOWN for any you do not know. Do not use any tools.",
+			"probes": [
+				"ticket",
+				"reviewer",
+				"row-limit",
+				"codename"
+			],
+			"tools": false
+		}
+	],
+	"checks": [
+		{
+			"step": "buckets",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 27,
+			"output": "bun test v1.4.2 (744846f84)\n\n 2 pass\n 0 fail\n 4 expect() calls\nRan 2 tests across 1 file. [19.00ms]\n"
+		},
+		{
+			"step": "turn-sizes",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 19,
+			"output": "bun test v1.4.2 (744846f84)\n\n 3 pass\n 0 fail\n 3 expect() calls\nRan 3 tests across 1 file. [15.00ms]\n"
+		},
+		{
+			"step": "histogram",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 17,
+			"output": "bun test v1.4.2 (744846f84)\n\n 3 pass\n 0 fail\n 3 expect() calls\nRan 3 tests across 1 file. [14.00ms]\n"
+		},
+		{
+			"step": "weights",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 8,
+			"output": "bun test v1.4.2 (744846f84)\n\n 3 pass\n 0 fail\n 3 expect() calls\nRan 3 tests across 1 file. [6.00ms]\n"
+		},
+		{
+			"step": "render",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 10,
+			"output": "bun test v1.4.2 (744846f84)\n\n 3 pass\n 0 fail\n 3 expect() calls\nRan 3 tests across 1 file. [8.00ms]\n"
+		},
+		{
+			"step": "summary",
+			"pass": true,
+			"exitCode": 0,
+			"durationMs": 14,
+			"output": "bun test v1.4.2 (744846f84)\n\n 4 pass\n 0 fail\n 7 expect() calls\nRan 4 tests across 1 file. [11.00ms]\n"
+		}
+	],
+	"sessionId": "01a14551-d95f-7654-a020-8ef5e0705453",
+	"model": "anthropic/claude-opus-5-5"
+}

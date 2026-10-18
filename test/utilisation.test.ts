@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { KnownWindow, Window } from "../scripts/measures.ts";
 import { unitsOf } from "../scripts/units.ts";
-import { type CallUtilisation, type Rule, utilisationOf } from "../scripts/utilisation.ts";
+import { type CallUtilisation, judgeRun, type Rule, utilisationOf } from "../scripts/utilisation.ts";
 import type { Compaction, JournalTurn, MessageAddress } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
 import { approximateTokens } from "../src/tokens.ts";
@@ -95,7 +95,9 @@ describe("the units Utilisation judges", () => {
 			CWD,
 		);
 
-		expect(measured(calls[0])).toEqual(measured(calls[1]));
+		const { unitTokens: _with, ...withOpening } = measured(calls[0]);
+		const { unitTokens: _without, ...without } = measured(calls[1]);
+		expect(withOpening).toEqual(without);
 		expect(Object.keys(measured(calls[0]).byKind).sort()).toEqual(["prose", "tool-call"]);
 	});
 
@@ -384,6 +386,23 @@ describe("Utilisation per Call and per Run", () => {
 		expect(measured(calls[1])).toMatchObject({ used: 900, judged: 3000 });
 		expect(run).toMatchObject({ used: 1000, judged: 4000 });
 		expect(run.used / run.judged).toBe(0.25);
+	});
+
+	test("a Call's verdicts name its Used units, and its unit tokens count the Opening and Pins too", () => {
+		const zero = turn(0, "Start.", ...sized("u2", "a.txt", 100), ...sized("u3", "b.txt", 900));
+		const one = turn(1, "Read it.", reply(call("r", "read", { path: "a.txt" })));
+		const pins = new Map([[1, "Release name PIN-23"]]);
+		const window = tail(1, [0], { opening: 0, pins: [1], tail: { turns: [0], from: at(0, 1) } });
+		const [judged] = judgeRun([zero, one], [{ address: at(1, 1), window }], [], pins, CWD, { s: 8, k: 2 });
+		if (judged === undefined || typeof judged === "string") throw new Error(`the Call was not judged: ${judged}`);
+
+		expect([...judged.used]).toEqual(["call 0 u2"]);
+		expect(judged.units.map(({ id }) => id)).toEqual(["call 0 u2", "call 0 u3"]);
+		const opening = approximateTokens([user("Start.")]);
+		const pin = approximateTokens([{ role: "user", content: "Release name PIN-23" }]);
+		expect(judged.unitTokens).toBe(1000 + opening + pin);
+		const { calls } = utilisationOf([zero, one], [{ address: at(1, 1), window }], [], pins, CWD);
+		expect(measured(calls[0])).toMatchObject({ used: 100, judged: 1000, unitTokens: 1000 + opening + pin });
 	});
 
 	test("Calls with nothing to judge and with an unknown window are counted apart and add nothing", () => {

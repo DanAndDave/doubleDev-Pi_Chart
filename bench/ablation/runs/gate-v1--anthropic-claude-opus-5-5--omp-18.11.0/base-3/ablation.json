@@ -1,0 +1,2139 @@
+{
+	"arm": "pi-chart",
+	"index": 3,
+	"seed": 3042752234,
+	"cap": 10,
+	"band": [
+		43,
+		46
+	],
+	"commit": "fd96df4d4de5af61e4ca00adf9dd9be5f9422a6c",
+	"omp": "omp/18.11.0",
+	"draws": [
+		{
+			"call": 38,
+			"turn": 11,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 7,
+				"callId": "toolu_01J3cyhGtTvzNwk9WZwnW3m4",
+				"tool": "read",
+				"tokens": 431,
+				"counted": 333,
+				"duplicated": false,
+				"location": "messages[1][2] messages[2][1]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 19823,
+				"cut": 19490,
+				"alone": 333
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "notes/samples.md"
+				},
+				{
+					"tool": "read",
+					"target": "src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/messages.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 274,
+						"cacheRead": 13039,
+						"cacheWrite": 6736
+					},
+					"spend": 0.061991800000000014
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/messages.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 272,
+						"cacheRead": 19775,
+						"cacheWrite": 0
+					},
+					"spend": 0.009411000000000003
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 199,
+						"cacheRead": 19775,
+						"cacheWrite": 0
+					},
+					"spend": 0.007951000000000003
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 196,
+						"cacheRead": 19775,
+						"cacheWrite": 0
+					},
+					"spend": 0.007891000000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/messages.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 281,
+						"cacheRead": 13039,
+						"cacheWrite": 6403
+					},
+					"spend": 0.05946780000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 191,
+						"cacheRead": 19442,
+						"cacheWrite": 0
+					},
+					"spend": 0.007724400000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 195,
+						"cacheRead": 19442,
+						"cacheWrite": 0
+					},
+					"spend": 0.007804400000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "notes/samples.md"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"export (function|interface|type) (approximateTokens|reconstructTurns|HarnessMessage)\",\"src\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 318,
+						"cacheRead": 19442,
+						"cacheWrite": 0
+					},
+					"spend": 0.010264400000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.17250580000000001
+		},
+		{
+			"call": 65,
+			"turn": 18,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "pull",
+				"turn": 16,
+				"callId": "toolu_01E44YG3nGfT7kcRdSBSZ23p",
+				"tool": "recall_earlier_turns",
+				"tokens": 4171,
+				"counted": 6610,
+				"duplicated": false,
+				"location": "messages[17][1] messages[18][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 38483,
+				"cut": 31873,
+				"alone": 6610
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`. It returns the plain sum of the sizes, and 0 for an empty list.\n\nThe new test in `src/budget-table.test.ts` checks the earlier sample `[120, 90, 2400, 400, 8000]`, which sums to 11010, and the empty list. All 22 tests pass and the type checker reports no errors.\n\n`totalOf` adds the sizes as given and doesn't reject negative or `NaN` values the way `histogram` does.\n\nThe project has a rule against one-line functions, but it allows exported names that are part of the API. `totalOf` is one you asked for, so I kept it.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 284,
+						"cacheRead": 13039,
+						"cacheWrite": 25398
+					},
+					"spend": 0.21147980000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`. It returns the plain sum of the sizes, and an empty list gives 0. All 22 tests in `src/budget-table.test.ts` pass, and the type check is clean.\n\n- **The test:** the sample `[120, 90, 2400, 400, 8000]` adds up to 11010, and `[]` gives 0.\n- **No size checks:** unlike `histogram`, it doesn't send sizes through `bucketOf`, so it accepts negative, `NaN` or infinite values without throwing. You asked for a plain sum, so I left it that way.\n\n`totalOf` is a one-line function, which a project rule against tiny wrapper functions normally flags. I kept it because you asked for it by name as an exported function, and the rule allows that.\n\nThe test file already existed, so I didn't add the `// suite: TT-5082` line.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 361,
+						"cacheRead": 38437,
+						"cacheWrite": 0
+					},
+					"spend": 0.014915400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`. It returns the plain sum of the sizes, or 0 for an empty list. All 22 tests pass and the type check is clean.\n\nThe new test in `src/budget-table.test.ts` checks that the sample `[120, 90, 2400, 400, 8000]` adds up to 11010 and that an empty list gives 0.\n\nThe function body is a single line, which the project's rule against tiny functions usually forbids. The rule makes an exception for an exported function that you asked for by name, which this is, so I kept it as a function. It doesn't check its input: a negative or `NaN` size is added like any other number, unlike `histogram`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 290,
+						"cacheRead": 38437,
+						"cacheWrite": 0
+					},
+					"spend": 0.013495400000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`. It returns the plain sum of the sizes, and 0 for an empty list. All 22 tests pass and the type check is clean.\n\nThe new test in `src/budget-table.test.ts` checks that the earlier sample `[120, 90, 2400, 400, 8000]` sums to 11010 and that an empty list gives 0.\n\nThe project has a rule against one-line functions, but it allows them when the name is part of the public interface. `totalOf` is exported because you asked for it by name, so I kept it as its own function.\n\nUnlike `histogram`, `totalOf` doesn't reject negative or invalid sizes; it just adds whatever it's given. The test file already existed, so I didn't add the `// suite: TT-5082` line.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 328,
+						"cacheRead": 38437,
+						"cacheWrite": 0
+					},
+					"spend": 0.014255400000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`, with a test in `src/budget-table.test.ts`. All 22 tests in the file pass and the type check is clean.\n\n- **The function:** it adds up `sizes` and returns 0 for an empty list.\n- **The test:** the earlier sample `[120, 90, 2400, 400, 8000]` sums to 11010, and `[]` sums to 0.\n\nIt's a plain sum, so unlike `histogram` it doesn't pass sizes through `bucketOf`. A negative or `NaN` size goes into the total rather than throwing a `RangeError`.\n\nA project rule warns against functions whose whole body is one expression. I kept this one because you asked for it by name as an exported function, which the rule allows.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 334,
+						"cacheRead": 27566,
+						"cacheWrite": 4261
+					},
+					"spend": 0.04628920000000001
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts` and a test for it. All 22 tests pass and the type check is clean.\n\n- **Function:** it adds up the sizes and returns 0 for an empty list. It does no validation, so a negative size is simply added in, unlike `histogram`, which throws through `bucketOf`.\n- **Test:** a new `totalOf` group checks that the five sample sizes sum to 11010 and that `[]` gives 0.\n\n`totalOf` is just one line, and a project rule discourages one-line functions. This one counts as an allowed exception because you asked for it by name as an exported part of the module.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 264,
+						"cacheRead": 31827,
+						"cacheWrite": 0
+					},
+					"spend": 0.011653400000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`. It returns the plain sum of the sizes, and an empty list gives 0. All 22 tests pass and the type check is clean.\n\nThe new test in `src/budget-table.test.ts` checks that the earlier sample, `[120, 90, 2400, 400, 8000]`, sums to 11010 and that `[]` sums to 0.\n\n`totalOf` doesn't check its input, so a negative or `NaN` size goes straight into the sum. That's different from `histogram`, which rejects such sizes through `bucketOf`.\n\nThe function body is a single expression, and the project's rule against tiny functions normally says to inline those. I kept it as a function because you asked for it as a named export, which the rule allows.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 305,
+						"cacheRead": 31827,
+						"cacheWrite": 0
+					},
+					"spend": 0.012473400000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `totalOf(sizes)` to `src/budget-table.ts`. It returns the plain sum of the sizes, and 0 for an empty list. All 22 tests in `src/budget-table.test.ts` pass and the type check is clean.\n\nThe new test in that file checks that the earlier sample `[120, 90, 2400, 400, 8000]` adds up to 11010 and that `[]` gives 0.\n\n`totalOf` doesn't check its input, so a negative, `NaN` or infinite size goes straight into the sum. `bucketOf` and `histogram` throw a `RangeError` for those values. You didn't ask for that check here, so I left it out.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 269,
+						"cacheRead": 31827,
+						"cacheWrite": 0
+					},
+					"spend": 0.011753400000000002
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.3363154000000001
+		},
+		{
+			"call": 76,
+			"turn": 20,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 19,
+				"callId": "toolu_01F824jE4rViEdszU9ARE6HP",
+				"tool": "read",
+				"tokens": 1637,
+				"counted": 1437,
+				"duplicated": false,
+				"location": "messages[10][1] messages[11][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 38464,
+				"cut": 37027,
+				"alone": 1437
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts` and created `src/budget-weights.test.ts` for it. All 36 tests in the two budget test files pass and the type check is clean.\n\n- **How it works:** each size is multiplied by its bucket's weight from `notes/weights.md`, and the results come back in the same order as the sizes. The weights are tiny 0.5, small 1, medium 1.25, large 1.5 and huge 2.25. Nothing is rounded.\n- **Bad sizes:** it finds each bucket with `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`, as in `histogram`.\n\nThe new test file starts with `// suite: TT-5082`, following the house rule for new test files. Its tests check:\n- **Both sides of every bucket edge:** for example 349 gives 174.5 and 350 gives 350; 23999 gives 35998.5 and 24000 gives 54000. The expected numbers are worked out by hand rather than read from the code, so a wrong weight would make a test fail.\n- **Order:** the earlier sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`.\n- **No rounding:** `[1, 1801]` gives `[0.5, 2251.25]`.\n- **Edge cases:** an empty list gives an empty list, and a negative size throws a `RangeError`.\n\n`notes/weights.md` says rounding is described in `notes/rounding.md`. I haven't read that file yet, since it wasn't named in a prompt.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 565,
+						"cacheRead": 13039,
+						"cacheWrite": 25379
+					},
+					"spend": 0.21694780000000005
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts` and created `src/budget-weights.test.ts`, which starts with `// suite: TT-5082`. All 36 tests across the two test files pass, and the type check is clean.\n\n- **How it works:** each size goes through `bucketOf` and is multiplied by its bucket's weight from `notes/weights.md`: tiny 0.5, small 1, medium 1.25, large 1.5, huge 2.25. Results stay in the same order as the sizes, and a negative, `NaN` or infinite size throws a `RangeError`.\n- **No rounding:** results can be fractions, for example 349 gives 174.5. `notes/weights.md` says rounding is covered in `notes/rounding.md`. I haven't read that file because you haven't named it.\n\nThe new tests cover:\n- **Both sides of every bucket boundary:** the weights are written out as numbers, for example 1799 gives 1799 and 1800 gives 2250. A wrong weight in the code would make a test fail.\n- **Order:** the earlier sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`.\n- **No rounding:** `[1, 1801]` gives `[0.5, 2251.25]`.\n- **Edge cases:** an empty list gives `[]`, and a negative size throws a `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 500,
+						"cacheRead": 38418,
+						"cacheWrite": 0
+					},
+					"spend": 0.017691600000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts` and created `src/budget-weights.test.ts` with tests for it. All 36 tests in the two test files pass, and the type check is clean.\n\n`weighted` multiplies each size by its bucket's weight from `notes/weights.md` (tiny 0.5, small 1, medium 1.25, large 1.5, huge 2.25) and keeps the sizes' order. It finds the bucket with `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`. Results aren't rounded. I haven't opened `notes/rounding.md`, since you haven't named it yet.\n\nThe new test file starts with `// suite: TT-5082`, following the house rule for new test files. Its tests cover:\n- **Every bucket boundary:** both sides of each limit, from 349 → 174.5 and 350 → 350 up to 24000 → 54000. The expected numbers are written out rather than read from the module, so a wrong weight in the code would make a test fail.\n- **Order:** the earlier sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`.\n- **No rounding:** `[1, 1801]` gives `[0.5, 2251.25]`.\n- **Empty list:** `[]` gives `[]`.\n- **Bad input:** `[120, -1]` throws a `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 513,
+						"cacheRead": 38418,
+						"cacheWrite": 0
+					},
+					"spend": 0.0179516
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts`. It multiplies each size by its bucket's weight from `notes/weights.md` (`tiny` 0.5, `small` 1, `medium` 1.25, `large` 1.5, `huge` 2.25) and returns the results in the same order as the sizes. Its new tests in `src/budget-weights.test.ts` pass, along with the existing tests in `src/budget-table.test.ts` (36 in all), and the type check is clean.\n\n- **Rounding:** results are not rounded, so 1801 gives 2251.25. `notes/weights.md` says rounding is covered in `notes/rounding.md`, which I haven't opened because you haven't named it yet.\n- **Bad sizes:** each size gets its bucket from `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`. This is unlike `totalOf`, which adds any number as it is.\n- **The tests:**\n  - Both sides of every bucket limit, with the expected weighted values written out. For example, 349 gives 174.5, 350 gives 350, and 24000 gives 54000.\n  - The earlier sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`, in the same order.\n  - An unrounded fraction, an empty list, and a negative size throwing a `RangeError`.\n\nThe new test file starts with `// suite: TT-5082`, per the house rule for new test files.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 531,
+						"cacheRead": 38418,
+						"cacheWrite": 0
+					},
+					"spend": 0.018311600000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts`. It multiplies each size by its bucket's weight from `notes/weights.md` (tiny 0.5, small 1, medium 1.25, large 1.5, huge 2.25) and keeps the order of the sizes. Results aren't rounded. The new tests in `src/budget-weights.test.ts` pass, along with the existing ones (36 in total), and the type check is clean.\n\n- **How it works:** each size gets its bucket from `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`, just as in `histogram`. The weights sit in a table next to the bucket thresholds.\n- **What the tests cover:**\n  - **Edges:** both sides of every bucket edge. For example, 349 weighs 174.5, 350 weighs 350 and 24000 weighs 54000.\n  - **Sample:** `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`, in that order.\n  - **No rounding:** `[1, 1801]` gives `[0.5, 2251.25]`.\n  - **Empty list:** gives an empty list.\n  - **Negative size:** throws a `RangeError`.\n\nThe new test file starts with `// suite: TT-5082`, per your rule for new test files.\n\n`notes/weights.md` says rounding is covered in `notes/rounding.md`. I haven't opened it because you haven't named it yet; I'll need it when we get to rounding.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 585,
+						"cacheRead": 17110,
+						"cacheWrite": 19871
+					},
+					"spend": 0.17409800000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts` and its tests in a new file, `src/budget-weights.test.ts`. All 36 tests across both test files pass and the type check is clean.\n\n`weighted` multiplies each size by its bucket's weight from `notes/weights.md`: tiny 0.5, small 1, medium 1.25, large 1.5, huge 2.25. Results stay in the same order as the sizes and aren't rounded. It finds each bucket with `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`, as in `histogram`.\n\nThe new test file starts with `// suite: TT-5082`, per your rule for new test files. It checks:\n- **Each bucket's weight, at both sides of every boundary:** for example, 349 gives 174.5, 350 gives 350, 23999 gives 35998.5 and 24000 gives 54000.\n- **Order:** the earlier sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`.\n- **No rounding:** `[1, 1801]` gives `[0.5, 2251.25]`.\n- **Empty list:** `[]` gives `[]`.\n- **Bad input:** `[120, -1]` throws a `RangeError`.\n\n`notes/weights.md` says rounding is in `notes/rounding.md`. I haven't opened that file because you haven't named it yet.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 507,
+						"cacheRead": 36981,
+						"cacheWrite": 0
+					},
+					"spend": 0.017544200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts`. It multiplies each size by its bucket's weight from `notes/weights.md` (tiny 0.5, small 1, medium 1.25, large 1.5, huge 2.25), keeps the order of the sizes, and doesn't round. The new tests pass along with the existing ones (36 across both files), and the type check is clean.\n\n- **How the bucket is chosen:** each size goes through `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`, the same as in `histogram`.\n- **The weights in the code:** they're in a new `WEIGHT` table next to the bucket thresholds.\n- **Rounding:** `notes/weights.md` says rounding is described in `notes/rounding.md`. I haven't opened it, because you haven't named it and asked me to leave rounding aside.\n\nThe new file `src/budget-weights.test.ts` starts with `// suite: TT-5082`, following your rule for new test files. It checks:\n- **Every bucket edge:** both sides of each threshold, from 349/350 up to 23999/24000. For example, 23999 weighs 35998.5 and 24000 weighs 54000.\n- **Order:** the sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`.\n- **No rounding:** fractions stay as they are, so 1801 weighs 2251.25.\n- **Empty list:** `[]` gives `[]`.\n- **Bad input:** a negative size in the list throws a `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 588,
+						"cacheRead": 36981,
+						"cacheWrite": 0
+					},
+					"spend": 0.019164200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `weighted(sizes)` to `src/budget-table.ts`. It returns each size times its bucket's weight from `notes/weights.md` (tiny 0.5, small 1, medium 1.25, large 1.5, huge 2.25), in the same order as the sizes. Nothing is rounded. All 36 tests in the two files pass, and the type check is clean.\n\n- **How it finds the bucket:** through `bucketOf`, so a negative, `NaN` or infinite size throws a `RangeError`, the same as in `histogram`.\n- **The new test file:** `src/budget-weights.test.ts` starts with `// suite: TT-5082`, per your rule for new test files. It checks:\n  - every bucket boundary (349/350 through 23999/24000) with the expected numbers written out, so a wrong weight or threshold would fail;\n  - that the sample `[120, 90, 2400, 400, 8000]` gives `[60, 45, 3000, 400, 12000]`, in order;\n  - that fractions stay unrounded (`1801` gives `2251.25`);\n  - that an empty list gives `[]`;\n  - that a negative size throws a `RangeError`.\n\n`notes/weights.md` says rounding is described in `notes/rounding.md`. I haven't opened that file because you haven't named it; it will be needed when we add rounding.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 474,
+						"cacheRead": 36981,
+						"cacheWrite": 0
+					},
+					"spend": 0.016884200000000002
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.4985932000000001
+		},
+		{
+			"call": 82,
+			"turn": 22,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "pull",
+				"turn": 20,
+				"callId": "toolu_01LKQdDC7ZLpMD1vSX1c5wsJ",
+				"tool": "recall_earlier_turns",
+				"tokens": 3184,
+				"counted": 5250,
+				"duplicated": false,
+				"location": "messages[1][2] messages[2][1]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 24661,
+				"cut": 19411,
+				"alone": 5250
+			},
+			"original": [
+				{
+					"tool": "edit",
+					"target": "src/budget-weights.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"text": "Content matches. Code already rejects via `bucketOf`, and an asserted message would pin wording; mirroring bucketOf's rejection inputs instead.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 693,
+						"cacheRead": 13039,
+						"cacheWrite": 11574
+					},
+					"spend": 0.10906780000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 499,
+						"cacheRead": 24613,
+						"cacheWrite": 0
+					},
+					"spend": 0.014910600000000003
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 466,
+						"cacheRead": 24613,
+						"cacheWrite": 0
+					},
+					"spend": 0.014250600000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 451,
+						"cacheRead": 24613,
+						"cacheWrite": 0
+					},
+					"spend": 0.013950600000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 430,
+						"cacheRead": 13039,
+						"cacheWrite": 6324
+					},
+					"spend": 0.06180780000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 426,
+						"cacheRead": 19363,
+						"cacheWrite": 0
+					},
+					"spend": 0.012400600000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 536,
+						"cacheRead": 19363,
+						"cacheWrite": 0
+					},
+					"spend": 0.014600600000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "edit",
+							"target": "src/budget-weights.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 419,
+						"cacheRead": 19363,
+						"cacheWrite": 0
+					},
+					"spend": 0.012260600000000002
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.25324920000000006
+		},
+		{
+			"call": 94,
+			"turn": 25,
+			"condition": "control",
+			"fate": "judged",
+			"unit": {
+				"kind": "turn",
+				"turn": 23,
+				"text": "The release codename has changed: it is now OSPREY-3, replacing the one I gave you before. The same rule applies: not in any file. Now check src/budget-table.ts for unused imports and dead code, and remove any you find. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"callIds": [
+					"toolu_018eVtKKemDNJ6wXHwD5c4Jf",
+					"toolu_01Ua8iXoFs2NJzsExATbqaUP"
+				],
+				"tokens": 10624,
+				"counted": 7275,
+				"duplicated": false,
+				"location": "messages[0][1] messages[1][0] messages[2][0] messages[3][1] messages[4][0] messages[5][1]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 25712,
+				"cut": 18418,
+				"alone": 7275
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 36,
+						"cacheRead": 13039,
+						"cacheWrite": 12624
+					},
+					"spend": 0.1043358
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 49,
+						"cacheRead": 25663,
+						"cacheWrite": 0
+					},
+					"spend": 0.006128600000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 48,
+						"cacheRead": 25663,
+						"cacheWrite": 0
+					},
+					"spend": 0.006108600000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "OSPREY-3",
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 48,
+						"cacheRead": 25663,
+						"cacheWrite": 0
+					},
+					"spend": 0.006108600000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "xd://recall_earlier_turns"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 145,
+						"cacheRead": 14281,
+						"cacheWrite": 4088
+					},
+					"spend": 0.0384762
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "xd://recall_earlier_turns"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 159,
+						"cacheRead": 18369,
+						"cacheWrite": 0
+					},
+					"spend": 0.006869800000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "xd://recall_earlier_turns"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 207,
+						"cacheRead": 18369,
+						"cacheWrite": 0
+					},
+					"spend": 0.007829800000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "xd://recall_earlier_turns"
+						}
+					],
+					"match": false,
+					"usage": {
+						"input": 4,
+						"output": 164,
+						"cacheRead": 18369,
+						"cacheWrite": 0
+					},
+					"spend": 0.006969800000000002
+				}
+			],
+			"verdict": "needed",
+			"spend": 0.18282720000000002
+		},
+		{
+			"call": 112,
+			"turn": 29,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 27,
+				"callId": "toolu_01K7joENMA6T1qXVJ1AroKZo",
+				"tool": "read",
+				"tokens": 452,
+				"counted": 375,
+				"duplicated": true,
+				"location": "messages[1][0] messages[2][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 42866,
+				"cut": 42491,
+				"alone": 375
+			},
+			"original": [
+				{
+					"tool": "recall_earlier_turns"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 158,
+						"cacheRead": 14281,
+						"cacheWrite": 28539
+					},
+					"spend": 0.23433620000000005
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 178,
+						"cacheRead": 42820,
+						"cacheWrite": 0
+					},
+					"spend": 0.012132000000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 176,
+						"cacheRead": 42820,
+						"cacheWrite": 0
+					},
+					"spend": 0.012092000000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 186,
+						"cacheRead": 42820,
+						"cacheWrite": 0
+					},
+					"spend": 0.012292000000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 179,
+						"cacheRead": 14400,
+						"cacheWrite": 28045
+					},
+					"spend": 0.23082800000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 179,
+						"cacheRead": 42445,
+						"cacheWrite": 0
+					},
+					"spend": 0.012077000000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 168,
+						"cacheRead": 42445,
+						"cacheWrite": 0
+					},
+					"spend": 0.011857000000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 183,
+						"cacheRead": 42445,
+						"cacheWrite": 0
+					},
+					"spend": 0.012157000000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.5377712000000001
+		},
+		{
+			"call": 122,
+			"turn": 30,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "pull",
+				"turn": 29,
+				"callId": "toolu_01KPHNSS3kz2RqcosGFy2Azp",
+				"tool": "recall_earlier_turns",
+				"tokens": 11891,
+				"counted": 353,
+				"duplicated": false,
+				"location": "messages[3][0] messages[4][0]"
+			},
+			"counts": {
+				"offset": 45,
+				"sham": 41741,
+				"cut": 41388,
+				"alone": 353
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				},
+				{
+					"tool": "read",
+					"target": "src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 239,
+						"cacheRead": 14281,
+						"cacheWrite": 27411
+					},
+					"spend": 0.22694020000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 233,
+						"cacheRead": 41692,
+						"cacheWrite": 0
+					},
+					"spend": 0.013014400000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 266,
+						"cacheRead": 41692,
+						"cacheWrite": 0
+					},
+					"spend": 0.013674400000000003
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 223,
+						"cacheRead": 41692,
+						"cacheWrite": 0
+					},
+					"spend": 0.012814400000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 313,
+						"cacheRead": 14615,
+						"cacheWrite": 26724
+					},
+					"spend": 0.22299100000000005
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 209,
+						"cacheRead": 41339,
+						"cacheWrite": 0
+					},
+					"spend": 0.012463800000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 246,
+						"cacheRead": 41339,
+						"cacheWrite": 0
+					},
+					"spend": 0.013203800000000005
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 374,
+						"cacheRead": 41339,
+						"cacheWrite": 0
+					},
+					"spend": 0.015763800000000005
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.5308658
+		},
+		{
+			"call": 132,
+			"turn": 32,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "opening",
+				"turn": 0,
+				"text": "We are building src/budget-table.ts, a small pure module that tabulates the token sizes of a Conversation's Turns against a Budget. Read notes/buckets.md and create src/budget-table.ts exporting a type `Bucket`, the union of the bucket names, and a function `bucketOf(tokens: number): Bucket` returning the bucket its thresholds give. Only the thresholds matter for now. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"tokens": 142,
+				"counted": 206,
+				"duplicated": false,
+				"location": "system[4][0:625]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 26232,
+				"cut": 26024,
+				"alone": 206
+			},
+			"original": [
+				{
+					"tool": "recall_earlier_turns"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 188,
+						"cacheRead": 14281,
+						"cacheWrite": 11903
+					},
+					"spend": 0.10185620000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 216,
+						"cacheRead": 26184,
+						"cacheWrite": 0
+					},
+					"spend": 0.009572800000000003
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 192,
+						"cacheRead": 26184,
+						"cacheWrite": 0
+					},
+					"spend": 0.009092800000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 183,
+						"cacheRead": 26184,
+						"cacheWrite": 0
+					},
+					"spend": 0.008912800000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 229,
+						"cacheRead": 13903,
+						"cacheWrite": 12073
+					},
+					"spend": 0.10396060000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 212,
+						"cacheRead": 25976,
+						"cacheWrite": 0
+					},
+					"spend": 0.009451200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 202,
+						"cacheRead": 25976,
+						"cacheWrite": 0
+					},
+					"spend": 0.009251200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "recall_earlier_turns"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 194,
+						"cacheRead": 25976,
+						"cacheWrite": 0
+					},
+					"spend": 0.009091200000000002
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.26118880000000005
+		},
+		{
+			"call": 134,
+			"turn": 33,
+			"condition": "null",
+			"fate": "judged",
+			"unit": {
+				"kind": "pull",
+				"turn": 32,
+				"callId": "toolu_01MyGYuy3PxuBgbHh2LTyzNL",
+				"tool": "recall_earlier_turns",
+				"tokens": 8563,
+				"counted": 14620,
+				"duplicated": false,
+				"location": "messages[11][1] messages[12][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 40958,
+				"cut": 26336,
+				"alone": 14620
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-render.ts"
+				},
+				{
+					"tool": "grep",
+					"target": "[\"^export|^import|^describe\",\"src/budget-table.ts;src/budget-table.test.ts\"]"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^export|^import|^describe\",\"src/budget-table.ts;src/budget-table.test.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 275,
+						"cacheRead": 14281,
+						"cacheWrite": 26629
+					},
+					"spend": 0.22140420000000002
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^import|^describe|^export|^\\\\}\\\\);\",\"src/budget-table.test.ts;src/budget-table.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 299,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.014178000000000003
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^export\",\"src/budget-table.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 355,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.015298000000000004
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^export|^import|^describe\",\"src/budget-table.ts;src/budget-table.test.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 311,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.014418000000000004
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.test.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^export (function|const)|^function\",\"src/budget-table.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 352,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.015238000000000005
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^import|^describe|^export (function|const)\",\"src/budget-table.test.ts;src/budget-table.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 381,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.015818000000000006
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "grep",
+							"target": "[\"^export|^import|^describe\",\"src/budget-table.ts;src/budget-table.test.ts\"]"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 266,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.013518000000000002
+				},
+				{
+					"condition": "sham2",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-render.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "grep -n \"^import\\|^describe\\|^export\" src/budget-table.test.ts src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 267,
+						"cacheRead": 40910,
+						"cacheWrite": 0
+					},
+					"spend": 0.013538000000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.32341020000000004
+		},
+		{
+			"call": 144,
+			"turn": 34,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 33,
+				"callId": "toolu_01TagCRW559543pEgRiQCF4c",
+				"tool": "read",
+				"tokens": 1298,
+				"counted": 1168,
+				"duplicated": false,
+				"location": "messages[3][1] messages[4][0]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 24776,
+				"cut": 23608,
+				"alone": 1168
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts`. It returns the five fields joined by ` · `, as `notes/format.md` lays out:\n\n- `turns=<n>`: how many sizes there are.\n- `total=<n>`: the plain sum of the sizes, unweighted.\n- `used=<p>%`: the total as a percentage of the budget, rounded down; it can go over 100.\n- `peak=<bucket>`: the largest bucket holding at least one Turn, or `none` when there are no Turns.\n- `over=<n>`: how many Turns are strictly larger than 9000 tokens.\n\nThe last two fields are the footer from `notes/buckets.md`. All numbers are plain integers, with no separators or `k` suffix.\n\n**Decision for you:** the notes don't say what happens when the budget is 0, negative or not a finite number. I made `summaryLine` throw a `RangeError` in that case, matching how a bad size already throws. The alternative is to accept any budget and print whatever percentage results, such as `used=Infinity%` for a zero budget; that's a one-line change if you prefer it.\n\nI added five `summaryLine` tests to `src/budget-table.test.ts`. They cover:\n- the example line from `format.md`;\n- 9000 not counting as over while 9001 does, with a `huge` peak;\n- `used` rounding down;\n- an empty list giving `peak=none`;\n- the error cases.\n\n`bun test src/budget-table.test.ts` passed (52 tests, 0 failures), and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 559,
+						"cacheRead": 14281,
+						"cacheWrite": 10447
+					},
+					"spend": 0.09762020000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts` and five tests for it in `src/budget-table.test.ts`. All 52 tests pass and the type check is clean.\n\nIt returns `turns=<n> · total=<n> · used=<p>% · peak=<bucket> · over=<n>`, with fields joined by ` · ` as `notes/format.md` lays out:\n- **`total`** is the plain, unweighted sum of the sizes.\n- **`used`** is `total × 100 / budget`, rounded down; it can go over 100.\n- **`peak`** is the largest bucket that holds a Turn, or `none` when there are no Turns.\n- **`over`** counts Turns strictly larger than 9000 tokens, so 9000 itself doesn't count.\n\nThe tests cover the example from `notes/format.md`, which comes out exactly as written. They also cover a size of exactly 9000 against 9001 for `over`, a `used` above 100%, rounding `used` down, an empty list giving `peak=none`, and bad input throwing.\n\nDecision for you: I also made it throw a `RangeError` when `budget` is zero, negative or not finite, which the notes don't mention. Without that check, a budget of 0 would print `used=Infinity%` or `used=NaN%`. If you'd rather allow those values through, remove the guard at the top of `summaryLine` and the second line of the last test.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 521,
+						"cacheRead": 24728,
+						"cacheWrite": 0
+					},
+					"spend": 0.015373600000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts` and five tests for it in `src/budget-table.test.ts`. `bun test src/budget-table.test.ts` passes (52 tests, 0 failures) and the type check is clean.\n\nIt returns the fields joined by ` · `, in this order:\n- `turns=<n>`: how many sizes there are.\n- `total=<n>`: the unweighted sum of the sizes.\n- `used=<p>%`: the total as a percentage of the budget, rounded down; it can go over 100.\n- `peak=<bucket>`: the largest bucket that holds at least one Turn, or `none` when there are no Turns.\n- `over=<n>`: how many Turns are strictly larger than 9000 tokens.\n\nNumbers are plain integers, with no separators or `k`. The example in `notes/format.md` (`turns=3 · total=9400 · used=47% · peak=large · over=0`) comes out exactly, using sizes `[1400, 7000, 1000]` and a budget of 20000.\n\n**Decision for you:** a budget of 0, a negative budget, or a non-finite one now throws a `RangeError`. The notes don't cover this case, and without the check the percentage would show as `Infinity` or `NaN`. If you'd rather it showed some value instead of throwing, the check is at the top of `summaryLine`. Negative or non-numeric sizes also throw a `RangeError`, like the other functions do.\n\nThe tests cover the example, the 9000 cutoff (9000 doesn't count, 9001 does), the `huge` peak, rounding down, a usage over 100%, the empty list, and both error cases.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 587,
+						"cacheRead": 24728,
+						"cacheWrite": 0
+					},
+					"spend": 0.016693600000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts`. Its tests are in `src/budget-table.test.ts`, and `bun test src/budget-table.test.ts` passes (52 tests, 0 failures). The type check is clean.\n\nIt returns the five fields joined by ` · `:\n- **`turns=`**: how many sizes there are.\n- **`total=`**: the plain sum of the sizes, unweighted.\n- **`used=`**: the total as a percentage of `budget`, rounded down; it can go over 100.\n- **`peak=`**: the largest bucket that holds at least one Turn, or `none` when there are no Turns.\n- **`over=`**: how many Turns are larger than 9000 tokens (exactly 9000 doesn't count).\n\nThe tests check the example in `notes/format.md` (`[1400, 7000, 1000]` against a budget of 20000 gives `turns=3 · total=9400 · used=47% · peak=large · over=0`). They also cover the 9000/9001 boundary with a `huge` peak, rounding down past 100%, an empty list, and invalid input.\n\n**Decision for you:** I added one check the notes don't ask for. A budget of 0, a negative budget or a non-finite one throws a `RangeError`, like the existing check on sizes. Without it, a budget of 0 would print `used=Infinity%` or `used=NaN%`, and the format notes say numbers are plain integers. If you'd rather not throw, the check is the first statement in `summaryLine` and can be removed.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 708,
+						"cacheRead": 24728,
+						"cacheWrite": 0
+					},
+					"spend": 0.019113600000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts`. `bun test src/budget-table.test.ts` passes (52 tests, 0 failures) and the type check is clean.\n\nIt returns these fields joined by ` · `:\n- `turns=<number of sizes>`\n- `total=<plain sum of the sizes>`\n- `used=<total as a percentage of budget, rounded down>%`, which can go over 100\n- `peak=<largest bucket with at least one Turn>`, or `peak=none` when there are no Turns\n- `over=<number of Turns strictly over 9000 tokens>`\n\nI added five tests to `src/budget-table.test.ts`:\n- **Example:** reproduces the example in `notes/format.md` exactly.\n- **Boundary:** 9000 doesn't count as `over` but 9001 does, `peak=huge` shows up, and `used` can go over 100.\n- **Rounding:** 199.9% shows as `used=199%`.\n- **Empty list:** gives `peak=none`.\n- **Bad input:** throws a `RangeError`.\n\nOne addition the notes don't ask for: `summaryLine` throws a `RangeError` if `budget` is not a positive finite number. Otherwise a budget of 0 would produce `used=Infinity%`, or `NaN%` for an empty list.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 479,
+						"cacheRead": 16842,
+						"cacheWrite": 6718
+					},
+					"spend": 0.0667004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts` and five tests for it in `src/budget-table.test.ts`. `bun test src/budget-table.test.ts` passes (52 tests, 0 failures) and the type check is clean.\n\nIt returns `turns=<n> · total=<n> · used=<p>% · peak=<bucket> · over=<n>`, with the fields joined by ` · ` as `notes/format.md` says:\n- `total` is the unweighted sum of the sizes.\n- `used` is `total × 100 / budget`, rounded down, so it can go over 100.\n- `peak` is the largest bucket that has at least one Turn, or `none` when there are no Turns.\n- `over` counts Turns strictly larger than 9000 tokens; the 9000 is kept in a named constant.\n- A negative, `NaN` or infinite size throws a `RangeError`, the same as the other functions.\n\nThe tests check the `notes/format.md` example (`[1400, 7000, 1000]` against 20000 gives exactly `turns=3 · total=9400 · used=47% · peak=large · over=0`). They also cover the 9000/9001 boundary with `peak=huge` and `used=420%`, rounding down (`1999/1000` gives `199%`), the empty list (`peak=none`), and the error cases.\n\n**Decision for you:** I also made a budget of 0 or below, or one that isn't finite, throw a `RangeError`. Neither note says what should happen there, and dividing by a budget of 0 would otherwise print `used=Infinity%` or `used=NaN%`. If you'd rather allow it, delete the check at the top of `summaryLine` and the matching line in the last test.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 661,
+						"cacheRead": 23560,
+						"cacheWrite": 0
+					},
+					"spend": 0.017940000000000005
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts`. `bun test src/budget-table.test.ts` passes (52 tests, 0 failures) and the type check is clean.\n\nIt returns five fields joined by ` · `:\n- **`turns=<n>`:** how many sizes there are.\n- **`total=<n>`:** the plain sum, using `totalOf`.\n- **`used=<p>%`:** the total as a percentage of the budget, rounded down. It can go over 100.\n- **`peak=<bucket>`:** the first bucket with a count above zero in `histogram`, which lists the largest bucket first. With no Turns it shows `peak=none`.\n- **`over=<n>`:** how many sizes are strictly greater than 9000.\n\nAll numbers are plain integers, as `notes/format.md` asks. For `[1400, 7000, 1000]` against a budget of 20000 it returns `turns=3 · total=9400 · used=47% · peak=large · over=0`, which is the example in `notes/format.md`.\n\n**Decision for you:** I made a budget of zero or less, `NaN` or infinity throw a `RangeError`, matching how the module handles bad sizes. The notes don't say what to do here, and without the check you'd get `used=Infinity%`. If you'd rather allow those budgets, remove the check at the top of `summaryLine` and its test case.\n\nI added five `summaryLine` tests to `src/budget-table.test.ts`:\n- the `notes/format.md` example;\n- sizes of exactly 9000, 9001 and 24000, which check that only sizes over 9000 count, that the peak is `huge`, and that `used` can pass 100%;\n- rounding down (1999 against 1000 gives `used=199%`);\n- the empty list, which gives `peak=none`;\n- a negative size and a zero budget, which both throw a `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 654,
+						"cacheRead": 23560,
+						"cacheWrite": 0
+					},
+					"spend": 0.017800000000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "I added `summaryLine(sizes, budget)` to `src/budget-table.ts` and five tests for it to `src/budget-table.test.ts`. The tests pass (52 of 52) and the type check is clean.\n\nIt returns `turns=<n> · total=<n> · used=<p>% · peak=<bucket> · over=<n>`, with the fields joined by ` · `:\n- **`total`** is the plain sum of the sizes, with no weighting.\n- **`used`** is the total as a percentage of the budget, rounded down, and can go above 100.\n- **`peak`** is the largest bucket that holds at least one Turn, or `none` when there are no Turns.\n- **`over`** counts Turns larger than 9000 tokens; a Turn of exactly 9000 doesn't count.\n\n**Decision for you:** I added one check the notes don't ask for. A budget of 0, a negative budget, or a non-finite one throws a `RangeError`, because dividing by it would otherwise print `used=Infinity%` or `used=NaN%`. If you'd rather drop it, it's the first `if` in `summaryLine` plus the second line of the last test.\n\nWhat the tests cover:\n- The example from `notes/format.md`, `[1400, 7000, 1000]` against 20000, gives `turns=3 · total=9400 · used=47% · peak=large · over=0`.\n- `[9000, 9001, 24000]` gives `over=2`, `peak=huge` and `used=420%`.\n- `[1999]` against 1000 gives `used=199%`.\n- `[]` gives `peak=none`.\n- A negative size and a budget of 0 both throw a `RangeError`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 651,
+						"cacheRead": 23560,
+						"cacheWrite": 0
+					},
+					"spend": 0.017740000000000006
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.26898140000000004
+		},
+		{
+			"call": 148,
+			"turn": 35,
+			"condition": "null",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 34,
+				"callId": "toolu_0184rg86kkNAyVjNoHLdWM7d",
+				"tool": "read",
+				"tokens": 1738,
+				"counted": 1444,
+				"duplicated": false,
+				"location": "messages[3][1] messages[4][0]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 20935,
+				"cut": 19491,
+				"alone": 1444
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` already throws a `RangeError` for a budget that isn't a positive finite number; I added that in the last change. So `src/budget-table.ts` didn't need editing this time; I only filled out the tests.\n\nThe check (`src/budget-table.ts:150`):\n```ts\nif (!Number.isFinite(budget) || budget <= 0) {\n\tthrow new RangeError(`Budget must be a finite, positive token count, got ${budget}`);\n}\n```\n\nBefore, the test only tried a budget of `0`. It now also tries `-1`, `NaN`, `Infinity` and `-Infinity`, and checks that a small positive budget like `0.5` is still accepted. The bad-size check is now its own test.\n\nAll 53 tests in `src/budget-table.test.ts` pass, and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 293,
+						"cacheRead": 14281,
+						"cacheWrite": 6606
+					},
+					"spend": 0.06157220000000001
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` already threw a `RangeError` for a budget that isn't a positive finite number, because I added that check in the last change. So `src/budget-table.ts` didn't need any changes. What was missing was test coverage, and I filled that in.\n\n- **The check:** `!Number.isFinite(budget) || budget <= 0` throws `RangeError(\"Budget must be a finite, positive token count, got …\")`.\n- **Tests:** in `src/budget-table.test.ts`, the old test only tried a budget of `0`. The new test also rejects `-1`, `NaN`, `Infinity` and `-Infinity`. It also checks that a small positive budget like `0.5` still works and gives `used=24000%`. I moved the negative-size check into its own test.\n\nAll 53 tests pass and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 282,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.009825400000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` already threw a `RangeError` for a bad budget, because I added that check in the last change. So `src/budget-table.ts` didn't need editing; I only made the tests cover every case. All 53 tests pass and the type check is clean.\n\n- **The check:** `!Number.isFinite(budget) || budget <= 0` throws `Budget must be a finite, positive token count, got <budget>`.\n- **Tests:** a budget of `0`, `-1`, `NaN`, `Infinity` or `-Infinity` now throws. A small positive budget like `0.5` is still accepted and gives `used=24000%`. I also split the old combined test so the negative-size case has its own test.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 276,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.009705400000000003
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "`summaryLine` already threw this error: I added the check in the previous change, so `src/budget-table.ts` is unchanged. The check is `!Number.isFinite(budget) || budget <= 0` and throws `RangeError(\"Budget must be a finite, positive token count, got …\")`.\n\nWhat changed is the test file, `src/budget-table.test.ts`, which only checked a budget of `0` before:\n- **Rejected:** a new test confirms that `0`, `-1`, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`.\n- **Accepted:** a budget of `0.5` is allowed, since it is still a positive finite number, and gives `used=24000%` for a total of 120.\n- **Split out:** the existing check that a negative size throws is now its own test.\n\nAll 53 tests pass and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 318,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.010545400000000003
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`summaryLine` already threw a `RangeError` for a bad budget, because I added that check in the last change. So I didn't change `src/budget-table.ts`; the check is `!Number.isFinite(budget) || budget <= 0`. All 53 tests in `src/budget-table.test.ts` pass and the type check is clean.\n\nWhat I did change is the test file. Before, it only tried a budget of `0`. Now it checks that `0`, `-1`, `NaN`, `Infinity` and `-Infinity` all throw a `RangeError`. It also checks that a small positive budget is still accepted: `0.5` gives `used=24000%`. The negative-size check is now a separate test.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 245,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.009085400000000004
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`summaryLine` already threw a `RangeError` for a bad budget: I added that check in the previous change (`src/budget-table.ts:150`), so the code didn't need to change. What was missing was test coverage, which only tried a budget of `0`.\n\nI split the existing test in `src/budget-table.test.ts` into two:\n- **Bad size:** a negative size still throws a `RangeError`.\n- **Bad budget:** `0`, `-1`, `NaN`, `Infinity` and `-Infinity` each throw a `RangeError`. A small positive budget like `0.5` is still accepted and gives `used=24000%`.\n\nAll 53 tests in that file pass and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 258,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.009345400000000004
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`summaryLine` already threw a `RangeError` for a bad budget, because I added that check in the last change. The code in `src/budget-table.ts` didn't need to change. It rejects any budget where `!Number.isFinite(budget) || budget <= 0`.\n\nThe tests only checked a budget of `0`, so I widened them in `src/budget-table.test.ts`:\n- **Rejected budgets:** `0`, `-1`, `NaN`, `Infinity` and `-Infinity` each now throw a `RangeError` in the tests.\n- **Accepted budget:** a small positive fraction (`0.5`) is still accepted, giving `used=24000%`.\n- **Size check:** the existing test for a negative size is now its own test.\n\nAll 53 tests in that file pass and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 271,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.009605400000000004
+				},
+				{
+					"condition": "sham2",
+					"action": [],
+					"text": "`summaryLine` already threw a `RangeError` for a bad budget, because I added that check in the last change. I didn't change `src/budget-table.ts`; I only added tests.\n\nThe existing check in `summaryLine` is `!Number.isFinite(budget) || budget <= 0`. It rejects `0`, negative budgets, `NaN` and both infinities, and the error message names the bad value.\n\nThe old test only tried a budget of `0`. In `src/budget-table.test.ts` I split it in two:\n- One test still checks that a negative size is rejected.\n- A new test checks that budgets of `0`, `-1`, `NaN`, `+Infinity` and `-Infinity` each throw a `RangeError`. It also checks that a small positive budget is accepted: `0.5` gives `used=24000%`.\n\nAll 53 tests pass and the type check is clean.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 317,
+						"cacheRead": 20887,
+						"cacheWrite": 0
+					},
+					"spend": 0.010525400000000004
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.13021000000000005
+		},
+		{
+			"call": 150,
+			"turn": 36,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 34,
+				"callId": "toolu_01PkGF4heNnZqbxzwhbxYbz7",
+				"tool": "edit",
+				"tokens": 4688,
+				"counted": 857,
+				"duplicated": false,
+				"location": "messages[7][1] messages[8][0]"
+			},
+			"counts": {
+				"offset": 46,
+				"sham": 23139,
+				"cut": 22283,
+				"alone": 857
+			},
+			"original": [],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Nothing is duplicated between the two files: `src/budget-render.ts` holds only `renderTable`, and every piece of logic it uses comes from `src/budget-table.ts`. It imports `bucketTotals`, `histogram`, `labelOf` and `formatCount` from there, and its only code of its own is the header string `\"bucket | turns | weighted\"` and the template for each row. The nearest thing to repetition is inside `budget-table.ts`, where `bucketTotals` works out each size's bucket three times (once through `histogram`, once through `weighted`, once directly), which repeats work but not code.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 360,
+						"cacheRead": 20887,
+						"cacheWrite": 2204
+					},
+					"spend": 0.029017400000000006
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Nothing is duplicated between the two files: `src/budget-render.ts` is just `renderTable`, and it builds its rows only from functions it imports from `src/budget-table.ts` (`bucketTotals`, `histogram`, `labelOf`, `formatCount`), with no thresholds, weights, labels or number formatting of its own. The one overlap is repeated work rather than repeated code: `renderTable` calls `histogram(sizes)`, and `bucketTotals(sizes)` calls `histogram(sizes)` again inside, so each render sorts the sizes into buckets twice. Inside `src/budget-table.ts`, `bucketTotals` also works out each size's bucket on its own after `weighted` has already done so, but that is within one file and no logic is copied between the two.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 447,
+						"cacheRead": 23091,
+						"cacheWrite": 0
+					},
+					"spend": 0.013566200000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "No code is duplicated between the two files: `src/budget-render.ts` holds only `renderTable`, which imports `bucketTotals`, `histogram`, `labelOf` and `formatCount` from `src/budget-table.ts`. None of the bucket thresholds, weights, labels or number formatting is defined a second time in the render file. The one repeat is at runtime: `renderTable` calls `histogram(sizes)`, and `bucketTotals(sizes)` calls `histogram` again internally, so the same sizes get bucketed twice for each table.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 326,
+						"cacheRead": 23091,
+						"cacheWrite": 0
+					},
+					"spend": 0.011146200000000002
+				},
+				{
+					"condition": "sham",
+					"action": [],
+					"text": "Nothing is duplicated between the two files. `src/budget-render.ts` holds only `renderTable`, which builds its header and rows by calling `histogram`, `bucketTotals`, `labelOf` and `formatCount` from `src/budget-table.ts` rather than redoing any of their work, and `budget-table.ts` takes nothing back from it. The nearest thing to repetition is inside `budget-table.ts`, where `bucketTotals` works out each size's bucket three times: once through `histogram`, once through `weighted`, and once in its own loop. That repeats computation, not code, and fixing it would not affect anything in `budget-render.ts`.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 359,
+						"cacheRead": 23091,
+						"cacheWrite": 0
+					},
+					"spend": 0.011806200000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "Nothing is duplicated between the two files: `src/budget-render.ts` holds only `renderTable`, which imports `bucketTotals`, `formatCount`, `histogram` and `labelOf` from `src/budget-table.ts` rather than redefining any of them. The header text `\"bucket | turns | weighted\"` and the row layout appear only in `budget-render.ts`, while the thresholds, weights, labels and number formatting appear only in `budget-table.ts`. The only overlap is repeated work at run time, not repeated code: `renderTable` calls `histogram` and then `bucketTotals`, which calls `histogram` again and works out each size's bucket twice (once through `weighted`). That's cheap at these sizes and not worth refactoring.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 395,
+						"cacheRead": 17448,
+						"cacheWrite": 4787
+					},
+					"spend": 0.049693600000000004
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "No code is duplicated between them: `src/budget-render.ts` has one function, `renderTable`, and it builds its rows entirely from `histogram`, `bucketTotals`, `labelOf` and `formatCount` imported from `src/budget-table.ts`. The bucket thresholds, weights, labels and number formatting each live only in `budget-table.ts`, and the only text that appears just in `budget-render.ts` is the header row `\"bucket | turns | weighted\"` and the `\" | \"` row layout. The one overlap is repeated work at runtime: `renderTable` calls `histogram(sizes)` and also `bucketTotals(sizes)`, which calls `histogram` again and runs `bucketOf` on every size twice (once directly and once through `weighted`), so the same sizes get bucketed several times per render.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 405,
+						"cacheRead": 22235,
+						"cacheWrite": 0
+					},
+					"spend": 0.012555000000000002
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "Nothing is duplicated between the two files. `src/budget-render.ts` is a single 19-line `renderTable` that imports `bucketTotals`, `histogram`, `labelOf` and `formatCount` from `src/budget-table.ts` and only puts their results together into rows, with no thresholds, weights, labels or number formatting of its own. The only repetition is inside `src/budget-table.ts`: `bucketTotals` looks up each size's bucket through `histogram` and through `weighted`, then looks it up again in its own loop, so every size is classified three times.",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 287,
+						"cacheRead": 22235,
+						"cacheWrite": 0
+					},
+					"spend": 0.010195000000000003
+				},
+				{
+					"condition": "cut",
+					"action": [],
+					"text": "Nothing is duplicated between the two files: `src/budget-render.ts` is only `renderTable`, and it imports everything it uses (`histogram`, `bucketTotals`, `labelOf`, `formatCount`) from `src/budget-table.ts` instead of reimplementing it. The bucket table, the weights, the row labels and the number formatting each exist once, in `budget-table.ts`, and `summaryLine` also reuses `histogram` and `totalOf` there. The nearest thing to duplication is repeated work inside `budget-table.ts`: `bucketTotals` buckets every size itself and also calls both `histogram` and `weighted`, which bucket every size again, so one `renderTable` call works out each size's bucket three times (more calls, but no copied code).",
+					"match": true,
+					"usage": {
+						"input": 2,
+						"output": 385,
+						"cacheRead": 22235,
+						"cacheWrite": 0
+					},
+					"spend": 0.012155000000000003
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.15013460000000003
+		},
+		{
+			"call": 156,
+			"turn": 38,
+			"condition": "ablate",
+			"fate": "judged",
+			"unit": {
+				"kind": "tool-call",
+				"turn": 37,
+				"callId": "toolu_018VASPuwQ6ijYkyydUqxRBE",
+				"tool": "read",
+				"tokens": 766,
+				"counted": 687,
+				"duplicated": false,
+				"location": "messages[7][1] messages[8][0]"
+			},
+			"counts": {
+				"offset": 44,
+				"sham": 20482,
+				"cut": 19795,
+				"alone": 687
+			},
+			"original": [
+				{
+					"tool": "read",
+					"target": "src/budget-table.ts"
+				},
+				{
+					"tool": "bash",
+					"target": "bun test src/budget-table.test.ts"
+				}
+			],
+			"resends": [
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 206,
+						"cacheRead": 14281,
+						"cacheWrite": 6153
+					},
+					"spend": 0.056216200000000015
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						},
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 203,
+						"cacheRead": 20434,
+						"cacheWrite": 0
+					},
+					"spend": 0.008162800000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 212,
+						"cacheRead": 20434,
+						"cacheWrite": 0
+					},
+					"spend": 0.008342800000000001
+				},
+				{
+					"condition": "sham",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 208,
+						"cacheRead": 20434,
+						"cacheWrite": 0
+					},
+					"spend": 0.008262800000000002
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 121,
+						"cacheRead": 18485,
+						"cacheWrite": 1262
+					},
+					"spend": 0.016229000000000004
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 122,
+						"cacheRead": 19747,
+						"cacheWrite": 0
+					},
+					"spend": 0.006405400000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						},
+						{
+							"tool": "bash",
+							"target": "bun test src/budget-table.test.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 193,
+						"cacheRead": 19747,
+						"cacheWrite": 0
+					},
+					"spend": 0.007825400000000001
+				},
+				{
+					"condition": "cut",
+					"action": [
+						{
+							"tool": "read",
+							"target": "src/budget-table.ts"
+						}
+					],
+					"match": true,
+					"usage": {
+						"input": 4,
+						"output": 105,
+						"cacheRead": 19747,
+						"cacheWrite": 0
+					},
+					"spend": 0.006065400000000001
+				}
+			],
+			"verdict": "not-needed",
+			"spend": 0.11750980000000003
+		}
+	],
+	"spend": 3.7635626000000006,
+	"calibration": true
+}

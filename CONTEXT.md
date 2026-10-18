@@ -117,7 +117,7 @@ A judgement of whether a Call's Context Window held what its next action needed,
 _Avoid_: metric, stat, eval
 
 **Utilisation**:
-The share of the tail and summary of a Call's Context Window, by tokens, that its next action Used. The Opening, the Pins and the Call's own Turn are not judged. Cheap and correlational.
+The share of the tail and summary of a Call's Context Window, by tokens, that its next action Used. The Opening, the Pins and the Call's own Turn are not judged. Cheap and correlational: Used is never Needed. Its rule is calibrated per key against the key's Ablation calibration set: Cohen's κ between Used and Needed picks a cell of copied-span length and rare-identifier count. A key whose best κ reaches 0.4 is judged at that cell and labelled with κ and the cell. Any other key stays at the default rule, labelled "uncalibrated". A calibrated key also gets a PPI Needed share: the Used share corrected by the set's Used − Needed residuals. It is reported in a row beside Needed share and never replaces it.
 _Avoid_: relevance, hit rate, coverage
 
 **Used**:

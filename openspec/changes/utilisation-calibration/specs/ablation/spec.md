@@ -7,7 +7,7 @@ For each Arm, Needed share SHALL be the Needed units over judged units (Needed, 
 - the unstable share of Calls drawn;
 - the counts of unfaithful, unlocated, miscounted and capped units;
 - the spend;
-- when the Arm has a PPI Needed share: Ablation's own Needed share over tail and summary units judged Needed or not Needed, duplicated included, with its Wilson 95% interval, and beside it the PPI Needed share with its interval, labelled "PPI".
+- when the report reads the Arm's Runs: Ablation's own Needed share over tail and summary units judged Needed or not Needed, duplicated included, with its Wilson 95% interval, and beside it the PPI Needed share with its interval, labelled "PPI", or why the Arm has none.
 
 #### Scenario: Needed share of a small sample
 

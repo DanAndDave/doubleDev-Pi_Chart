@@ -2,7 +2,8 @@
  * Utilisation, pure: which tail and summary units of a main Call's Context
  * Window its next action Used, by lexical signals alone, and their share of
  * the window's judged tokens (`openspec/changes/archive/2026-10-17-utilisation/design.md`
- * §2–§9). Uncalibrated: Used is never Needed.
+ * §2–§9). Used is never Needed; a key's calibration set may choose the rule
+ * (`openspec/changes/utilisation-calibration/design.md` §5).
  */
 import type { Compaction, JournalTurn, MessageAddress } from "../src/journal.ts";
 import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
@@ -28,9 +29,9 @@ export function armHolds(arm: string, kind: JudgedKind): boolean {
 	return true;
 }
 
-/** What every report showing Utilisation states under it. */
+/** What every report showing Utilisation states under it; its label says whether it is calibrated. */
 export const CAVEATS = [
-	"Utilisation is lexical and uncalibrated: Used is not Needed.",
+	"Utilisation is lexical: Used is not Needed.",
 	"Earlier tool results of a Call's own Turn are never measured.",
 	"Items found in the system prompt outside the Opening and Pins are not excluded; the record does not hold that text.",
 ];
@@ -46,15 +47,36 @@ export function share({ used, judged }: Tally): number {
 	return used / judged;
 }
 
-/** One measured Call: in total, and per kind it judged any tokens of. */
+/** One measured Call: in total, and per kind it judged any tokens of; and the tokens of all its units, Opening and Pins included. */
 export interface CallUtilisation extends Tally {
 	byKind: Partial<Record<JudgedKind, Tally>>;
+	unitTokens: number;
 }
 
-/** A Run's sums over its measured Calls, and how many Calls were measured, held nothing to judge, or had an unknown window. */
+/**
+ * A Run's sums over its measured Calls, and how many Calls were measured,
+ * held nothing to judge, or had an unknown window; the rule it was judged at,
+ * absent when measured before calibration existed; and that rule's κ when a
+ * calibration set chose it.
+ */
 export interface RunUtilisation extends Tally {
 	byKind: Record<JudgedKind, Tally>;
 	calls: { measured: number; empty: number; unknown: number };
+	rule?: Rule;
+	kappa?: number;
+}
+
+/**
+ * How a report labels the Utilisation of `runs`: `κ 0.52, s 6, k 1` when
+ * every Run was judged at the same calibrated cell; else "uncalibrated",
+ * which covers a Run measured before calibration existed.
+ */
+export function utilisationLabel(runs: (RunUtilisation | undefined)[]): string {
+	const [first] = runs;
+	const { rule, kappa } = first ?? {};
+	if (!rule || kappa === undefined) return "uncalibrated";
+	const same = runs.every((run) => run?.rule?.s === rule.s && run.rule.k === rule.k && run.kappa === kappa);
+	return same ? `κ ${kappa.toFixed(2)}, s ${rule.s}, k ${rule.k}` : "uncalibrated";
 }
 
 /** The Used rule's parameters: the copied-span length *s* and the rare items *k* a unit must share. */
@@ -107,44 +129,47 @@ interface RunIndex {
 	excluded: Excluded;
 }
 
+/** One Call's verdicts: its judged units by identity, those Used, and the tokens of all its units, Opening and Pins included. */
+export interface JudgedCall {
+	window: KnownWindow;
+	units: { id: string; unit: Unit }[];
+	used: Set<string>;
+	unitTokens: number;
+}
+
 /**
- * Each Call's Utilisation, in `calls` order: its figures, `"empty"` when its
- * window held no judged unit, `"unknown"` when its window is unknown; and the
- * Run's sums over the measured Calls. `pins` is `pinTexts`; `cwd` the Run's
- * working directory, which the path signal compares relative to.
+ * Each Call's verdicts at `rule`, in `calls` order: `"empty"` when its window
+ * held no judged unit, `"unknown"` when its window is unknown. `pins` is
+ * `pinTexts`; `cwd` the Run's working directory, which the path signal
+ * compares relative to.
  */
-export function utilisationOf(
+export function judgeRun(
 	turns: JournalTurn[],
 	calls: MeasuredCall[],
 	compactions: Compaction[],
 	pins: Map<number, string>,
 	cwd: string,
-	rule: Rule = DEFAULT_RULE,
-): { calls: (CallUtilisation | "empty" | "unknown")[]; run: RunUtilisation } {
-	const run: RunUtilisation = {
-		used: 0,
-		judged: 0,
-		byKind: { "tool-call": tally(), pull: tally(), prose: tally(), summary: tally() },
-		calls: { measured: 0, empty: 0, unknown: 0 },
-	};
-
+	rule: Rule,
+): (JudgedCall | "empty" | "unknown")[] {
 	// Each Call's judged units and next action; the Run's distinct units by identity.
 	const distinct = new Map<string, Unit>();
-	const judging: (Judging | "empty" | "unknown")[] = [];
+	const judging: ((Judging & { unitTokens: number }) | "empty" | "unknown")[] = [];
 	for (const { address, window } of calls) {
 		if (window === "unknown") {
 			judging.push("unknown");
 			continue;
 		}
-		const units = unitsOf(turns, address, window, compactions, pins)
+		const all = unitsOf(turns, address, window, compactions, pins);
+		const units = all
 			.filter((unit) => (JUDGED_KINDS as readonly string[]).includes(unit.kind))
-			.map((unit) => ({ id: identity(unit, window), unit }));
+			.map((unit) => ({ id: unitIdentity(unit, window), unit }));
 		if (units.length === 0) {
 			judging.push("empty");
 			continue;
 		}
 		for (const { id, unit } of units) distinct.set(id, unit);
-		judging.push({ address, window, units, action: nextAction(turns[address.turn]?.messages[address.message], cwd) });
+		const unitTokens = all.reduce((sum, unit) => sum + unit.tokens, 0);
+		judging.push({ address, window, units, unitTokens, action: nextAction(turns[address.turn]?.messages[address.message], cwd) });
 	}
 
 	// The two indexes, over the distinct units, restricted to what some action can look up (design §7).
@@ -165,21 +190,45 @@ export function utilisationOf(
 		for (const item of itemsOf(text)) if (wantedItems.has(item)) add(index.byItem, item, id);
 	}
 
+	return judging.map((each) =>
+		typeof each === "string" ? each : { window: each.window, units: each.units, used: usedBy(each, rule, index), unitTokens: each.unitTokens },
+	);
+}
+
+/**
+ * Each Call's Utilisation, in `calls` order: its figures, `"empty"` when its
+ * window held no judged unit, `"unknown"` when its window is unknown; and the
+ * Run's sums over the measured Calls. Arguments as `judgeRun`'s.
+ */
+export function utilisationOf(
+	turns: JournalTurn[],
+	calls: MeasuredCall[],
+	compactions: Compaction[],
+	pins: Map<number, string>,
+	cwd: string,
+	rule: Rule = DEFAULT_RULE,
+): { calls: (CallUtilisation | "empty" | "unknown")[]; run: RunUtilisation } {
+	const run: RunUtilisation = {
+		used: 0,
+		judged: 0,
+		byKind: { "tool-call": tally(), pull: tally(), prose: tally(), summary: tally() },
+		calls: { measured: 0, empty: 0, unknown: 0 },
+		rule: { s: rule.s, k: rule.k },
+	};
 	const figures: (CallUtilisation | "empty" | "unknown")[] = [];
-	for (const each of judging) {
+	for (const each of judgeRun(turns, calls, compactions, pins, cwd, rule)) {
 		if (typeof each === "string") {
 			run.calls[each]++;
 			figures.push(each);
 			continue;
 		}
 		run.calls.measured++;
-		const used = usedBy(each, rule, index);
-		const figure: CallUtilisation = { ...tally(), byKind: {} };
+		const figure: CallUtilisation = { ...tally(), byKind: {}, unitTokens: each.unitTokens };
 		for (const { id, unit } of each.units) {
 			const kind = unit.kind as JudgedKind;
 			for (const into of [figure, (figure.byKind[kind] ??= tally()), run, run.byKind[kind]]) {
 				into.judged += unit.tokens;
-				if (used.has(id)) into.used += unit.tokens;
+				if (each.used.has(id)) into.used += unit.tokens;
 			}
 		}
 		figures.push(figure);
@@ -196,7 +245,7 @@ function add(index: Map<string, Set<string>>, key: string, id: string): void {
 }
 
 /** A unit's identity across the Run's Calls: a tool call by Turn and id, prose by Turn, the summary by its compaction. */
-function identity(unit: Unit, window: KnownWindow): string {
+export function unitIdentity(unit: Unit, window: KnownWindow): string {
 	if (unit.kind === "summary") return `summary ${window.summary}`;
 	if (unit.kind === "prose") return `prose ${unit.turn}`;
 	return `call ${unit.turn} ${unit.callId}`;

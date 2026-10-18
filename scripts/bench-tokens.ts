@@ -68,7 +68,7 @@ import {
 	WRITE_RATE,
 } from "./measures.ts";
 import { PULL_TOOLS } from "./units.ts";
-import { armHolds, CAVEATS, JUDGED_KINDS, KIND_LABEL, share, type Tally as UsedTally } from "./utilisation.ts";
+import { armHolds, CAVEATS, JUDGED_KINDS, KIND_LABEL, share, type Tally as UsedTally, utilisationLabel } from "./utilisation.ts";
 import { type Arm, ARMS, type Context, flagsOf, loadNamedWorkload, log, type Options, pool, runOne } from "./runs.ts";
 import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf } from "./workload.ts";
 
@@ -178,7 +178,9 @@ function report(bench: Bench): void {
 	// `bench.json` older than Utilisation, gives NaN ("—"). No ratio column:
 	// a ratio of shares invites reading one Arm as more Needed.
 	const used = (tally: UsedTally | undefined) => (tally ? share(tally) : Number.NaN);
-	console.log("\nUtilisation per Run (uncalibrated), median over complete Runs:\n");
+	console.log(
+		`\nUtilisation per Run (${utilisationLabel(present.flatMap((arm) => complete(arm).map((run) => run.utilisation)))}), median over complete Runs:\n`,
+	);
 	console.log(`| Judged | ${present.join(" | ")} |`);
 	console.log(`| --- | ${present.map(() => "---:").join(" | ")} |`);
 	const utilisationRows: [string, (run: RunMeasures) => number | undefined][] = [

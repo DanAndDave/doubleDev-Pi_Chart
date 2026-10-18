@@ -3,9 +3,12 @@ import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { aggregate, measureRun, type RevisitScore, type RunMeasures, type Score } from "../scripts/measures.ts";
+import type { CalibrationFile, CalibrationSet, CalibrationUnit } from "../scripts/ablation.ts";
+import { cellId, GRID } from "../scripts/calibration.ts";
+import { aggregate, calibrateSet, measureRun, type RevisitScore, type RunMeasures, type Score } from "../scripts/measures.ts";
 import { readBranch } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
+import { utilisationLabel } from "../scripts/utilisation.ts";
 import { approximateTokens } from "../src/tokens.ts";
 
 const fixture = (name: string) => new URL(`./fixtures/runs/${name}`, import.meta.url).pathname;
@@ -669,5 +672,96 @@ describe("aggregate", () => {
 		const arms = aggregate([revisited([revisit()]), old]);
 
 		expect(arms.get("pi-chart")?.revisits).toBeUndefined();
+	});
+});
+
+describe("calibrating a set", () => {
+	/** A unit of `folder`'s main Call `call`, judged `verdict`. */
+	const kept = (folder: string, call: number, unit: CalibrationUnit["unit"], verdict: CalibrationUnit["verdict"]): CalibrationUnit => ({
+		arm: "vanilla",
+		folder,
+		run: 0,
+		call,
+		turn: 0,
+		unit,
+		content: "",
+		original: [],
+		verdict,
+	});
+	const set = (units: CalibrationUnit[]): CalibrationSet => ({
+		key: { workload: { name: "fixture", version: 1 }, model: "anthropic/claude-opus-5-5", omp: "omp/18.11.0" },
+		date: "2026-10-17",
+		units,
+		nulls: [],
+		control: { share: { k: 9, n: 10, share: 0.9, lower: 0.6, upper: 1 }, trusted: true },
+		runs: "test/fixtures/runs",
+	});
+	const every = (used: boolean) => Object.fromEntries(GRID.map((cell) => [cellId(cell), used]));
+	// The Call's next action reads t2c0k0's own text: Used at every cell.
+	const copied = kept("vanilla-compacted", 5, { kind: "tool-call", turn: 2, callId: "t2c0k0", tool: "bash", tokens: 50 }, "needed");
+	const summary = kept("vanilla-compacted", 14, { kind: "summary", text: "", tokens: 200 }, "not-needed");
+	// Both folders are vanilla index 0; only vanilla-plants' Call 8 holds Turn 6's call.
+	const plants = kept("vanilla-plants", 8, { kind: "tool-call", turn: 6, callId: "t6c0k0", tool: "bash", tokens: 50 }, "not-needed");
+	const opening = kept("vanilla-plants", 8, { kind: "opening", turn: 0, text: "", tokens: 20 }, "needed");
+
+	test("each compared unit, a summary among them, gets its Used verdict on its own Run's Call at every cell", async () => {
+		const { set: calibrated } = await calibrateSet(set([copied, summary, plants, opening]));
+
+		expect(calibrated.units.map((unit) => unit.used)).toEqual([every(true), every(false), every(false), undefined]);
+		expect(calibrated.rule).toEqual({ s: 6, k: 1, kappa: 1 });
+	});
+
+	test("a compared unit its Call does not hold is an error", async () => {
+		const stray = { ...plants, folder: "vanilla-compacted" };
+
+		await expect(calibrateSet(set([copied, stray]))).rejects.toThrow(/vanilla-compacted.*Call 8/);
+	});
+
+	test("calibrating again stores the same verdicts, cell and κ", async () => {
+		const once = (await calibrateSet(set([copied, summary, plants]))).set;
+		const twice = await calibrateSet(once);
+
+		expect(twice.set).toEqual(once);
+		expect(twice.previous).toEqual(once.rule);
+	});
+});
+
+describe("the rule a Run's Utilisation is judged at", () => {
+	const key = { workload: { name: "fixture", version: 1 }, model: "anthropic/claude-opus-5-5", omp: "omp/18.11.0" };
+	const file = (rule: CalibrationSet["rule"]): CalibrationFile => ({
+		sets: [{ key, date: "2026-10-17", units: [], nulls: [], control: { share: { k: 9, n: 10, share: 0.9, lower: 0.6, upper: 1 }, trusted: true }, rule }],
+	});
+
+	test("a Run of a calibrated key is judged at its cell and records it with its κ", async () => {
+		const { utilisation } = await measureRun(fixture("vanilla-compacted"), file({ s: 6, k: 1, kappa: 0.52 }));
+
+		expect(utilisation).toMatchObject({ rule: { s: 6, k: 1 }, kappa: 0.52 });
+		expect(utilisationLabel([utilisation])).toBe("κ 0.52, s 6, k 1");
+	});
+
+	test("a weak calibration, or a record naming no model, keeps s 8, k 2, uncalibrated", async () => {
+		const weak = (await measureRun(fixture("vanilla-compacted"), file({ s: 12, k: 3, kappa: 0.31 }))).utilisation;
+		const dir = await mkdtemp(join(tmpdir(), "no-model-"));
+		await cp(fixture("vanilla-compacted"), dir, { recursive: true });
+		const { model: _model, ...record } = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
+		await writeFile(join(dir, "run.json"), JSON.stringify(record));
+		const unnamed = (await measureRun(dir, file({ s: 6, k: 1, kappa: 0.52 }))).utilisation;
+
+		for (const utilisation of [weak, unnamed]) {
+			expect(utilisation?.rule).toEqual({ s: 8, k: 2 });
+			expect(utilisation?.kappa).toBeUndefined();
+			expect(utilisationLabel([utilisation])).toBe("uncalibrated");
+		}
+	});
+
+	test("Runs judged at different cells, or one measured before calibration, are labelled uncalibrated", async () => {
+		const calibrated = (await measureRun(fixture("vanilla-compacted"), file({ s: 6, k: 1, kappa: 0.52 }))).utilisation;
+		const other = (await measureRun(fixture("vanilla-compacted"), file({ s: 6, k: 2, kappa: 0.52 }))).utilisation;
+		const { rule: _rule, kappa: _kappa, ...before } = calibrated ?? ({} as NonNullable<typeof calibrated>);
+
+		expect(utilisationLabel([calibrated, calibrated])).toBe("κ 0.52, s 6, k 1");
+		expect(utilisationLabel([calibrated, other])).toBe("uncalibrated");
+		expect(utilisationLabel([calibrated, before])).toBe("uncalibrated");
+		expect(utilisationLabel([])).toBe("uncalibrated");
 	});
 });
