@@ -131,7 +131,7 @@ Each Run SHALL get a fresh workspace built from the Workload's commit, with ever
 
 ### Requirement: Runs are isolated from each other and from the user's stores
 
-Each pi-chart Run SHALL use its own Thread Store database, created and migrated before the Run's first Turn and dropped only after the Run's Accounting has been written to its record. Each Run SHALL use its own copy of the Workload's `bundle/` folder as the doc bundle, empty when the Workload has none. No Run SHALL read or write the user's own Thread Store database or bundle.
+Each pi-chart Run SHALL use its own Thread Store database, created and migrated before the Run's first Turn and dropped only after the Run's Accounting has been written to its record. Each Run SHALL use its own copy of the Workload's `bundle/` folder as the doc bundle, empty when the Workload has none. No Run SHALL read or write the user's own Thread Store database or bundle. The address of a Run's Thread Store database SHALL reach pi-chart alone: no command the agent runs SHALL find it in its environment.
 
 #### Scenario: A pi-chart Run's store is migrated before it starts
 
@@ -148,6 +148,11 @@ Each pi-chart Run SHALL use its own Thread Store database, created and migrated 
 
 - **WHEN** a Run's Conversation writes a Concept to the doc bundle
 - **THEN** the Workload's `bundle/` folder and the user's bundle SHALL be unchanged
+
+#### Scenario: The agent's store tests cannot reach the Run's store
+
+- **WHEN** a pi-chart Run's agent runs pi-chart's own store tests, which truncate the database `PICHART_DATABASE_URL` names
+- **THEN** the Run's Thread Store database SHALL be untouched, and its record SHALL hold the Accounting of every Call the Run made
 
 ### Requirement: Every prompt is sent as written
 
@@ -193,6 +198,7 @@ Each Run SHALL leave a record folder holding:
 - the first Turn that failed to complete, if any;
 - copies of the Run's main and subagent Journals;
 - for a pi-chart Run, the Accounting of every Call.
+- for a pi-chart Run, every tunable Budget variable in the Run's environment, with its value, whether it came from the Run's spec or from the environment the benchmark was started in.
 
 A Turn that fails to complete SHALL end the Run, and the record SHALL still be written.
 
@@ -231,3 +237,13 @@ A Turn that fails to complete SHALL end the Run, and the record SHALL still be w
 
 - **WHEN** a benchmark's pi-chart Run loads a tree with uncommitted changes under `src/`
 - **THEN** its record SHALL name no pi-chart commit
+
+#### Scenario: A sweep Run names its Budgets
+
+- **WHEN** a sweep Run of the cell `PICHART_TAIL_TOKENS=40000`, `PICHART_TAIL_LOW_WATER=0.4` ends
+- **THEN** its record SHALL name those two variables with those values, and no other tunable Budget variable
+
+#### Scenario: A Run at the defaults names no Budget
+
+- **WHEN** a benchmark is started with no tunable Budget variable set and its Run ends
+- **THEN** its record SHALL name no Budget variable
