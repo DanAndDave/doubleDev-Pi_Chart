@@ -23,7 +23,16 @@ import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts
 import { pinTexts } from "../src/pins.ts";
 import { approximateTokens } from "../src/tokens.ts";
 import { PULL_TOOLS, type PullTool } from "./units.ts";
-import { armHolds, CAVEATS, type CallUtilisation, JUDGED_KINDS, KIND_LABEL, type RunUtilisation, utilisationOf } from "./utilisation.ts";
+import {
+	armHolds,
+	CAVEATS,
+	type CallUtilisation,
+	JUDGED_KINDS,
+	KIND_LABEL,
+	type RunUtilisation,
+	share,
+	utilisationOf,
+} from "./utilisation.ts";
 import type { Plant, PlantKind, Revisit, Turn, WorkloadId } from "./workload.ts";
 
 export const READ_RATE = 0.1;
@@ -116,6 +125,9 @@ export type Window =
 			/** The Call's own Turn. */
 			current: number;
 	  };
+
+/** A window the record can say. */
+export type KnownWindow = Exclude<Window, "unknown">;
 
 export interface Totals {
 	calls: number;
@@ -821,7 +833,7 @@ function classify(window: Window, earlier: MessageAddress): RefetchClass {
 }
 
 /** Whether the message at `at` sits in the window's tail; a partial tail may still have dropped it. */
-function inTail(window: Exclude<Window, "unknown">, at: MessageAddress): boolean {
+function inTail(window: KnownWindow, at: MessageAddress): boolean {
 	const { tail } = window;
 	return tail.turns.includes(at.turn) && (tail.from?.turn !== at.turn || at.message >= tail.from.message);
 }
@@ -1188,10 +1200,11 @@ if (import.meta.main) {
 		}
 		const u = measures.utilisation;
 		if (u) {
-			const share = (tally: { used: number; judged: number }) => percent(tally.used / tally.judged);
-			console.log(`Utilisation (uncalibrated): ${share(u)} of ${int(u.judged)} judged tokens`);
+			console.log(`Utilisation (uncalibrated): ${percent(share(u))} of ${int(u.judged)} judged tokens`);
 			const kinds = JUDGED_KINDS.map((kind) =>
-				armHolds(record.arm, kind) ? `${KIND_LABEL[kind]} ${share(u.byKind[kind])} of ${int(u.byKind[kind].judged)}` : `${KIND_LABEL[kind]} n/a`,
+				armHolds(record.arm, kind)
+					? `${KIND_LABEL[kind]} ${percent(share(u.byKind[kind]))} of ${int(u.byKind[kind].judged)}`
+					: `${KIND_LABEL[kind]} n/a`,
 			);
 			console.log(
 				`  ${kinds.join(", ")}; Calls measured ${u.calls.measured}, nothing to judge ${u.calls.empty}, unknown ${u.calls.unknown}`,

@@ -5,9 +5,9 @@
  * §2–§9). Uncalibrated: Used is never Needed.
  */
 import type { Compaction, JournalTurn, MessageAddress } from "../src/journal.ts";
-import { isToolCall, messageText, renderToolCall, type HarnessMessage } from "../src/messages.ts";
-import type { Window } from "./measures.ts";
-import { deviceCall, targetOf, type ToolCallLike, type Unit, unitContent, unitsOf } from "./units.ts";
+import { isToolCall, messageText, type HarnessMessage } from "../src/messages.ts";
+import type { KnownWindow, Window } from "./measures.ts";
+import { deviceCall, sentLines, targetOf, type ToolCallLike, type Unit, unitContent, unitsOf, withoutSelector } from "./units.ts";
 
 /** The unit kinds Utilisation judges: the tail and the summary, never the Opening, a Pin or the Call's own Turn. */
 export type JudgedKind = "tool-call" | "pull" | "prose" | "summary";
@@ -39,6 +39,11 @@ export const CAVEATS = [
 export interface Tally {
 	used: number;
 	judged: number;
+}
+
+/** The share of judged tokens Used; NaN when none were judged, which reports show as no figure. */
+export function share({ used, judged }: Tally): number {
+	return used / judged;
 }
 
 /** One measured Call: in total, and per kind it judged any tokens of. */
@@ -82,9 +87,24 @@ interface NextAction {
 /** A Call with something to judge: its units, by identity, and its next action. */
 interface Judging {
 	address: MessageAddress;
-	window: Exclude<Window, "unknown">;
+	window: KnownWindow;
 	units: { id: string; unit: Unit }[];
 	action: NextAction;
+}
+
+/** Whether `item` is excluded for the Call at `address` with `window`. */
+type Excluded = (item: string, address: MessageAddress, window: KnownWindow) => boolean;
+
+/** The Run's lookups over its distinct judged units, built once and shared by every Call. */
+interface RunIndex {
+	/** The units holding each `s`-token span some action holds. */
+	byGram: Map<string, Set<string>>;
+	/** The units holding each item some action holds. */
+	byItem: Map<string, Set<string>>;
+	/** Each unit's text, for the path signal. */
+	texts: Map<string, string>;
+	rare: (item: string) => boolean;
+	excluded: Excluded;
 }
 
 /**
@@ -110,39 +130,50 @@ export function utilisationOf(
 
 	// Each Call's judged units and next action; the Run's distinct units by identity.
 	const distinct = new Map<string, Unit>();
-	const judging = calls.map(({ address, window }): Judging | "empty" | "unknown" => {
-		if (window === "unknown") return "unknown";
+	const judging: (Judging | "empty" | "unknown")[] = [];
+	for (const { address, window } of calls) {
+		if (window === "unknown") {
+			judging.push("unknown");
+			continue;
+		}
 		const units = unitsOf(turns, address, window, compactions, pins)
 			.filter((unit) => (JUDGED_KINDS as readonly string[]).includes(unit.kind))
 			.map((unit) => ({ id: identity(unit, window), unit }));
-		if (units.length === 0) return "empty";
+		if (units.length === 0) {
+			judging.push("empty");
+			continue;
+		}
 		for (const { id, unit } of units) distinct.set(id, unit);
-		return { address, window, units, action: nextAction(turns[address.turn]?.messages[address.message], cwd) };
-	});
+		judging.push({ address, window, units, action: nextAction(turns[address.turn]?.messages[address.message], cwd) });
+	}
 
 	// The two indexes, over the distinct units, restricted to what some action can look up (design §7).
 	const actions = judging.flatMap((each) => (typeof each === "string" ? [] : [each.action]));
 	const wantedGrams = new Set(actions.flatMap((action) => grams(action.tokens, rule.s)));
 	const wantedItems = new Set(actions.flatMap((action) => [...action.items]));
-	const texts = new Map<string, string>();
-	const byGram = new Map<string, Set<string>>();
-	const byItem = new Map<string, Set<string>>();
+	const index: RunIndex = {
+		byGram: new Map(),
+		byItem: new Map(),
+		texts: new Map(),
+		rare: (item) => (index.byItem.get(item)?.size ?? 0) < RARE * distinct.size,
+		excluded: exclusions(turns, pins),
+	};
 	for (const [id, unit] of distinct) {
 		const text = unitContent(unit, turns);
-		texts.set(id, text);
-		for (const gram of grams(tokensOf(text), rule.s)) if (wantedGrams.has(gram)) add(byGram, gram, id);
-		for (const item of itemsOf(text)) if (wantedItems.has(item)) add(byItem, item, id);
+		index.texts.set(id, text);
+		for (const gram of grams(tokensOf(text), rule.s)) if (wantedGrams.has(gram)) add(index.byGram, gram, id);
+		for (const item of itemsOf(text)) if (wantedItems.has(item)) add(index.byItem, item, id);
 	}
-	const rare = (item: string) => (byItem.get(item)?.size ?? 0) < RARE * distinct.size;
-	const excluded = exclusions(turns, pins);
 
-	const figures = judging.map((each): CallUtilisation | "empty" | "unknown" => {
+	const figures: (CallUtilisation | "empty" | "unknown")[] = [];
+	for (const each of judging) {
 		if (typeof each === "string") {
 			run.calls[each]++;
-			return each;
+			figures.push(each);
+			continue;
 		}
 		run.calls.measured++;
-		const used = usedBy(each, rule, byGram, byItem, rare, excluded, texts);
+		const used = usedBy(each, rule, index);
 		const figure: CallUtilisation = { ...tally(), byKind: {} };
 		for (const { id, unit } of each.units) {
 			const kind = unit.kind as JudgedKind;
@@ -151,8 +182,8 @@ export function utilisationOf(
 				if (used.has(id)) into.used += unit.tokens;
 			}
 		}
-		return figure;
-	});
+		figures.push(figure);
+	}
 	return { calls: figures, run };
 }
 
@@ -165,22 +196,14 @@ function add(index: Map<string, Set<string>>, key: string, id: string): void {
 }
 
 /** A unit's identity across the Run's Calls: a tool call by Turn and id, prose by Turn, the summary by its compaction. */
-function identity(unit: Unit, window: Exclude<Window, "unknown">): string {
+function identity(unit: Unit, window: KnownWindow): string {
 	if (unit.kind === "summary") return `summary ${window.summary}`;
 	if (unit.kind === "prose") return `prose ${unit.turn}`;
 	return `call ${unit.turn} ${unit.callId}`;
 }
 
 /** The ids of the Call's units that any signal makes Used. */
-function usedBy(
-	judging: Judging,
-	rule: Rule,
-	byGram: Map<string, Set<string>>,
-	byItem: Map<string, Set<string>>,
-	rare: (item: string) => boolean,
-	excluded: (item: string, address: MessageAddress, window: Exclude<Window, "unknown">) => boolean,
-	texts: Map<string, string>,
-): Set<string> {
+function usedBy(judging: Judging, rule: Rule, { byGram, byItem, texts, rare, excluded }: RunIndex): Set<string> {
 	const { action, units, address, window } = judging;
 	const mine = new Set(units.map((each) => each.id));
 	const used = new Set<string>();
@@ -234,13 +257,14 @@ function leaves(value: unknown): string[] {
 	return [];
 }
 
-/** A glob's wildcards: a path holding one is a pattern, not a path. */
+/** A glob's wildcards: a grep's or glob's path holding one is a pattern, not a path. */
 const WILDCARD = /[*?[\]{}]/;
 
 /**
  * The paths the call's target names, relative to `cwd`: a `read`'s or
- * `write`'s, each file an `edit` names, a `grep`'s or `glob`'s path. The
- * working directory itself, `.` and a glob pattern name none.
+ * `write`'s, each file an `edit` names, a `grep`'s or `glob`'s path without
+ * its line selector. The working directory itself, `.` and a glob pattern
+ * name none.
  */
 function pathsOf(call: ToolCallLike, cwd: string): string[] {
 	const { tool, target } = targetOf(call);
@@ -257,16 +281,17 @@ function pathsOf(call: ToolCallLike, cwd: string): string[] {
 		case "grep":
 		case "glob": {
 			const path = (JSON.parse(target) as [string | null, string | null])[1];
-			named = path === null ? [] : path.split(";");
+			named = path === null ? [] : path.split(";").map((each) => withoutSelector(each.trim())).filter((each) => !WILDCARD.test(each));
 			break;
 		}
 		default:
 			return [];
 	}
-	return named.map((path) => relative(path.trim(), cwd)).filter((path) => path !== "" && path !== "." && !WILDCARD.test(path));
+	return named.map((path) => relativeToCwd(path.trim(), cwd)).filter((path) => path !== "" && path !== ".");
 }
 
-function relative(path: string, cwd: string): string {
+/** `path` with `cwd/` and any leading `./` dropped; `cwd` itself becomes empty. */
+function relativeToCwd(path: string, cwd: string): string {
 	let out = path === cwd ? "" : path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
 	while (out.startsWith("./")) out = out.slice(2);
 	return out.replace(/\/+$/, "");
@@ -326,16 +351,13 @@ function itemsOf(text: string): Set<string> {
  * Turn sent before it, in the Opening it carried, or in a Pin it carried.
  * Each message's items are found once and kept.
  */
-function exclusions(
-	turns: JournalTurn[],
-	pins: Map<number, string>,
-): (item: string, address: MessageAddress, window: Exclude<Window, "unknown">) => boolean {
+function exclusions(turns: JournalTurn[], pins: Map<number, string>): Excluded {
 	const messageItems = new Map<HarnessMessage, Set<string>>();
 	const textItems = new Map<string, Set<string>>();
 	const ofMessage = (message: HarnessMessage) => {
 		let items = messageItems.get(message);
 		if (!items) {
-			items = itemsOf(sentText(message));
+			items = itemsOf(sentLines(message, true).join("\n"));
 			messageItems.set(message, items);
 		}
 		return items;
@@ -358,12 +380,4 @@ function exclusions(
 			return text !== undefined && ofText(text).has(item);
 		});
 	};
-}
-
-/** A message's text as it was sent: its text, its tool calls rendered; never its thinking. */
-function sentText(message: HarnessMessage): string {
-	if (message.role !== "assistant" || !Array.isArray(message.content)) return messageText(message);
-	return message.content
-		.flatMap((block) => (isToolCall(block) ? [renderToolCall(block)] : block.type === "text" && "text" in block ? [block.text] : []))
-		.join("\n");
 }

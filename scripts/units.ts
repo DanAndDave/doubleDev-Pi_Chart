@@ -57,11 +57,11 @@ export function targetOf(call: ToolCallLike): Target {
 	switch (call.name) {
 		case "read":
 		case "write":
-			return aimed(text("path")?.replace(SELECTOR, ""));
+			return aimed(withoutSelector(text("path")));
 		case "edit": {
 			// omp's edit names its files in the input, one header per file; a several-file edit aims at them all.
-			const files = [...(text("input") ?? "").matchAll(EDIT_HEADER)].map((header) => (header[1] as string).replace(SELECTOR, ""));
-			return aimed(files.length > 0 ? files.join("\n") : text("path")?.replace(SELECTOR, ""));
+			const files = [...(text("input") ?? "").matchAll(EDIT_HEADER)].map((header) => withoutSelector(header[1] as string));
+			return aimed(files.length > 0 ? files.join("\n") : withoutSelector(text("path")));
 		}
 		case "grep":
 		case "glob":
@@ -72,6 +72,11 @@ export function targetOf(call: ToolCallLike): Target {
 		default:
 			return { tool: call.name };
 	}
+}
+
+/** `path` with omp's line or raw selector dropped, so every range of a file names the same file. */
+export function withoutSelector<T extends string | undefined>(path: T): T {
+	return path?.replace(SELECTOR, "") as T;
 }
 
 /** The tool a `write` to omp's tool device ran, with its arguments; none for any other call. */
@@ -215,14 +220,16 @@ export function unitContent(unit: Unit, turns: JournalTurn[]): string {
 	const calls = unit.kind === "turn";
 	return turn.messages
 		.filter((message) => calls || message.role !== "toolResult")
-		.flatMap((message) =>
-			message.role === "assistant" && Array.isArray(message.content)
-				? message.content.flatMap((block) => {
-						if (isToolCall(block)) return calls ? [renderToolCall(block)] : [];
-						return block.type === "text" && "text" in block ? [block.text] : [];
-					})
-				: [messageText(message)],
-		)
+		.flatMap((message) => sentLines(message, calls))
 		.filter((line) => line.length > 0)
 		.join("\n");
+}
+
+/** A message's lines as the model saw them: its text and, when `calls`, its tool calls rendered; never its thinking. */
+export function sentLines(message: HarnessMessage, calls: boolean): string[] {
+	if (message.role !== "assistant" || !Array.isArray(message.content)) return [messageText(message)];
+	return message.content.flatMap((block) => {
+		if (isToolCall(block)) return calls ? [renderToolCall(block)] : [];
+		return block.type === "text" && "text" in block ? [block.text] : [];
+	});
 }

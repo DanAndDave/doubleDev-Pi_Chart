@@ -5,7 +5,7 @@
 ## 2. The Used rule (tdd at `utilisationOf`, design §2–§9)
 
 - [x] 2.1 Write `test/utilisation.test.ts`, with in-code Journal builders, for the units judged: the Call's own Turn is never judged, its earlier results included; Opening and Pin units are dropped; a Pull result is judged as `pull`; a summary is judged as `summary`. Then create `scripts/utilisation.ts` with `utilisationOf`, `DEFAULT_RULE`, `RARE` and the types from design §2, until those tests pass.
-- [x] 2.2 Red, then green, on the next action. A value only in thinking makes nothing Used. The first tool call is the action, ahead of the reply text and of later calls. A reply with neither a tool call nor text is empty. A device call's parsed content is the action. Verify: those tests pass.
+- [x] 2.2 Red, then green, on the next action. A value only in thinking makes nothing Used. The first tool call is the action, ahead of the reply text and of later calls. A reply with neither a tool call nor text has an empty next action: the Call is measured, with nothing Used. A device call's parsed content is the action. Verify: those tests pass.
 - [x] 2.3 Red, then green, on the path signal: an absolute action path matches a relative mention, `src/a.ts` does not match `src/a.tsx`, `.` and the cwd itself never fire, and `edit`, `grep` and `glob` paths are taken as design §6 says. Verify: those tests pass.
 - [x] 2.4 Red, then green, on the copied-span signal through the *s*-gram index (design §7): an 8-token span fires, a 7-token span does not, and `{ s: 6 }` makes the 7-token span fire. Verify: those tests pass.
 - [x] 2.5 Red, then green, on rare identifiers over 60 generated units:

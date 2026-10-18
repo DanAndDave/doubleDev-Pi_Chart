@@ -94,9 +94,9 @@ Without a tool call, the text is the message's `text` blocks joined. Thinking bl
 - **Path:** each path of the target is normalised: the leading `./` and `<cwd>/` are stripped, and an empty path or `.` is skipped. The paths come from:
   - `read` and `write`: the target;
   - `edit`: the target split on newlines;
-  - `grep` and `glob`: the second element of the JSON pair. A glob's pattern is not a path.
+  - `grep` and `glob`: the second element of the JSON pair, split on `;`, each part's line selector dropped. A glob's pattern is not a path, and neither is a `grep` or `glob` path holding a wildcard (`*?[]{}`); a `read`, `write` or `edit` path with brackets is still a path.
 
-  It fires on an occurrence in the unit's text that no `[\w.-]` touches on either side. A `/` may precede it, so an absolute path in a result matches its relative form.
+  It fires on an occurrence in the unit's text that no `[\w.-]` touches on either side, except that a full stop may follow it when no name character follows the full stop, so a sentence may end with a path while `a.ts.bak` stays a longer name. A `/` may precede it, so an absolute path in a result matches its relative form.
 
 ### 7. One index per Run
 
@@ -138,7 +138,7 @@ These are the middle cell of ticket 19's grid, held until calibration.
   - a Run with no judged tokens of a kind gives NaN and reads "—";
   - a `bench.json` without `utilisation` gives NaN.
 
-  The table has no pi-chart / vanilla ratio column, since a ratio of shares invites reading one as more Needed. Both caveats print under the table.
+  The table has no pi-chart / vanilla ratio column, since a ratio of shares invites reading one as more Needed. Under the table print a line saying Utilisation is lexical and uncalibrated, so Used is not Needed, then both caveats.
 - **`gate.ts`:** the row becomes `Utilisation (uncalibrated)`, with each side's median of per-Run shares and one caveat line under the table.
 
 ## Testing seams
@@ -146,7 +146,7 @@ These are the middle cell of ticket 19's grid, held until calibration.
 | Requirement | Seam | Test |
 | --- | --- | --- |
 | The units Utilisation judges | `utilisationOf` on in-code Journals (`test/utilisation.test.ts`) | Units of the Call's own Turn are never judged, including its earlier results. Opening and Pin units are dropped. A Pull result is judged as `pull`. A plain-omp summary is judged as `summary`. |
-| The next action of a Call | `utilisationOf` | A value only in thinking makes nothing Used. The first tool call wins over the reply text and over later calls. A reply with neither a tool call nor text is empty. A device call's content counts as the action. |
+| The next action of a Call | `utilisationOf` | A value only in thinking makes nothing Used. The first tool call wins over the reply text and over later calls. A reply with neither a tool call nor text has an empty next action: the Call is measured, with nothing Used. A device call's content counts as the action. |
 | A unit is Used when a lexical signal fires | `utilisationOf` | One case per signal, each with the others kept silent: an absolute path against a relative mention; `a.ts` not matching `a.tsx`; `.` never firing; an 8-token span fires and a 7-token span does not; two rare items fire. The rare cases are built programmatically over 60 units: one item excluded by the current Turn leaves one, which does not fire; an item in 10 of 60 units does not count; an item in the carried Opening or a Pin does not count. Identical text in two units makes both Used. Each signal also passes a `{ s, k }` other than the default. |
 | Utilisation per Call and per Run | `measureRun` on `test/fixtures/runs/` | `pi-chart-evicted`: Turn-0 Calls are `empty`, Calls with no Accounting are `unknown`, and the Run's sums equal the sums of its measured Calls. `vanilla-compacted`: a post-compaction Call judges a `summary`. A kind with no judged tokens has no share. The token-weighted example (10%, 30% → 25%) runs through `utilisationOf`. |
 | Utilisation is reported raw and uncalibrated; Every Gate leaves a record and a report | smoke | `bun scripts/measures.ts` on `/tmp/ablate-gate2/runs/base-0` and a `/tmp/calib-vanilla` Run. `bun scripts/gate.ts --report /tmp/ablate-gate2` prints both sides with the label. `bench-tokens --report /tmp/calib-vanilla` prints "—" for the old `bench.json`. The same report on a throwaway copy whose Measures were recomputed prints figures, "n/a" for Pull result on vanilla, and both caveats. |

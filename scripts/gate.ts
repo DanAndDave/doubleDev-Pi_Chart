@@ -52,7 +52,7 @@ import { aggregate, BANDS, bandLabel, int, measureRun, median, percent, type Run
 import { buildTree, type Context, flagsOf, loadNamedWorkload, log, type Options, resolveCommit, runOne } from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
 import { PULL_TOOLS } from "./units.ts";
-import { CAVEATS } from "./utilisation.ts";
+import { CAVEATS, share } from "./utilisation.ts";
 import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf, type WorkloadId } from "./workload.ts";
 
 /**
@@ -528,7 +528,7 @@ export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, Ab
 	}
 	row("Needed share", ({ side }) => neededCell(ablation[side]));
 	row("Utilisation (uncalibrated)", ({ runs }) =>
-		percent(middle(runs, (run) => (run.utilisation ? run.utilisation.used / run.utilisation.judged : undefined))),
+		percent(middle(runs, (run) => (run.utilisation ? share(run.utilisation) : undefined))),
 	);
 	console.log(`\n${CAVEATS.join(" ")}`);
 

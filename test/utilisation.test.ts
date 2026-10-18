@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Window } from "../scripts/measures.ts";
+import type { KnownWindow, Window } from "../scripts/measures.ts";
+import { unitsOf } from "../scripts/units.ts";
 import { type CallUtilisation, type Rule, utilisationOf } from "../scripts/utilisation.ts";
 import type { Compaction, JournalTurn, MessageAddress } from "../src/journal.ts";
 import type { HarnessMessage } from "../src/messages.ts";
@@ -34,7 +35,7 @@ function turn(index: number, prompt: string, ...messages: HarnessMessage[]): Jou
 }
 
 /** A window with Turns `tail` verbatim, its first carried message `from` when given. */
-const tail = (current: number, turns: number[], extra: Partial<Exclude<Window, "unknown">> = {}): Window => ({
+const tail = (current: number, turns: number[], extra: Partial<KnownWindow> = {}): KnownWindow => ({
 	pins: [],
 	tail: { turns },
 	current,
@@ -133,33 +134,28 @@ function entries(n: number, notes: Record<number, string> = {}, prompt = "Collec
 }
 
 /** A Call of Turn 1 carrying Turn 0's tool calls from the `first`-th on. */
-const carrying = (first: number, extra: Partial<Exclude<Window, "unknown">> = {}): Window =>
+const carrying = (first: number, extra: Partial<KnownWindow> = {}): KnownWindow =>
 	tail(1, [0], { ...extra, tail: { turns: [0], from: at(0, 2 * first + 1) } });
 
 /**
  * The Utilisation of Turn 1's first Call, whose reply is `next` and whose
- * window carries Turn 0's tool calls; with it, the judged tokens of Turn 0's
- * last tool call alone, which every fixture here makes the one that should be Used.
+ * window carries Turn 0's tool calls; with it, the estimated tokens of Turn
+ * 0's last tool call alone, which every fixture here makes the one that should be Used.
  */
 function judge(
 	zero: JournalTurn,
 	next: HarnessMessage,
-	options: { prompt?: string; rule?: Rule; pins?: Map<number, string>; window?: Partial<Exclude<Window, "unknown">> } = {},
+	options: { prompt?: string; rule?: Rule; pins?: Map<number, string>; window?: Partial<KnownWindow> } = {},
 ): { figure: CallUtilisation; last: number } {
 	const turns = [zero, turn(1, options.prompt ?? "Go on.", next)];
-	const last = (zero.messages.length - 1) / 2 - 1;
-	const { calls } = utilisationOf(
-		turns,
-		[
-			{ address: at(1, 1), window: carrying(0, options.window) },
-			{ address: at(1, 1), window: carrying(last) },
-		],
-		[],
-		options.pins ?? none,
-		CWD,
-		options.rule,
-	);
-	return { figure: measured(calls[0]), last: measured(calls[1]).judged };
+	const pins = options.pins ?? none;
+	const window = carrying(0, options.window);
+	const { calls } = utilisationOf(turns, [{ address: at(1, 1), window }], [], pins, CWD, options.rule);
+	const last = unitsOf(turns, at(1, 1), window, [], pins)
+		.filter((unit) => unit.kind === "tool-call")
+		.at(-1);
+	if (!last) throw new Error("the fixture carries no tool call");
+	return { figure: measured(calls[0]), last: last.tokens };
 }
 
 describe("the next action of a Call", () => {
@@ -248,6 +244,14 @@ describe("the path signal", () => {
 		expect(grepped.figure.used).toBe(grepped.last);
 		expect(globbed.figure.used).toBe(globbed.last);
 		expect(pattern.figure.used).toBe(0);
+	});
+
+	test("a read of a path with brackets fires; a grep's line selector is no part of its path", () => {
+		const routed = judge(mention("rendered app/[slug]/page.tsx"), reading("app/[slug]/page.tsx"));
+		const ranged = judge(mention("lib/util.ts:12: zz"), reply(call("g", "grep", { pattern: "zz", path: "lib/util.ts:10-20" })));
+
+		expect(routed.figure.used).toBe(routed.last);
+		expect(ranged.figure.used).toBe(ranged.last);
 	});
 });
 
