@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { holm, pooledVariance, sampleVariance, studentCdf, studentQuantile, wilson } from "../scripts/stats.ts";
+import { holm, pairedWithinTasks, pooledVariance, sampleVariance, studentCdf, studentQuantile, wilson } from "../scripts/stats.ts";
 
 describe("Student t", () => {
 	test("quantiles match the tabled one-sided critical values", () => {
@@ -69,5 +69,48 @@ describe("Wilson", () => {
 	test("the interval stays inside 0 to 1 at the extremes", () => {
 		expect(wilson(0, 10).lower).toBe(0);
 		expect(wilson(10, 10).upper).toBe(1);
+	});
+});
+
+describe("pairedWithinTasks", () => {
+	test("one task is the ordinary two-sided paired t", () => {
+		const figure = pairedWithinTasks([[0.1, 0.2, 0.3]]);
+		expect(figure).toMatchObject({ pairs: 3, tasks: 1, df: 2 });
+		expect(figure.mean).toBeCloseTo(0.2, 12);
+		expect(figure.se).toBeCloseTo(0.057735, 6);
+		// t(0.975, 2) = 4.302653.
+		expect(figure.lower).toBeCloseTo(0.2 - 0.248414, 5);
+		expect(figure.upper).toBeCloseTo(0.2 + 0.248414, 5);
+	});
+
+	test("tasks weigh the same in the mean and pool their variance", () => {
+		const figure = pairedWithinTasks([
+			[0, 0.2],
+			[1, 1.2],
+		]);
+		expect(figure).toMatchObject({ pairs: 4, tasks: 2, df: 2 });
+		expect(figure.mean).toBeCloseTo(0.6, 12);
+		expect(figure.se).toBeCloseTo(0.070711, 6);
+	});
+
+	test("a task of one pair counts in the mean but adds no degrees of freedom", () => {
+		const figure = pairedWithinTasks([[0.5], [0.1, 0.3]]);
+		expect(figure).toMatchObject({ pairs: 3, tasks: 2, df: 1 });
+		expect(figure.mean).toBeCloseTo(0.35, 12);
+		expect(figure.se).toBeCloseTo(0.086603, 6);
+		expect(figure.lower).toBeDefined();
+	});
+
+	test("tasks of one pair each give a difference with no bounds", () => {
+		const figure = pairedWithinTasks([[0.5], [0.1]]);
+		expect(figure).toMatchObject({ pairs: 2, tasks: 2, df: 0 });
+		expect(figure.mean).toBeCloseTo(0.3, 12);
+		expect(figure.lower).toBeUndefined();
+		expect(figure.upper).toBeUndefined();
+	});
+
+	test("no pairs give no figure", () => {
+		expect(pairedWithinTasks([]).pairs).toBe(0);
+		expect(pairedWithinTasks([[], []]).pairs).toBe(0);
 	});
 });

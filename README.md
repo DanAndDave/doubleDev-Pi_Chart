@@ -318,6 +318,15 @@ Admission runs the candidates in `bench/evocode/subset.json` once each on the pi
 
 The dataset is © its authors, CC BY-NC 4.0 ([licence](https://creativecommons.org/licenses/by-nc/4.0/); its card adds "not intended for model training"). It is fetched at run time from revision `9fcae3e5539d1c0e85e2481fe06bd6af42cc4bc6`, checked against the SHA-256 in `subset.json`, and cached in `~/.cache/pi-chart/evocode/`. Nothing from it is committed: not the tasks, and not the Run records, whose Journals quote task text; `subset.json` keeps only task ids and figures.
 
+`scripts/compare.ts` compares pi-chart with plain omp in three batches of paired Runs, one plain-omp Run and one pi-chart Run started together per pair: the Gate Workload on the reference model until 10 pairs are complete ($80 cap), the same on `anthropic/claude-sonnet-5-5` ($45 cap), and 2 pairs of each admitted EvoCode task ($125 cap). Each batch is its own command into one `--out` folder, refused while `src/` has uncommitted changes or when that batch's folder already exists; a Run off the batch's model, or one that could not be run, stops it. `--ablate` ablates both Runs of the reference batch's 2 lowest-indexed complete pairs. `--report` recomputes every Run's Measures from its record, with no model Call, and writes `docs/benchmarks/<date>-plain-omp-comparison.{md,json}`: Cost per Run, Cost per Pass, Lapses per Run and Retention per distance band as paired differences with two-sided 95% intervals, EvoCode's pooled within its tasks, and no prompt or Journal text.
+
+```sh
+bun scripts/compare.ts --out /tmp/compare --batch reference --workload smoke --pairs 1   # smoke: one pair, named as such in the report
+bun scripts/compare.ts --out /tmp/compare --batch reference        # then --batch second and --batch evocode, into the same --out
+bun scripts/compare.ts --out /tmp/compare --ablate
+bun scripts/compare.ts --out /tmp/compare --report
+```
+
 ## Reaching other conversations
 
 Recall never leaves the current Conversation — that scoping has held since the first slice and still does. When the answer is somewhere else, the agent calls `recall_across_conversations(query, limit?)`, which searches every ingested Conversation within `PICHART_RECALL_MAX_DISTANCE` and returns hits nearest first with the Conversation and Codebase they came from.

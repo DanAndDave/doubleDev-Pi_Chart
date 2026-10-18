@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { journalsIn } from "../scripts/runs.ts";
+import { headerOf, journalsIn } from "../scripts/runs.ts";
 
 let root: string;
 beforeEach(async () => {
@@ -42,5 +42,31 @@ describe("journalsIn", () => {
 
 		expect(await journalsIn(root, "/w/run-1")).toEqual({ subagents: [] });
 		expect(await journalsIn(join(root, "missing"), "/w/run-1")).toEqual({ subagents: [] });
+	});
+});
+
+describe("headerOf", () => {
+	const lines = (entries: object[]) => `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+
+	test("the thinking level is the first thinking_level_change's", async () => {
+		const file = join(root, "a.jsonl");
+		await writeFile(
+			file,
+			lines([
+				{ type: "session", id: "s", cwd: "/w" },
+				{ type: "model_change", model: "anthropic/claude-opus-5-5" },
+				{ type: "thinking_level_change", configured: null, thinkingLevel: "high" },
+				{ type: "thinking_level_change", configured: "low", thinkingLevel: "low" },
+			]),
+		);
+
+		expect(await headerOf(file)).toEqual({ cwd: "/w", id: "s", model: "anthropic/claude-opus-5-5", thinking: "high" });
+	});
+
+	test("a Journal with no thinking_level_change names no thinking level", async () => {
+		const file = join(root, "b.jsonl");
+		await writeFile(file, lines([{ type: "session", id: "s", cwd: "/w" }]));
+
+		expect(await headerOf(file)).toEqual({ cwd: "/w", id: "s" });
 	});
 });

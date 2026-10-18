@@ -591,7 +591,7 @@ export async function runSweep(argv: string[]): Promise<void> {
 				complete: measures.complete,
 				steps: stepsOf(measures),
 			});
-			const off = offModel(runRecord, measures);
+			const off = offModel(runRecord, measures, REFERENCE_MODEL);
 			if (off) throw new Error(`${label} ${off}`);
 			return { cost: measures.cost };
 		});

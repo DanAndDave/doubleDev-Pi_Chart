@@ -346,7 +346,7 @@ function drawLine(draw: Draw): string {
 }
 
 /** Each Arm's PPI Needed share over the Runs in `dirs`, or why it has none, measured under the committed calibration. */
-async function ppiByArm(dirs: string[]): Promise<Map<string, string>> {
+export async function ppiByArm(dirs: string[]): Promise<Map<string, string>> {
 	const calibration = await readCalibration();
 	const records = await Promise.all(dirs.map((dir) => readRecord(dir)));
 	const arms = [...new Set(records.map((record) => record.arm))];

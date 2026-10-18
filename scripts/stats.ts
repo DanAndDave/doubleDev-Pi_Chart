@@ -107,6 +107,42 @@ export function pooledVariance(batches: number[][]): { variance: number; df: num
 	return { variance: df === 0 ? Number.NaN : sum / df, df };
 }
 
+/** A two-sided 95% paired difference pooled within tasks (`pairedWithinTasks`). */
+export interface PairedFigure {
+	pairs: number;
+	/** Tasks with at least one pair. */
+	tasks: number;
+	/** The mean of the task means; NaN with no pair. */
+	mean: number;
+	/** Σ (pairs in a task − 1). */
+	df: number;
+	/** NaN when df is 0. */
+	se: number;
+	/** Absent when df is 0. */
+	lower?: number;
+	upper?: number;
+}
+
+/**
+ * The mean difference over per-task lists of pair differences, each task
+ * weighing the same, with the variance pooled within tasks: s² over
+ * Σ(nₜ − 1) degrees of freedom, SE = √(s² · Σ 1/nₜ) / T over the T tasks
+ * with a pair, and bounds at the two-sided 95% t quantile. A task of one
+ * pair counts in the mean but adds no degrees of freedom.
+ */
+export function pairedWithinTasks(groups: number[][]): PairedFigure {
+	const tasks = groups.filter((group) => group.length > 0);
+	const pairs = tasks.reduce((sum, group) => sum + group.length, 0);
+	if (tasks.length === 0) return { pairs: 0, tasks: 0, mean: Number.NaN, df: 0, se: Number.NaN };
+	const centre = mean(tasks.map(mean));
+	const { variance, df } = pooledVariance(tasks);
+	const se = Math.sqrt(variance * tasks.reduce((sum, group) => sum + 1 / group.length, 0)) / tasks.length;
+	const figure: PairedFigure = { pairs, tasks: tasks.length, mean: centre, df, se };
+	if (df === 0) return figure;
+	const half = studentQuantile(0.975, df) * se;
+	return { ...figure, lower: centre - half, upper: centre + half };
+}
+
 /**
  * Holm's step-down correction at family level `alpha`: which of `pValues`
  * are rejected, in their given order. The i-th smallest is tested at

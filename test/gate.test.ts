@@ -11,13 +11,14 @@ import {
 	keyOf,
 	LOOKS,
 	MARGIN,
+	offModel,
 	type PairFigures,
 	type PairRun,
 	PairStop,
 	pooledBatches,
 	REFERENCE_MODEL,
 } from "../scripts/gate.ts";
-import type { Banded, RevisitScore, RunMeasures } from "../scripts/measures.ts";
+import type { Banded, RevisitScore, RunMeasures, RunRecord } from "../scripts/measures.ts";
 import { studentQuantile } from "../scripts/stats.ts";
 
 const banded = (total: number): Banded => ({ total, bands: [total, 0, 0, 0, 0] });
@@ -63,6 +64,20 @@ describe("gateLapses", () => {
 
 	test("a Run without recall figures counts its other two routes", () => {
 		expect(gateLapses(runMeasures({ left: 4, lapse: 3 }))).toBe(7);
+	});
+});
+
+describe("offModel", () => {
+	const sonnet = "anthropic/claude-sonnet-5-5";
+	const record = { model: sonnet } as RunRecord;
+
+	test("a Run passes under the model its batch asked for, and fails under another", () => {
+		expect(offModel(record, runMeasures({ left: 0, lapse: 0 }), sonnet)).toBeUndefined();
+		expect(offModel(record, runMeasures({ left: 0, lapse: 0 }), REFERENCE_MODEL)).toBe(`ran on ${sonnet}, not ${REFERENCE_MODEL}`);
+	});
+
+	test("a complete Run with no recorded model fails", () => {
+		expect(offModel({} as RunRecord, runMeasures({ left: 0, lapse: 0 }), sonnet)).toBe(`ran on no recorded model, not ${sonnet}`);
 	});
 });
 

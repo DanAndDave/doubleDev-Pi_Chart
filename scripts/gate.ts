@@ -395,13 +395,13 @@ export function gateLapses(measures: RunMeasures): number {
 }
 
 /**
- * Why a Run cannot count for not being on `REFERENCE_MODEL`, or nothing when
- * it is. A complete Run always left a Journal naming its model; a void one
- * may have left none.
+ * Why a Run cannot count for not being on `model`, or nothing when it is. A
+ * complete Run always left a Journal naming its model; a void one may have
+ * left none.
  */
-export function offModel(record: RunRecord, measures: RunMeasures): string | undefined {
-	const off = record.model === undefined ? measures.complete : record.model !== REFERENCE_MODEL;
-	return off ? `ran on ${record.model ?? "no recorded model"}, not ${REFERENCE_MODEL}` : undefined;
+export function offModel(record: RunRecord, measures: RunMeasures, model: string): string | undefined {
+	const off = record.model === undefined ? measures.complete : record.model !== model;
+	return off ? `ran on ${record.model ?? "no recorded model"}, not ${model}` : undefined;
 }
 
 /**
@@ -428,7 +428,7 @@ export function pairRunner(ctx: Context, specOf: (side: Side, index: number) => 
 			}
 			const { record, measures } = result.value;
 			spent += measures.cost;
-			const off = offModel(record, measures);
+			const off = offModel(record, measures, ctx.options.model ?? REFERENCE_MODEL);
 			if (off) stop ??= { message: `${spec.label} ${off}` };
 			outcome[side] = { cost: measures.cost, lapses: gateLapses(measures), complete: measures.complete };
 		}

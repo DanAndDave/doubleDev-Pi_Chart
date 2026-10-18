@@ -162,15 +162,25 @@ async function jsonlUnder(dir: string): Promise<string[]> {
 	return found;
 }
 
-/** The entries of a Journal that name its session and its model. */
-export async function headerOf(file: string): Promise<{ cwd?: string; id?: string; model?: string }> {
-	const header: { cwd?: string; id?: string; model?: string } = {};
+/** What a Journal's header entries say: its session, its first model, and its first thinking level. */
+export interface JournalHeader {
+	cwd?: string;
+	id?: string;
+	model?: string;
+	/** The harness's level when the Run was given none, so the only record of a default one. */
+	thinking?: string;
+}
+
+/** The entries of a Journal that name its session, its model and its thinking level. */
+export async function headerOf(file: string): Promise<JournalHeader> {
+	const header: JournalHeader = {};
 	for (const line of (await readFile(file, "utf8")).split("\n")) {
 		if (!line.trim()) continue;
 		try {
-			const entry = JSON.parse(line) as { type?: string; cwd?: string; id?: string; model?: string };
+			const entry = JSON.parse(line) as { type?: string; cwd?: string; id?: string; model?: string; thinkingLevel?: string };
 			if (entry.type === "session") Object.assign(header, { cwd: entry.cwd, id: entry.id });
 			if (entry.type === "model_change" && header.model === undefined) header.model = entry.model;
+			if (entry.type === "thinking_level_change" && header.thinking === undefined) header.thinking = entry.thinkingLevel;
 		} catch {
 			// A partially flushed final line.
 		}
