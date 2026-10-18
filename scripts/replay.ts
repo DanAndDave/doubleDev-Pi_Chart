@@ -30,7 +30,17 @@ import { readSavedUrl } from "../src/config.ts";
 import { SESSION_ROOT } from "../src/journal.ts";
 import { readRecord, type RunRecord } from "./measures.ts";
 import { CALL_FILE, type CallFile, journalMessages, restoredJournal } from "./replay-ext.ts";
-import { buildTree, createDatabase, dropDatabase, endProcessesIn, flagsOf, loadNamedWorkload, resolveCommit } from "./runs.ts";
+import {
+	buildTree,
+	createDatabase,
+	dropDatabase,
+	endProcessesIn,
+	flagsOf,
+	loadNamedWorkload,
+	ompEnv,
+	piChartExtensions,
+	resolveCommit,
+} from "./runs.ts";
 import { buildWorkspace, installDependencies, run } from "./workload.ts";
 
 const REPLAY_EXT = join(import.meta.dir, "replay-ext.ts");
@@ -146,7 +156,7 @@ export async function replay(options: ReplayOptions): Promise<Replayed> {
 		// ordinal. None of them touches a request body.
 		const overlay = join(out, "omp.yml");
 		await writeFile(overlay, 'providers:\n  cacheWarming: "off"\n');
-		const env: Record<string, string | undefined> = {
+		let env: Record<string, string | undefined> = ompEnv({
 			...process.env,
 			PI_PROXY_ANTHROPIC: DEAD_PROXY,
 			PI_STREAM_FIRST_EVENT_TIMEOUT_MS: String(HOLD_LIMIT_MS),
@@ -160,22 +170,22 @@ export async function replay(options: ReplayOptions): Promise<Replayed> {
 			REPLAY_TODAY: new Date(session.timestamp).toLocaleDateString("en-CA"),
 			...(options.bodies ? { REPLAY_BODIES: "1" } : {}),
 			...(options.plan ? { REPLAY_PLAN: resolve(options.plan) } : {}),
-		};
+		});
 		let extension: string | undefined;
 		if (record.arm === "pi-chart") {
 			const tree = options.tree ?? (await buildTree(commit as string));
 			if (!options.tree) temporary.push(tree);
-			extension = join(tree, "src", "extension.ts");
 			server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
 			if (!server) throw new Error("a pi-chart replay needs a Thread Store server: set PICHART_DATABASE_URL, or run setup");
 			database = `replay_${Date.now()}_${process.pid}`;
-			env.PICHART_DATABASE_URL = await createDatabase(server, database, tree);
+			env = ompEnv(env, await createDatabase(server, database, tree));
+			extension = join(tree, "src", "extension.ts");
 		}
 
 		const original = journalMessages(journal);
 		for (const [turn, prompt] of prompts.entries()) {
 			const args = ["omp", "-p", "--no-title", "--no-extensions", "--config", overlay];
-			if (extension) args.push("-e", extension);
+			if (extension) args.push(...piChartExtensions(extension));
 			args.push("-e", REPLAY_EXT);
 			if (record.model) args.push("--model", record.model);
 			if (record.thinking) args.push("--thinking", record.thinking);

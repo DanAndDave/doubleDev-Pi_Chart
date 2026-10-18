@@ -7,9 +7,11 @@
  * the Workload's bundle, and, for a pi-chart Run, its own Thread Store
  * database, migrated before the first Turn and dropped once its Accounting
  * is exported. A pi-chart Run loads the extension of the pi-chart tree it is
- * given (`<source>/src/extension.ts`) and migrates and exports its database
- * with that tree's `PostgresStore`, so a tree checked out at another commit
- * runs that commit's pi-chart against the schema it expects.
+ * given (`<source>/src/extension.ts`) between `scripts/run-url-set.ts` and
+ * `scripts/run-url-unset.ts`, which keep the Run's database out of the
+ * agent's reach, and migrates and exports that database with the tree's
+ * `PostgresStore`, so a tree checked out at another commit runs that
+ * commit's pi-chart against the schema it expects.
  *
  * Every Turn is one `omp -p` process, the second onwards with `-c`, so a Run
  * is one Conversation. After the last prompt of a graded step, its check is
@@ -31,7 +33,9 @@ import { SESSION_ROOT } from "../src/journal.ts";
 import { readCalibration } from "./calibration.ts";
 import { type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
 import {
+	buildWorkspace,
 	editedFiles,
+	gradedSteps,
 	installDependencies,
 	loadWorkload,
 	REPO,
@@ -45,6 +49,27 @@ import {
 } from "./workload.ts";
 
 const CHECK_TIMEOUT_MS = 120_000;
+
+/**
+ * The `-e` arguments that load the pi-chart extension at `extension` for a
+ * Run or replay: between `scripts/run-url-set.ts` and
+ * `scripts/run-url-unset.ts`, so it reads the database `ompEnv` names and the
+ * agent's tools never see it.
+ */
+export function piChartExtensions(extension: string): string[] {
+	return ["-e", join(import.meta.dir, "run-url-set.ts"), "-e", extension, "-e", join(import.meta.dir, "run-url-unset.ts")];
+}
+
+/**
+ * The environment omp starts with for a Run or replay: `base` without
+ * `PICHART_DATABASE_URL`, which would reach the agent's shells and let a
+ * store test it runs truncate whatever server it names, and with `database`,
+ * for a pi-chart one, where `piChartExtensions` reads it.
+ */
+export function ompEnv(base: Record<string, string | undefined>, database?: string): Record<string, string | undefined> {
+	const { PICHART_DATABASE_URL: _, ...env } = base;
+	return database === undefined ? env : { ...env, BENCH_RUN_DATABASE_URL: database };
+}
 
 export type Arm = "vanilla" | "pi-chart";
 export const ARMS: Arm[] = ["vanilla", "pi-chart"];
@@ -73,6 +98,43 @@ export interface Context {
 	stamp: number;
 }
 
+/**
+ * The Context for Runs of `turns` of `workload`, its workspace template built
+ * and installed once in a new temporary folder that the caller removes: a
+ * Workload whose dependencies do not install stops here, before any Run.
+ */
+export async function buildContext(
+	workload: Workload,
+	turns: Turn[],
+	rest: Omit<Context, "workload" | "turns" | "graded" | "template">,
+): Promise<Context> {
+	const template = await mkdtemp(join(tmpdir(), "pichart-template-"));
+	try {
+		log(`building ${workload.name} v${workload.version} at ${workload.commit.slice(0, 7)}`);
+		await buildWorkspace(workload, template);
+		await installDependencies(template);
+	} catch (error) {
+		await rm(template, { recursive: true, force: true });
+		throw error;
+	}
+	const graded = new Map(gradedSteps(workload, turns.length).map((step) => [step.id, step]));
+	return { ...rest, workload, turns, graded, template };
+}
+
+/** The tunable Budgets: what a Budget sweep may vary, and what a Run's record names when its env sets them. */
+export const BUDGET_VARIABLES = [
+	"PICHART_TAIL_TOKENS",
+	"PICHART_TAIL_TURNS",
+	"PICHART_TAIL_LOW_WATER",
+	"PICHART_OPENING_TOKENS",
+	"PICHART_PINS_TOKENS",
+	"PICHART_RECALL_TOKENS",
+	"PICHART_DOC_TOKENS",
+	"PICHART_GRAPH_TOKENS",
+	"PICHART_PACK_TOKENS",
+] as const;
+export type BudgetVariable = (typeof BUDGET_VARIABLES)[number];
+
 /** One Run: its Arm, its index, its record folder's name, and the pi-chart tree a pi-chart Run loads. */
 export interface RunSpec {
 	arm: Arm;
@@ -83,6 +145,8 @@ export interface RunSpec {
 	source: string;
 	/** The commit `source` holds under `src/`, when it holds one; a pi-chart Run records it as `piChart`. */
 	commit?: string;
+	/** Budget settings for this Run alone, over the shell's: a sweep cell's values. */
+	budgets?: Record<string, string>;
 }
 
 // --------------------------------------------------------------- journal --
@@ -260,6 +324,11 @@ export async function resolveCommit(revision: string): Promise<string> {
 	}
 }
 
+/** Whether this checkout's `src/` is `HEAD`'s: only then does a Run that loads it run `HEAD`'s pi-chart. */
+export function srcIsCommitted(): boolean {
+	return Bun.spawnSync(["git", "-C", REPO, "diff", "--quiet", "HEAD", "--", "src/"]).exitCode === 0;
+}
+
 /**
  * A pi-chart tree of `sha` in a temporary folder: its tracked files without
  * `bench/`, dependencies from its own lockfile, and a store a Run can use.
@@ -303,12 +372,15 @@ export async function endProcessesIn(dir: string): Promise<void> {
 }
 
 export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: RunRecord; measures: RunMeasures }> {
-	const { arm, index, label, source, commit } = spec;
+	const { arm, index, label, source, commit, budgets } = spec;
 	const { workload, turns, options } = ctx;
 	const recordDir = join(ctx.out, "runs", label);
 	await mkdir(recordDir, { recursive: true });
 	const cwd = await mkdtemp(join(tmpdir(), "pichart-bench-"));
 	const bundle = await mkdtemp(join(tmpdir(), "pichart-bundle-"));
+	// The spec's Budgets over the shell's, so a sweep cell's values win.
+	let env: Record<string, string | undefined> = ompEnv({ ...process.env, ...budgets, PICHART_DOC_BUNDLE: bundle });
+	const set = BUDGET_VARIABLES.filter((name) => env[name] !== undefined).map((name) => [name, env[name] as string]);
 	const record: RunRecord = {
 		arm,
 		index,
@@ -319,6 +391,7 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 		revisits: workload.revisits,
 		...(options.thinking ? { thinking: options.thinking } : {}),
 		...(arm === "pi-chart" && commit ? { piChart: commit } : {}),
+		...(arm === "pi-chart" && set.length > 0 ? { budgets: Object.fromEntries(set) } : {}),
 		prompts: turns.map(({ step, text, probes, tools }) => ({ step, text, probes, ...(tools === false ? { tools } : {}) })),
 		checks: [],
 	};
@@ -331,15 +404,14 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 		await run(["cp", "-a", `${ctx.template}/.`, `${cwd}/`]);
 		const bundled = join(workload.dir, "bundle");
 		if (existsSync(bundled)) await run(["cp", "-a", `${bundled}/.`, `${bundle}/`]);
-		const env: Record<string, string | undefined> = { ...process.env, PICHART_DOC_BUNDLE: bundle };
 		if (database) {
 			url = await createDatabase(ctx.server as string, database, source);
-			env.PICHART_DATABASE_URL = url;
+			env = ompEnv(env, url);
 		}
 
 		for (const { turn, text } of turns) {
 			const args = ["omp", "-p", "--no-title", "--no-extensions"];
-			if (arm === "pi-chart") args.push("-e", join(source, "src", "extension.ts"));
+			if (arm === "pi-chart") args.push(...piChartExtensions(join(source, "src", "extension.ts")));
 			if (options.model) args.push("--model", options.model);
 			if (options.thinking) args.push("--thinking", options.thinking);
 			if (turn > 0) args.push("-c");

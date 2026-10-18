@@ -1,0 +1,195 @@
+{
+	"name": "gate-holdout",
+	"version": 1,
+	"commit": "bca71dc1600dcb74fbf41a8123f3cfed89a725b8",
+	"plants": [
+		{
+			"id": "change-request",
+			"value": "KZD-6390"
+		},
+		{
+			"id": "signoff",
+			"value": "fenwick-41",
+			"file": "notes/stewards.md"
+		},
+		{
+			"id": "crawl-quota",
+			"kind": "superseded",
+			"value": "5190",
+			"earlier": "4630",
+			"file": "notes/crawl-next.md",
+			"earlierFile": "notes/crawl.md"
+		},
+		{
+			"id": "milestone",
+			"kind": "superseded",
+			"value": "QUARTZ-7",
+			"earlier": "BASALT-4"
+		},
+		{
+			"id": "fixture-set",
+			"kind": "constraint",
+			"value": "FX-6247"
+		},
+		{
+			"id": "ledger-line",
+			"kind": "constraint",
+			"value": "LGR-4073",
+			"file": "notes/headers.md"
+		}
+	],
+	"revisits": [
+		{
+			"id": "numbering",
+			"file": "notes/numbering.md",
+			"earlier": "sections",
+			"step": "numbering"
+		},
+		{
+			"id": "preview",
+			"file": "notes/preview.md",
+			"earlier": "tags",
+			"step": "render"
+		},
+		{
+			"id": "tags",
+			"file": "notes/tags.md",
+			"earlier": "sections",
+			"step": "tags"
+		},
+		{
+			"id": "layout",
+			"file": "notes/layout.md",
+			"earlier": "numbering",
+			"step": "render"
+		},
+		{
+			"id": "footer",
+			"file": "notes/footer.md",
+			"earlier": "sections",
+			"step": "footer"
+		},
+		{
+			"id": "badges",
+			"file": "notes/badges.md",
+			"earlier": "badges",
+			"step": "footer"
+		}
+	],
+	"steps": [
+		{
+			"id": "badges",
+			"prompts": [
+				"We are building src/concept-card.ts, a small pure module that renders a one-screen card for a doc-store Concept, on top of parseConcept in src/concept.ts. Read notes/badges.md and create src/concept-card.ts exporting `statusBadge(concept: Concept): string` and `trustBadge(concept: Concept): string`, importing the Concept type from src/concept.ts. Each returns the badge its table gives. Only the two badge tables matter for now. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"This work ships under change request KZD-6390. Keep it in mind: I will ask for it later. It belongs in the change tracker, not in the code, so do not write it into any file. Now read src/concept.ts and tell me in three sentences how parseConcept decides a Concept's status, whether it is stale, and its trust. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Make statusBadge and trustBadge throw a TypeError when the Concept is non-conformant (its `conformant` is false). Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/crawl.md: it holds the docs portal's nightly crawl quota, which I will ask about later. It is their setting, not something our code enforces, so do not put it in any file. Then give statusBadge and trustBadge short JSDoc comments. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/stewards.md: it names who signs off this work, whom I will ask about later. Do not write that handle into any file. Then add to src/concept-card.ts `badgesOf(concept: Concept): string[]`: the status badge, then the trust badge, leaving out a badge that is the empty string. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/crawl-next.md: the portal team has changed the crawl quota. Again, it is not for the code. Then create src/concept-card.test.ts with tests for statusBadge (every status, fresh and stale), trustBadge (every trust tier), badgesOf and the TypeError, building each Concept from a Markdown string with parseConcept. Run `bun test src/concept-card.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents."
+			]
+		},
+		{
+			"id": "sections",
+			"prompts": [
+				"Read src/sections.ts. In two sentences: where does splitConcept cut a Concept's body, and what happens to a piece shorter than 40 characters? Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/footer.md now: it lays out the card footer we will build at the very end. There is nothing to code from it yet, so just confirm you have read it, in one sentence, without restating it. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Add to src/concept-card.ts `cardSections(concept: Concept): { heading: string | null; text: string }[]`, using splitConcept from src/sections.ts: one entry per section splitConcept returns, in order. `text` is the section's own part of the body: the section's text without the title and summary splitConcept puts in front of it. `heading` is that part's first line without its leading `#` marks and the spaces after them, or null when the part does not start with a heading. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/tags.md too: the tag step later on needs it. There is nothing to code from it yet. Meanwhile, give cardSections a JSDoc comment that explains what `text` holds when splitConcept has joined a short piece onto the section before it. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"A house rule for test files: every new test file you create from now on must begin with the line `// fixture-set: FX-6247`. Do not add that line to test files that already exist. Now tell me in two sentences what splitConcept returns for a Concept whose frontmatter has no cm_identity, and why. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/numbering.md: it shows the numbering we will build next. There is nothing to code from it yet. Then add tests for cardSections to src/concept-card.test.ts, building the Concept with parseConcept from a Markdown string that has a cm_identity, a title, a description, a preamble, a `#` heading, a short `# Status` piece and a `##` heading. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Make cardSections throw a TypeError for a non-conformant Concept, as the badge functions do, and add a test for it to src/concept-card.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Finish cardSections and run `bun test src/concept-card.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents."
+			]
+		},
+		{
+			"id": "numbering",
+			"prompts": [
+				"Add `numberedHeadings(concept: Concept): string[]` to src/concept-card.ts: one label per entry of cardSections, numbered as notes/numbering.md says. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				{
+					"text": "Who signs off the concept-card work? Reply with just their handle, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+					"probes": [
+						"signoff"
+					]
+				},
+				"Read notes/layout.md: the card we render later follows it. There is nothing to code from it yet. Then add tests for numberedHeadings to src/concept-card.test.ts, including a Concept with no preamble and one with more than ten headed sections. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read src/sections.ts again and tell me in two sentences whether numberedHeadings can ever show a `# Status` heading, and why. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Finish numberedHeadings and run `bun test src/concept-card.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents."
+			]
+		},
+		{
+			"id": "tags",
+			"prompts": [
+				{
+					"text": "Add `rankedTags(concept: Concept): { tag: string; weight: number }[]` to src/concept-card.ts: the Concept's tags, weighted and ordered as notes/tags.md says. Create a new test file, src/concept-tags.test.ts, with tests for rankedTags.",
+					"probes": [
+						"fixture-set"
+					]
+				},
+				"The milestone name is BASALT-4. I will ask for it later. It is for the release board, not the code, so do not write it into any file. Now read src/concept.ts again and tell me in one sentence what parseConcept does with a tag that is not a string. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"The milestone has been renamed: it is now QUARTZ-7, replacing the one I gave you before. The same rule applies: not in any file. Now make rankedTags leave out a tag that is empty or only whitespace, and add a test for that to src/concept-tags.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Check src/concept-card.ts for unused imports and dead code, and remove any you find. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/preview.md and add `tagPreview(concept: Concept): string` to src/concept-card.ts, following its tag-preview rule. Its body-preview rule is for later. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				{
+					"text": "What is the current milestone name? Reply with just the name, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+					"probes": [
+						"milestone"
+					]
+				},
+				"Add tests for tagPreview to src/concept-tags.test.ts: more than three tags, exactly three, and none. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Finish rankedTags and tagPreview and run `bun test src/concept-tags.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents."
+			]
+		},
+		{
+			"id": "render",
+			"prompts": [
+				"Add to src/concept-card.ts `bodyPreview(concept: Concept): string`, following notes/preview.md's body-preview rule, and `headerLine(concept: Concept): string`, following the header-line rule of notes/layout.md. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read notes/headers.md: it applies to files you create from now on, not to existing ones. Then add tests for bodyPreview and headerLine to src/concept-card.test.ts. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				{
+					"text": "Which change request does this work ship under? Reply with just its id, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+					"probes": [
+						"change-request"
+					]
+				},
+				{
+					"text": "Create src/concept-card-render.ts exporting `renderCard(concept: Concept): string[]`: the card's lines, laid out as notes/layout.md says, using the functions of src/concept-card.ts.",
+					"probes": [
+						"ledger-line"
+					]
+				},
+				{
+					"text": "What is the docs portal's nightly crawl quota now? Reply with just the number, or UNKNOWN if you do not know. Do not modify any files and do not spawn subagents.",
+					"probes": [
+						"crawl-quota"
+					]
+				},
+				"Finish renderCard, add tests for it to src/concept-card.test.ts rather than a new file, and run `bun test src/concept-card.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents."
+			]
+		},
+		{
+			"id": "footer",
+			"prompts": [
+				"Add `cardFooter(concept: Concept): string` to src/concept-card.ts: the footer line laid out as notes/footer.md says, ending with the marks that notes/badges.md gives. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Make cardFooter throw a TypeError for a non-conformant Concept, as the other functions do. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Read src/concept-card-render.ts and src/concept-card.ts and tell me in three sentences whether anything is duplicated between them. Do not change any code. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Add to src/concept-card-render.ts `cardLines(concept: Concept): string[]`: renderCard's lines with the footer line inserted just before the bottom rule. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Add tests for cardFooter and cardLines to src/concept-card.test.ts, including a Concept with no generated provenance and no sources. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents.",
+				"Finish cardFooter and cardLines and run `bun test src/concept-card.test.ts` until it passes. Then stop. Read a file under notes/ only when this prompt names it. Do not modify anything under notes/ and do not spawn subagents."
+			]
+		},
+		{
+			"id": "recap",
+			"prompts": [
+				{
+					"text": "Answer from memory: the change request this work ships under, the handle of who signs off the concept-card work, the docs portal's nightly crawl quota now, and the current milestone name. One per line, in that order, as `name: value`, with UNKNOWN for any you do not know. Do not use any tools.",
+					"probes": [
+						"change-request",
+						"signoff",
+						"crawl-quota",
+						"milestone"
+					],
+					"tools": false
+				}
+			]
+		}
+	]
+}

@@ -7,14 +7,16 @@
  * - **vanilla**: `omp --no-extensions`, the harness's accumulate-forward window.
  * - **pi-chart**: `omp --no-extensions -e src/extension.ts`, this checkout's
  *   extension alone, so the only difference between the Arms is pi-chart.
+ *   `scripts/run-url-set.ts` and `run-url-unset.ts` load either side of it,
+ *   to keep the Run's database out of the agent's shell.
  *
  * Every Run starts from the same bytes: the Workload's pinned commit without
  * `bench/`, its overlay, its frozen `graphify-out/`, and dependencies
  * installed from the workspace's own lockfile. That tree is built once per
  * benchmark and copied into each Run's workspace (about 1 GB under $TMPDIR
  * per Run in flight). The user's own database and bundle are never touched;
- * every other `PICHART_*` setting in the environment reaches both Arms,
- * which is how a Budget sweep sets its cells. How a Run goes, Turn by Turn,
+ * every other `PICHART_*` setting in the environment reaches both Arms, and
+ * a pi-chart Run's record names any tunable Budget it set. How a Run goes, Turn by Turn,
  * with its own bundle and Thread Store database, is `scripts/runs.ts`,
  * which the Gate (`scripts/gate.ts`) shares. Prompts are sent exactly as
  * the Workload states them.
@@ -29,6 +31,9 @@
  *     bun scripts/bench-tokens.ts --runs 5 --parallel 4 --model sonnet
  *     bun scripts/bench-tokens.ts --workload ./my-workload --arm pi-chart
  *     bun scripts/bench-tokens.ts --report /tmp/pichart-bench-1789…   # re-print
+ *     bun scripts/bench-tokens.ts --sweep grid.json        # a Budget sweep: scripts/sweep.ts
+ *
+ * `--report <dir>` re-prints a sweep from `<dir>/sweep.json` when there is one.
  *
  * `--workload` takes a name under `bench/workloads/`, or a path (anything
  * with a `/`). `--turns N` sends the first N prompts; a step cut short is not
@@ -39,7 +44,8 @@
  * Not counted: anything charged outside the provider's `usage`, such as the
  * local embedder.
  */
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -69,8 +75,9 @@ import {
 } from "./measures.ts";
 import { PULL_TOOLS } from "./units.ts";
 import { armHolds, CAVEATS, JUDGED_KINDS, KIND_LABEL, share, type Tally as UsedTally, utilisationLabel } from "./utilisation.ts";
-import { type Arm, ARMS, type Context, flagsOf, loadNamedWorkload, log, type Options, pool, runOne } from "./runs.ts";
-import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf } from "./workload.ts";
+import { type Arm, ARMS, buildContext, flagsOf, loadNamedWorkload, log, type Options, pool, runOne, srcIsCommitted } from "./runs.ts";
+import { runSweep, sweepReport } from "./sweep.ts";
+import { REPO, run, turnsOf } from "./workload.ts";
 
 /** `bench.json`. */
 interface Bench {
@@ -393,7 +400,11 @@ function report(bench: Bench): void {
 // ------------------------------------------------------------------ main --
 
 const reportFrom = flag("--report");
-if (reportFrom) {
+if (flag("--sweep")) {
+	await runSweep(process.argv.slice(2));
+} else if (reportFrom && existsSync(join(reportFrom, "sweep.json"))) {
+	process.stdout.write(await sweepReport(reportFrom));
+} else if (reportFrom) {
 	report(JSON.parse(await readFile(join(reportFrom, "bench.json"), "utf8")) as Bench);
 } else {
 	const workload = await loadNamedWorkload(flag("--workload") ?? "read-only-40");
@@ -422,28 +433,17 @@ if (reportFrom) {
 		omp: (await run(["omp", "--version"])).trim(),
 	};
 	// A pi-chart Run names the commit it loaded only when this checkout's `src/` is that commit's.
-	const clean = Bun.spawnSync(["git", "-C", REPO, "diff", "--quiet", "HEAD", "--", "src/"]).exitCode === 0;
-	const commit = clean ? (await run(["git", "-C", REPO, "rev-parse", "HEAD"])).trim() : undefined;
+	const commit = srcIsCommitted() ? (await run(["git", "-C", REPO, "rev-parse", "HEAD"])).trim() : undefined;
 
-	// Built and installed once, before any Run: a Workload whose dependencies
-	// do not install stops the benchmark here, and every Run copies the same tree.
-	const template = await mkdtemp(join(tmpdir(), "pichart-template-"));
+	// Every Run copies the same template, built once.
+	const ctx = await buildContext(workload, turns, {
+		server,
+		out,
+		options,
+		timeoutMs: positive("--turn-timeout", 600) * 1000,
+		stamp,
+	});
 	try {
-		log(`building ${workload.name} v${workload.version} at ${workload.commit.slice(0, 7)}`);
-		await buildWorkspace(workload, template);
-		await installDependencies(template);
-
-		const ctx: Context = {
-			workload,
-			turns,
-			graded: new Map(gradedSteps(workload, turns.length).map((step) => [step.id, step])),
-			template,
-			server,
-			out,
-			options,
-			timeoutMs: positive("--turn-timeout", 600) * 1000,
-			stamp,
-		};
 		// Interleave the Arms so drift over the session (provider load, cache
 		// state) falls on both alike.
 		const jobs = Array.from({ length: runs }, (_, index) =>
@@ -455,6 +455,6 @@ if (reportFrom) {
 		log(`record: ${out}`);
 		report(bench);
 	} finally {
-		await rm(template, { recursive: true, force: true });
+		await rm(ctx.template, { recursive: true, force: true });
 	}
 }

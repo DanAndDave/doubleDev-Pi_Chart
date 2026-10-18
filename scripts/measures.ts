@@ -91,6 +91,8 @@ export interface RunRecord {
 	sessionId?: string;
 	/** The pi-chart commit a pi-chart Run loaded; absent when its tree did not match a commit under `src/`. */
 	piChart?: string;
+	/** Every tunable Budget variable a pi-chart Run's env set, from its spec or the shell; absent when it set none. */
+	budgets?: Record<string, string>;
 	/** As declared; one recorded before Plants had kinds has none, and is a literal. */
 	plants: (Omit<Plant, "kind"> & { kind?: PlantKind })[];
 	/** Every prompt the Run was to send, in Turn order. */

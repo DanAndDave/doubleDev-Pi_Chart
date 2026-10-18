@@ -15,7 +15,7 @@ Each Run SHALL leave a record folder holding:
 - the first Turn that failed to complete, if any;
 - copies of the Run's main and subagent Journals;
 - for a pi-chart Run, the Accounting of every Call.
-- every tunable Budget variable in the Run's environment, with its value, whether it came from the Run's spec or from the environment the benchmark was started in.
+- for a pi-chart Run, every tunable Budget variable in the Run's environment, with its value, whether it came from the Run's spec or from the environment the benchmark was started in.
 
 A Turn that fails to complete SHALL end the Run, and the record SHALL still be written.
 
@@ -64,3 +64,28 @@ A Turn that fails to complete SHALL end the Run, and the record SHALL still be w
 
 - **WHEN** a benchmark is started with no tunable Budget variable set and its Run ends
 - **THEN** its record SHALL name no Budget variable
+
+### Requirement: Runs are isolated from each other and from the user's stores
+
+Each pi-chart Run SHALL use its own Thread Store database, created and migrated before the Run's first Turn and dropped only after the Run's Accounting has been written to its record. Each Run SHALL use its own copy of the Workload's `bundle/` folder as the doc bundle, empty when the Workload has none. No Run SHALL read or write the user's own Thread Store database or bundle. The address of a Run's Thread Store database SHALL reach pi-chart alone: no command the agent runs SHALL find it in its environment.
+
+#### Scenario: A pi-chart Run's store is migrated before it starts
+
+- **WHEN** a pi-chart Run starts
+- **THEN** its Thread Store database SHALL already be migrated when the first Turn's first Call is made
+
+#### Scenario: A Run's store is dropped after its Accounting is kept
+
+- **WHEN** a pi-chart Run ends, whether or not every Turn completed
+- **THEN** its record SHALL hold the Accounting of every Call the Run made
+- **AND** its Thread Store database SHALL no longer exist
+
+#### Scenario: Bundle writes stay inside the Run
+
+- **WHEN** a Run's Conversation writes a Concept to the doc bundle
+- **THEN** the Workload's `bundle/` folder and the user's bundle SHALL be unchanged
+
+#### Scenario: The agent's store tests cannot reach the Run's store
+
+- **WHEN** a pi-chart Run's agent runs pi-chart's own store tests, which truncate the database `PICHART_DATABASE_URL` names
+- **THEN** the Run's Thread Store database SHALL be untouched, and its record SHALL hold the Accounting of every Call the Run made

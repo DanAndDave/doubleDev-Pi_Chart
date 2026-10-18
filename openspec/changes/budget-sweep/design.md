@@ -74,15 +74,16 @@ The cells are the cartesian product, in the order the file lists the Budgets. Ea
 
 ### 4. The screen: rounds, pairs, a capped scheduler
 
-- Jobs are queued round-major. Round *r* lists the cells rotated left by *r*, so start-order and drift effects are spread across cells.
-- A small `runCapped({ jobs, width, cap })` in `sweep.ts` starts a job only while spend is below the cap, and adds each finished Run's cost. It returns every outcome and whether the cap stopped it. `pool` stays uncapped for bench-tokens.
+- Jobs are queued round-major. Round *r* lists the cells rotated right by *r*, so the cell first in one round is second in the next, and start-order and drift effects are spread across cells.
+- A small `runCapped({ jobs, width, cap })` in `sweep.ts` starts a job only while spend is below the cap, and adds each finished Run's cost. It returns whether the cap left some job unstarted; the screen's spend is summed from the Runs it recorded. `pool` stays uncapped for bench-tokens.
   - Alternative considered: reusing `gatherPairs`. It was rejected because it counts pairs toward a "want" and replaces voids, and the screen does neither.
 - A Run that throws, or records a model other than `REFERENCE_MODEL`, stops the screen as the Gate does. Runs in flight finish, and the sweep writes `sweep.json` with `stopped` and adds nothing to the pool.
 - The comparison of cell *a* against cell *b* uses `PairFigures`, `{ base: b, candidate: a }`, from each round where both Runs completed. That way `costDiff` and `lapseDiff` read as *a* − *b*.
 
 ### 5. The Gate's statistics, exported and given a margin
 
-- `measureTest`, `costDiff` and `lapseDiff` are exported from `gate.ts` unchanged.
+- `measureTest`, `costDiff` and `lapseDiff` are exported from `gate.ts` unchanged. So are the pieces the sweep shares with the Gate's `main`: `pairRunner` (one pair's two Runs, started in alternating order), `offModel` (the Gate's model check), `referenceOptions` (a Run's Options under `REFERENCE_MODEL`), the pool's `POOL`, `readPool`, `appendToPool` and `completePairs`, and the report's `describeKey`, `fixed`, `pValue` and `lookTable`.
+- `scripts/runs.ts` gains `buildContext` (the workspace template built once, and the Context its Runs share) and `srcIsCommitted`, and `scripts/workload.ts` gains `isHeldOut`. bench-tokens, the Gate and the sweep use these, not copies of them.
 - `decide` gains a required `margin`. The Gate passes `MARGIN` (1.1) and confirm passes 1. `Decision.nonInferior` keeps its name and its doc comment gains "at `margin`": at a margin of 1, non-inferior means cheaper. A rename would need a read shim for every `gate.json` already written.
 - `measureTest` is used in two ways:
   - **Lapse eligibility:** `measureTest(lapseDiffs, storedLapseDiffs, 0.05)`. The cell is rejected when `p ≤ 0.05`. The test is per cell, with no correction across cells. More cells ruled out only moves the pick toward the default, which is the conservative direction.
@@ -105,7 +106,7 @@ A collapse compares Pass counts over complete Runs, cell against default: the ce
 
 ### 7. Confirm reuses the Gate's loop with a margin of 1
 
-- `confirm({ winner, default, ctx, history, key, width, runPair })` runs the Gate's two looks: `gatherPairs` with `LOOKS[look].pairs` and `.cap`, then `decide({ …, margin: 1 })`. `runPair` is injected, as in `gatherPairs`, so the loop is tested without Runs.
+- `confirm({ winner, defaultCell, history, key, width, runPair })` runs the Gate's two looks: `gatherPairs` with `LOOKS[look].pairs` and `CONFIRM_CAPS[look]`, then `decide({ …, margin: 1 })`. `runPair` is injected, as in `gatherPairs`, so the loop is tested without Runs.
   - Base is the default cell and candidate is the winner. Labels are `confirm-base-<i>` and `confirm-candidate-<i>`, and start order alternates by index.
 - The outcome follows from the verdict:
   - `pass` gives **adopt**;
@@ -142,7 +143,7 @@ Only then are the two templates built: the screen's now, the held-out one only w
   - **Spend**;
   - **Method**: commit, grid JSON, both keys, the command.
 - Per-cell Retention, Utilisation and Re-fetches come from `aggregate()` over each cell's complete Runs, re-measured from the records with the committed calibration, the way `gate.ts --report` does.
-- At the end of a sweep, the same text is written to `docs/benchmarks/<YYYY-MM-DD>-<slug>.md`, and `sweep.json` is copied to `<YYYY-MM-DD>-<slug>.json`. Neither file is overwritten if it exists: the sweep then names both paths and leaves them alone.
+- At the end of a sweep with an outcome, the same text is written to `docs/benchmarks/<YYYY-MM-DD>-<slug>.md`, and `sweep.json` is copied to `<YYYY-MM-DD>-<slug>.json`. Neither file is overwritten if it exists: the sweep then names both paths and leaves them alone. A sweep stopped by a Run writes only `<out>/sweep.json`, whose report `--report` still prints.
 - `bench-tokens --report <dir>` prints the report to stdout and writes nothing.
 
 ### 11. The held-out Workload `gate-holdout` v1
@@ -154,10 +155,20 @@ The Gate Workload's design decisions 1–6 carry over, with these differences:
 - **Bands:** the same three bands as the Gate Workload, with the same count of Plants and Revisits per band. The Turns differ wherever the theme allows.
 - **Values** are fictional and disjoint from every Gate Workload value, so no answer carries over between the two.
 - **Commit:** `HEAD` when the draft is written.
-- **Probe:** two pi-chart Runs and one plain-omp Run with `bench-tokens --workload gate-holdout`, judged as in the Gate Workload's decision 6. The cost target is a mean of at most $4.50 per pi-chart Run, so 20 confirm Runs fit the $90 cap. Probe spend stops at $30 for the user.
+- **Probe:** two pi-chart Runs and one plain-omp Run with `bench-tokens --workload gate-holdout`, judged as in the Gate Workload's decision 6. The cost target was a mean of at most $4.50 per pi-chart Run, so 20 confirm Runs fit the Gate's $90 cap. Probe spend stops at $30 for the user. The clean probe cost $6.80 (`gate`'s own A/A Runs average $4.57, so the target was tight), driven by pi-chart's recall Pulls in Turns 30–38. The user chose to keep the Workload and give confirm its own caps, `CONFIRM_CAPS` $70 and $140, rather than reshape the held-out Workload around pi-chart's recall cost or confirm on about 13 Runs.
 - **The user reviews the draft before any Run,** as with the Gate Workload.
 
 Alternative considered: a second version of `gate` with shuffled values. It was rejected because shared notes and shared code would fit a winner to the same work, which defeats the purpose of holding a Workload out.
+
+### 12. A Run's Thread Store reaches pi-chart alone
+
+`gate-holdout`'s agent works on pi-chart's own source, so it runs pi-chart's tests, and the store tests truncate whatever database `PICHART_DATABASE_URL` names. `runOne` gave that variable to omp, and so to every shell the agent opened: the first probes truncated their own Run's database mid-Run.
+
+- `runOne` and `scripts/replay.ts` start omp with `ompEnv(env, database)`: the environment without `PICHART_DATABASE_URL`, and with the Run's database as `BENCH_RUN_DATABASE_URL`, which nothing in pi-chart reads.
+- `piChartExtensions(extension)` loads `scripts/run-url-set.ts` before the extension and `scripts/run-url-unset.ts` after it. omp calls extension factories in `-e` order, so the first sets `PICHART_DATABASE_URL` for pi-chart's factory, which reads it once, and the second removes it before any tool runs.
+- The variable is `BENCH_*`, not `PICHART_*`: every `PICHART_*` variable is a user setting, and this one is internal to the benchmark.
+
+Alternative considered: a Workload rule forbidding the store tests. It was rejected because any Workload over pi-chart's source could hand the URL to a command the agent chose, and only the environment closes that route.
 
 ## Risks / Trade-offs
 

@@ -11,6 +11,15 @@ import { join, resolve } from "node:path";
 export const REPO = resolve(import.meta.dir, "..");
 export const WORKLOADS = join(REPO, "bench", "workloads");
 
+/**
+ * Whether `name`, a Workload's name or a path to its folder, names a
+ * held-out Workload: one whose name ends in `-holdout`, which only A/A and a
+ * Budget sweep's confirm run.
+ */
+export function isHeldOut(name: string): boolean {
+	return name.replace(/\/+$/, "").endsWith("-holdout");
+}
+
 const CHECK_SUFFIX = ".check.ts";
 
 /**

@@ -215,3 +215,23 @@ _Avoid_: trial, session, attempt
 **Gate**:
 The check a change to pi-chart passes before it is archived: Runs of the change paired with Runs of the commit before it, ending in pass, fail or inconclusive.
 _Avoid_: regression test, CI, baseline run
+
+**Sweep**:
+A search over Budget settings for a cheaper default: a screen on the Gate's Workload, then a confirm of its winner on the held-out Workload. The default changes only when the winner is shown cheaper there without more Lapses.
+_Avoid_: grid search, tuning run, parameter scan
+
+**Cell**:
+One combination of Budget settings a sweep tries; the default is one of them.
+_Avoid_: config, variant, arm
+
+**Screen**:
+The sweep's first stage: every cell run alike on the Gate's Workload, to pick the cheapest cell that forgets no more than the default and on which no graded step collapses.
+_Avoid_: pre-test, trial round
+
+**Confirm**:
+The sweep's second stage: the screen's winner paired against the default on the held-out Workload under the Gate's looks, adopted only when shown cheaper there with no more Lapses.
+_Avoid_: validation run, re-test
+
+**Held-out Workload**:
+A Workload no sweep tunes on, kept to confirm that a screen's winner holds beyond the Workload it was picked on.
+_Avoid_: test set, validation Workload

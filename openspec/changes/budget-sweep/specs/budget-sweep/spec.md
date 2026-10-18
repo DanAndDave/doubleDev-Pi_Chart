@@ -11,6 +11,7 @@ A sweep SHALL read a grid file naming a slug and, for each swept Budget, its `PI
 - `PICHART_OPENING_TOKENS`, `PICHART_PINS_TOKENS`, `PICHART_RECALL_TOKENS`, `PICHART_DOC_TOKENS`, `PICHART_GRAPH_TOKENS` and `PICHART_PACK_TOKENS`.
 
 The cells SHALL be every combination of the swept values. Before any Run, the sweep SHALL refuse the grid, naming each problem, when:
+- its slug is missing, or holds anything but lowercase letters, digits and hyphens;
 - it sweeps no Budget, or more than two;
 - it names a variable outside that list;
 - it gives more than 9 cells;
@@ -109,7 +110,7 @@ The best cell SHALL be the eligible cell with the lowest geometric-mean Cost per
 
 ### Requirement: The winner is confirmed on the held-out Workload
 
-When the winner is not the default, the sweep SHALL confirm it on the held-out Workload. Each pair SHALL be one Run of the default cell and one Run of the winner, started together, with the start order alternating. It SHALL use the Gate's two looks, levels, Holm's correction, Lapse count and caps ($45 before the first look, $90 in total). Variance SHALL be pooled under the held-out key. The cost test SHALL use a margin of 1: the winner is cheaper when exp(*d̄* + *c* · SE) < 1. The confirm outcome SHALL be:
+When the winner is not the default, the sweep SHALL confirm it on the held-out Workload. Each pair SHALL be one Run of the default cell and one Run of the winner, started together, with the start order alternating. It SHALL use the Gate's two looks, levels, Holm's correction and Lapse count, with caps of $70 before the first look and $140 in total. Variance SHALL be pooled under the held-out key. The cost test SHALL use a margin of 1: the winner is cheaper when exp(*d̄* + *c* · SE) < 1. The confirm outcome SHALL be:
 - **adopt**, when at a look neither fail test is rejected and the winner is cheaper;
 - **keep the default**, when either fail test is rejected, or when the second look or the cap leaves it undecided. The reason SHALL be stated.
 
@@ -130,9 +131,9 @@ When the winner is the default, no confirm SHALL run and the outcome SHALL be ke
 - **WHEN** the screen's winner is the default
 - **THEN** no held-out Run SHALL start, and the outcome SHALL be keep the default
 
-### Requirement: A sweep's spend is capped at $210
+### Requirement: A sweep's spend is capped at $260
 
-A sweep's spend SHALL be the sum of Cost per Run over every Run it started, void ones included. The screen's cap SHALL be $120. The confirm's caps SHALL be those of the Gate's looks, $45 and $90, counted over confirm Runs alone. The report SHALL state each stage's spend against its cap, and that spend may exceed a cap by the Runs already running when the cap was reached.
+A sweep's spend SHALL be the sum of Cost per Run over every Run it started, void ones included. The screen's cap SHALL be $120. The confirm's caps SHALL be $70 at its first look and $140 at its second, counted over confirm Runs alone. The report SHALL state each stage's spend against its cap, and that spend may exceed a cap by the Runs already running when the cap was reached.
 
 #### Scenario: The screen stops at its cap
 
@@ -146,9 +147,10 @@ Every sweep SHALL write to its output folder each Run's record, under `runs/`, a
 - every cell with its Budgets;
 - every Run with its cell, round, Cost per Run, Lapses per Run, completeness and step outcomes;
 - the screen's spend, each cell's eligibility with its reasons and tests, the best cell, the tied cells and the winner;
-- when confirm ran, every pair, each look's figures, the spend and the outcome.
+- when confirm ran, every pair, each look's figures, the spend and the outcome;
+- when a Run threw or recorded another model, why the sweep stopped.
 
-When the sweep ends, it SHALL write the report to `docs/benchmarks/<date>-<slug>.md` and `sweep.json` beside it as `<date>-<slug>.json`. The report SHALL give:
+When the sweep ends with an outcome, it SHALL write the report to `docs/benchmarks/<date>-<slug>.md` and `sweep.json` beside it as `<date>-<slug>.json`. A sweep stopped by a Run SHALL write neither, and SHALL add nothing to the pool. The report SHALL give:
 - the outcome and the winner;
 - a table of every cell with its geometric-mean Cost per Run, Lapses per Run, Pass per step, Retention, median Utilisation per Run labelled with its calibration, and Re-fetches held, left and unknown;
 - the rule as applied, with each cell's eligibility and reasons, its Lapse test, and its tie interval against the best;

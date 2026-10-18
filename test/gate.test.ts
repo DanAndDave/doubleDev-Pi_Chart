@@ -10,6 +10,7 @@ import {
 	isComplete,
 	keyOf,
 	LOOKS,
+	MARGIN,
 	type PairFigures,
 	type PairRun,
 	PairStop,
@@ -118,7 +119,7 @@ describe("decide", () => {
 	const sdForBound = (bound: number, look: number, n: number) => Math.log(bound) / critical(look, n) / se(1, n);
 
 	test("a clear pass stops at the first look", () => {
-		const decision = decide({ look: 0, pairs: constant(5, 0, 0), history: [aa(sdForBound(1.06, 0, 5), 2)], key: KEY });
+		const decision = decide({ look: 0, pairs: constant(5, 0, 0), history: [aa(sdForBound(1.06, 0, 5), 2)], key: KEY, margin: MARGIN });
 
 		expect(decision.cost.ratioUpper).toBeCloseTo(1.06, 6);
 		expect(decision.nonInferior).toBe(true);
@@ -126,14 +127,14 @@ describe("decide", () => {
 	});
 
 	test("a first look that neither passes nor fails goes on to the second", () => {
-		const decision = decide({ look: 0, pairs: constant(5, 0, 0), history: [aa(sdForBound(1.14, 0, 5), 2)], key: KEY });
+		const decision = decide({ look: 0, pairs: constant(5, 0, 0), history: [aa(sdForBound(1.14, 0, 5), 2)], key: KEY, margin: MARGIN });
 
 		expect(decision.cost.ratioUpper).toBeCloseTo(1.14, 6);
 		expect(decision.verdict).toBe("continue");
 	});
 
 	test("undecided after both looks is inconclusive", () => {
-		const decision = decide({ look: 1, pairs: constant(10, 0, 0), history: [aa(sdForBound(1.14, 1, 10), 2)], key: KEY });
+		const decision = decide({ look: 1, pairs: constant(10, 0, 0), history: [aa(sdForBound(1.14, 1, 10), 2)], key: KEY, margin: MARGIN });
 
 		expect(decision.cost.df).toBe(13);
 		expect(decision.cost.ratioUpper).toBeCloseTo(1.14, 6);
@@ -141,7 +142,7 @@ describe("decide", () => {
 	});
 
 	test("a Lapse rise fails a change whose Cost is non-inferior", () => {
-		const decision = decide({ look: 0, pairs: constant(5, 0, 5), history: [aa(sdForBound(1.06, 0, 5), 1)], key: KEY });
+		const decision = decide({ look: 0, pairs: constant(5, 0, 5), history: [aa(sdForBound(1.06, 0, 5), 1)], key: KEY, margin: MARGIN });
 
 		expect(decision.nonInferior).toBe(true);
 		expect(decision.lapses.rejected).toBe(true);
@@ -150,7 +151,7 @@ describe("decide", () => {
 	});
 
 	test("a clear Cost rise fails", () => {
-		const decision = decide({ look: 0, pairs: constant(5, Math.log(1.3), 0), history: [aa(0.02, 2)], key: KEY });
+		const decision = decide({ look: 0, pairs: constant(5, Math.log(1.3), 0), history: [aa(0.02, 2)], key: KEY, margin: MARGIN });
 
 		expect(decision.cost.rejected).toBe(true);
 		expect(decision.cost.ratio).toBeCloseTo(1.3, 10);
@@ -166,6 +167,7 @@ describe("decide", () => {
 			pairs: constant(10, at(0.03) * se(cost, 10), at(0.04) * se(lapses, 10)),
 			history: [aa(cost, lapses)],
 			key: KEY,
+			margin: MARGIN,
 		});
 
 		expect(decision.cost.p).toBeCloseTo(0.03, 8);
@@ -175,8 +177,8 @@ describe("decide", () => {
 	});
 
 	test("a standard error of zero rejects any rise and keeps anything else", () => {
-		const rise = decide({ look: 0, pairs: constant(5, 0.01, 0), history: [aa(0, 0)], key: KEY });
-		const fall = decide({ look: 0, pairs: constant(5, -0.01, 0), history: [aa(0, 0)], key: KEY });
+		const rise = decide({ look: 0, pairs: constant(5, 0.01, 0), history: [aa(0, 0)], key: KEY, margin: MARGIN });
+		const fall = decide({ look: 0, pairs: constant(5, -0.01, 0), history: [aa(0, 0)], key: KEY, margin: MARGIN });
 
 		expect([rise.cost.p, rise.lapses.p, rise.verdict]).toEqual([0, 1, "fail"]);
 		expect([fall.cost.p, fall.verdict]).toEqual([1, "pass"]);
@@ -184,9 +186,19 @@ describe("decide", () => {
 
 	test("batches under another key are not pooled", () => {
 		const other = batch("gate", pairs([1, -1, 1, -1, 1, -1]), { ...KEY, omp: "omp/18.12.0" });
-		const decision = decide({ look: 0, pairs: constant(5, 0, 0), history: [aa(0.05, 2), other], key: KEY });
+		const decision = decide({ look: 0, pairs: constant(5, 0, 0), history: [aa(0.05, 2), other], key: KEY, margin: MARGIN });
 
 		expect(decision.cost.df).toBe(8);
+	});
+
+	test("an upper bound of 1.04 is non-inferior at the Gate's margin and not at a margin of 1", () => {
+		const input = { look: 1, pairs: constant(10, 0, 0), history: [aa(sdForBound(1.04, 1, 10), 2)], key: KEY };
+		const gate = decide({ ...input, margin: MARGIN });
+		const cheaper = decide({ ...input, margin: 1 });
+
+		expect(gate.cost.ratioUpper).toBeCloseTo(1.04, 6);
+		expect([gate.nonInferior, gate.verdict]).toEqual([true, "pass"]);
+		expect([cheaper.margin, cheaper.nonInferior, cheaper.verdict]).toEqual([1, false, "inconclusive"]);
 	});
 });
 

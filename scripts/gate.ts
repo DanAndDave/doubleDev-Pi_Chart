@@ -20,7 +20,8 @@
  * and each Run migrates its database with its side's `PostgresStore`
  * (`scripts/runs.ts`). Every Run uses `REFERENCE_MODEL`; a Run that records
  * another stops the Gate without a verdict. Before any spend, the Gate stops
- * when the commits differ only outside `src/`, when the pool has no A/A
+ * when the commits differ only outside `src/`, when the Workload is held out
+ * (its name ends in `-holdout`; only `--aa` runs one), when the pool has no A/A
  * batch for the key, or when a tree does not build.
  *
  * Looks come at 5 and 10 complete pairs (`LOOKS`). Each tests the cost log
@@ -31,7 +32,7 @@
  * so spend can pass the cap by up to `--parallel` pairs (default 2).
  *
  * The pool, `bench/gate/pool.json` (`--pool` for a smoke run), keeps every
- * A/A and Gate batch's per-pair Costs per Run and Lapses per Run under its
+ * A/A, Gate and Budget sweep confirm batch's per-pair Costs per Run and Lapses per Run under its
  * key (Workload name and version, model, omp version). Variance is pooled
  * over every batch with the current key, so a new omp version needs a new
  * A/A batch (`--aa`, about $44 on the gate Workload). A batch is added once
@@ -41,7 +42,7 @@
  * `<out>/gate.json` holds the commits, key, pairs, spend, looks and verdict;
  * `--report <out>` re-prints from them with no Run and no pool write.
  */
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -49,12 +50,23 @@ import { readSavedUrl } from "../src/config.ts";
 import { type AblateOptions, AblationStop, ablateRun, readAblation } from "./ablate.ts";
 import { type AblationRecord, type CalibrationFile, estimateLabel, shareLabel, summarise } from "./ablation.ts";
 import { ppiShare, readCalibration } from "./calibration.ts";
-import { aggregate, BANDS, bandLabel, int, measureRun, median, percent, type RunMeasures, usd } from "./measures.ts";
-import { buildTree, type Context, flagsOf, loadNamedWorkload, log, type Options, resolveCommit, runOne } from "./runs.ts";
+import { aggregate, BANDS, bandLabel, int, measureRun, median, percent, type RunMeasures, type RunRecord, usd } from "./measures.ts";
+import {
+	buildContext,
+	buildTree,
+	type Context,
+	flagsOf,
+	loadNamedWorkload,
+	log,
+	type Options,
+	resolveCommit,
+	runOne,
+	type RunSpec,
+} from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
 import { PULL_TOOLS } from "./units.ts";
 import { CAVEATS, share, utilisationLabel } from "./utilisation.ts";
-import { buildWorkspace, gradedSteps, installDependencies, REPO, run, turnsOf, type WorkloadId } from "./workload.ts";
+import { isHeldOut, REPO, run, turnsOf, type Workload, type WorkloadId } from "./workload.ts";
 
 /**
  * The two looks: the pairs each needs, its one-sided level (O'Brien–Fleming,
@@ -71,6 +83,16 @@ export const AA_PAIRS = 5;
 
 /** The model every Gate Run uses, and must record. */
 export const REFERENCE_MODEL = "anthropic/claude-opus-5-5";
+
+/** The Options of a Run of `workload` with the reference model under `omp`: a Gate's Runs, and a Budget sweep's. */
+export function referenceOptions(workload: Workload, omp: string): Options {
+	return {
+		workload: { name: workload.name, version: workload.version, commit: workload.commit },
+		model: REFERENCE_MODEL,
+		turns: turnsOf(workload).length,
+		omp,
+	};
+}
 
 /** The two commits a pair runs: the one before the change, and the change's. */
 export type Side = "base" | "candidate";
@@ -97,9 +119,9 @@ export interface PairFigures {
 	candidate: RunFigures;
 }
 
-/** The complete pairs of one A/A run or one Gate. */
+/** The complete pairs of one A/A run, one Gate, or one Budget sweep's confirm (`scripts/sweep.ts`). */
 export interface Batch {
-	kind: "aa" | "gate";
+	kind: "aa" | "gate" | "confirm";
 	key: GateKey;
 	/** ISO time the batch was added. */
 	date: string;
@@ -108,6 +130,8 @@ export interface Batch {
 	candidate: string;
 	/** The output folder holding the batch's records. */
 	out: string;
+	/** A confirm batch's two cells: the default's Budgets as base, the winner's as candidate. */
+	budgets?: { base: Record<string, string>; candidate: Record<string, string> };
 	pairs: PairFigures[];
 }
 
@@ -129,7 +153,7 @@ function sameKey(a: GateKey, b: GateKey): boolean {
 	);
 }
 
-function describeKey(key: GateKey): string {
+export function describeKey(key: GateKey): string {
 	return `${key.workload.name} v${key.workload.version}, ${key.model}, ${key.omp}`;
 }
 
@@ -174,24 +198,26 @@ export interface Decision {
 	look: number;
 	pairs: number;
 	alpha: number;
+	/** The ratio Cost's upper bound must stay below: `MARGIN` in a Gate, 1 in a sweep's confirm. */
+	margin: number;
 	/** Cost's test, with the geometric-mean ratio exp(mean) and its bounds. */
 	cost: MeasureTest & { ratio: number; ratioLower: number; ratioUpper: number };
 	lapses: MeasureTest;
-	/** Whether Cost's upper ratio bound is below `MARGIN`. */
+	/** Whether Cost's upper ratio bound is below `margin`: at a margin of 1, whether the candidate is cheaper. */
 	nonInferior: boolean;
 	verdict: Verdict;
 }
 
-function costDiff(pair: PairFigures): number {
+export function costDiff(pair: PairFigures): number {
 	return Math.log(pair.candidate.cost) - Math.log(pair.base.cost);
 }
 
-function lapseDiff(pair: PairFigures): number {
+export function lapseDiff(pair: PairFigures): number {
 	return pair.candidate.lapses - pair.base.lapses;
 }
 
 /** A Measure's test at level `alpha`, before Holm's correction. */
-function measureTest(current: number[], stored: number[][], alpha: number): Omit<MeasureTest, "rejected"> {
+export function measureTest(current: number[], stored: number[][], alpha: number): Omit<MeasureTest, "rejected"> {
 	const { variance, df } = pooledVariance([...stored, current]);
 	const sd = Math.sqrt(variance);
 	const average = mean(current);
@@ -215,18 +241,18 @@ function measureTest(current: number[], stored: number[][], alpha: number): Omit
  * The verdict at `look` on the Gate's complete `pairs`, with the variance
  * pooled over every batch of `history` under `key` and the pairs themselves.
  * Fails when Holm's correction rejects either fail test; passes when it does
- * not fail and Cost is non-inferior; otherwise continues to the second look,
+ * not fail and Cost is non-inferior at `margin`; otherwise continues to the second look,
  * or is inconclusive at it.
  */
-export function decide(input: { look: number; pairs: PairFigures[]; history: Batch[]; key: GateKey }): Decision {
-	const { look, pairs, history, key } = input;
+export function decide(input: { look: number; pairs: PairFigures[]; history: Batch[]; key: GateKey; margin: number }): Decision {
+	const { look, pairs, history, key, margin } = input;
 	const { alpha } = LOOKS[look] as (typeof LOOKS)[number];
 	const stored = pooledBatches(history, key);
 	const cost = measureTest(pairs.map(costDiff), stored.map((batch) => batch.pairs.map(costDiff)), alpha);
 	const lapses = measureTest(pairs.map(lapseDiff), stored.map((batch) => batch.pairs.map(lapseDiff)), alpha);
 	const [costRejected, lapsesRejected] = holm([cost.p, lapses.p], alpha) as [boolean, boolean];
 	const ratioUpper = Math.exp(cost.upper);
-	const nonInferior = ratioUpper < MARGIN;
+	const nonInferior = ratioUpper < margin;
 	const verdict: Verdict =
 		costRejected || lapsesRejected
 			? "fail"
@@ -239,6 +265,7 @@ export function decide(input: { look: number; pairs: PairFigures[]; history: Bat
 		look,
 		pairs: pairs.length,
 		alpha,
+		margin,
 		cost: {
 			...cost,
 			rejected: costRejected,
@@ -367,11 +394,56 @@ export function gateLapses(measures: RunMeasures): number {
 	return measures.refetch.left.total + (measures.recall?.recall.total ?? 0) + measures.probe.lapse.total;
 }
 
+/**
+ * Why a Run cannot count for not being on `REFERENCE_MODEL`, or nothing when
+ * it is. A complete Run always left a Journal naming its model; a void one
+ * may have left none.
+ */
+export function offModel(record: RunRecord, measures: RunMeasures): string | undefined {
+	const off = record.model === undefined ? measures.complete : record.model !== REFERENCE_MODEL;
+	return off ? `ran on ${record.model ?? "no recorded model"}, not ${REFERENCE_MODEL}` : undefined;
+}
+
+/**
+ * Runs one pair per call: `specOf` gives each side's Run, both start
+ * together, and which side's job is created first alternates by index so
+ * start-order effects fall on both alike. A Run that throws, or one off the
+ * reference model, throws a `PairStop` carrying what the pair's finished
+ * Runs cost.
+ */
+export function pairRunner(ctx: Context, specOf: (side: Side, index: number) => RunSpec): (index: number) => Promise<PairRun> {
+	return async (index) => {
+		const sides = SIDES.map((side) => ({ side, spec: specOf(side, index) }));
+		if (index % 2 === 1) sides.reverse();
+		const settled = await Promise.allSettled(sides.map(({ spec }) => runOne(spec, ctx)));
+		const outcome: Partial<Record<Side, RunOutcome>> = {};
+		let spent = 0;
+		let stop: { message: string; cause?: unknown } | undefined;
+		for (const [at, result] of settled.entries()) {
+			const { side, spec } = sides[at] as (typeof sides)[number];
+			if (result.status === "rejected") {
+				const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+				stop ??= { message: `${spec.label}: ${reason}`, cause: result.reason };
+				continue;
+			}
+			const { record, measures } = result.value;
+			spent += measures.cost;
+			const off = offModel(record, measures);
+			if (off) stop ??= { message: `${spec.label} ${off}` };
+			outcome[side] = { cost: measures.cost, lapses: gateLapses(measures), complete: measures.complete };
+		}
+		if (stop) throw new PairStop(stop.message, spent, { cause: stop.cause });
+		const pair = { index, base: outcome.base as RunOutcome, candidate: outcome.candidate as RunOutcome };
+		log(`pair ${index}: ${isComplete(pair) ? "complete" : "void"}`);
+		return pair;
+	};
+}
+
 // ---------------------------------------------------------------- record --
 
 /** `gate.json`: everything the report needs besides the Runs' own records. */
 export interface GateRecord {
-	kind: Batch["kind"];
+	kind: Exclude<Batch["kind"], "confirm">;
 	/** Full shas; the same on both sides of an A/A run. */
 	base: string;
 	candidate: string;
@@ -394,9 +466,9 @@ export interface GateRecord {
 	stopped?: string;
 }
 
-const POOL = join(REPO, "bench", "gate", "pool.json");
+export const POOL = join(REPO, "bench", "gate", "pool.json");
 
-async function readPool(file: string): Promise<Pool> {
+export async function readPool(file: string): Promise<Pool> {
 	try {
 		return JSON.parse(await readFile(file, "utf8")) as Pool;
 	} catch (error) {
@@ -406,7 +478,7 @@ async function readPool(file: string): Promise<Pool> {
 }
 
 /** Adds `batch` to the pool at `file`, replacing the file whole so a crash never leaves half of one. */
-async function appendToPool(file: string, batch: Batch): Promise<void> {
+export async function appendToPool(file: string, batch: Batch): Promise<void> {
 	const pool = await readPool(file);
 	pool.batches.push(batch);
 	await mkdir(dirname(file), { recursive: true });
@@ -415,7 +487,7 @@ async function appendToPool(file: string, batch: Batch): Promise<void> {
 	await rename(temporary, file);
 }
 
-function completePairs(pairs: PairRun[]): PairFigures[] {
+export function completePairs(pairs: PairRun[]): PairFigures[] {
 	return pairs.filter(isComplete).map(({ base, candidate }) => ({
 		base: { cost: base.cost, lapses: base.lapses },
 		candidate: { cost: candidate.cost, lapses: candidate.lapses },
@@ -427,11 +499,11 @@ function completePairs(pairs: PairRun[]): PairFigures[] {
 type Sides = { base: RunMeasures[]; candidate: RunMeasures[] };
 
 /** A figure, or "—" where there is none (JSON keeps NaN as null). */
-function fixed(value: number | null | undefined, digits: number): string {
+export function fixed(value: number | null | undefined, digits: number): string {
 	return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
-function pValue(value: number): string {
+export function pValue(value: number): string {
 	return Number.isFinite(value) ? (value < 0.0001 ? "<0.0001" : value.toFixed(4)) : "—";
 }
 
@@ -443,6 +515,26 @@ function aaSpread(pairs: PairFigures[]): { costSd: number; costCv: number; lapse
 		costCv: Math.sqrt(Math.exp(costSd * costSd) - 1),
 		lapseSd: Math.sqrt(sampleVariance(pairs.map(lapseDiff))),
 	};
+}
+
+/** Each look's figures as a Markdown table, in the columns a Gate and a sweep's confirm both print. */
+export function lookTable(looks: Decision[]): string {
+	const lines = [
+		"| Look | Pairs | α | Cost ratio | Lower | Upper | Cost p | Lapse Δ | Lapse lower | Lapse p | Holm rejects | " +
+			"Cost SD pooled / own | Lapse SD pooled / own | df | Result |",
+		"| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |",
+	];
+	for (const look of looks) {
+		const { cost, lapses } = look;
+		const rejects = [cost.rejected ? "Cost" : "", lapses.rejected ? "Lapses" : ""].filter(Boolean).join(", ") || "none";
+		lines.push(
+			`| ${look.look + 1} | ${look.pairs} | ${look.alpha} | ${fixed(cost.ratio, 3)} | ${fixed(cost.ratioLower, 3)} | ` +
+				`${fixed(cost.ratioUpper, 3)} | ${pValue(cost.p)} | ${fixed(lapses.mean, 2)} | ${fixed(lapses.lower, 2)} | ` +
+				`${pValue(lapses.p)} | ${rejects} | ${fixed(cost.sd, 4)} / ${fixed(cost.ownSd, 4)} | ` +
+				`${fixed(lapses.sd, 2)} / ${fixed(lapses.ownSd, 2)} | ${cost.df} | ${look.verdict} |`,
+		);
+	}
+	return lines.join("\n");
 }
 
 export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, AblationRecord[]>, calibration: CalibrationFile): void {
@@ -475,21 +567,7 @@ export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, Ab
 		console.log(
 			`\nPer look (one-sided bounds at the look's α; fail tests Holm-corrected; Cost non-inferior when the upper bound < ${MARGIN}):\n`,
 		);
-		console.log(
-			"| Look | Pairs | α | Cost ratio | Lower | Upper | Cost p | Lapse Δ | Lapse lower | Lapse p | Holm rejects | " +
-				"Cost SD pooled / own | Lapse SD pooled / own | df | Result |",
-		);
-		console.log("| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- |");
-		for (const look of gate.looks) {
-			const { cost, lapses } = look;
-			const rejects = [cost.rejected ? "Cost" : "", lapses.rejected ? "Lapses" : ""].filter(Boolean).join(", ") || "none";
-			console.log(
-				`| ${look.look + 1} | ${look.pairs} | ${look.alpha} | ${fixed(cost.ratio, 3)} | ${fixed(cost.ratioLower, 3)} | ` +
-					`${fixed(cost.ratioUpper, 3)} | ${pValue(cost.p)} | ${fixed(lapses.mean, 2)} | ${fixed(lapses.lower, 2)} | ` +
-					`${pValue(lapses.p)} | ${rejects} | ${fixed(cost.sd, 4)} / ${fixed(cost.ownSd, 4)} | ` +
-					`${fixed(lapses.sd, 2)} / ${fixed(lapses.ownSd, 2)} | ${cost.df} | ${look.verdict} |`,
-			);
-		}
+		console.log(lookTable(gate.looks));
 	}
 
 	console.log(
@@ -656,13 +734,10 @@ async function main(argv: string[]): Promise<void> {
 	}
 
 	const workload = await loadNamedWorkload(flag("--workload") ?? "gate");
-	const turns = turnsOf(workload);
-	const options: Options = {
-		workload: { name: workload.name, version: workload.version, commit: workload.commit },
-		model: REFERENCE_MODEL,
-		turns: turns.length,
-		omp: (await run(["omp", "--version"])).trim(),
-	};
+	if (!aa && isHeldOut(workload.name)) {
+		throw new Error(`${workload.name} is a held-out Workload: it is run only by A/A (--aa) and a Budget sweep's confirm, never by a Gate`);
+	}
+	const options = referenceOptions(workload, (await run(["omp", "--version"])).trim());
 	const key = keyOf(options.workload, options.omp);
 	const poolFile = resolve(flag("--pool") ?? POOL);
 	const history = (await readPool(poolFile)).batches;
@@ -678,11 +753,14 @@ async function main(argv: string[]): Promise<void> {
 	try {
 		// Every tree is built before any Run: a commit whose dependencies do not
 		// install, or whose store lacks what a Run calls, stops here at no spend.
-		const template = await mkdtemp(join(tmpdir(), "pichart-template-"));
-		temporary.push(template);
-		log(`building ${workload.name} v${workload.version} at ${workload.commit.slice(0, 7)}`);
-		await buildWorkspace(workload, template);
-		await installDependencies(template);
+		const ctx = await buildContext(workload, turnsOf(workload), {
+			server,
+			out,
+			options,
+			timeoutMs: positive("--turn-timeout", 600) * 1000,
+			stamp,
+		});
+		temporary.push(ctx.template);
 		const trees = new Map<string, string>();
 		for (const sha of new Set([base, candidate])) {
 			log(`building pi-chart at ${sha.slice(0, 7)}`);
@@ -691,49 +769,10 @@ async function main(argv: string[]): Promise<void> {
 			trees.set(sha, tree);
 		}
 
-		const ctx: Context = {
-			workload,
-			turns,
-			graded: new Map(gradedSteps(workload, turns.length).map((step) => [step.id, step])),
-			template,
-			server,
-			out,
-			options,
-			timeoutMs: positive("--turn-timeout", 600) * 1000,
-			stamp,
-		};
-		const runPair = async (index: number): Promise<PairRun> => {
-			const sides = SIDES.map((side) => ({ side, sha: side === "base" ? base : candidate }));
-			// Alternate which side's job is created first, so start-order effects fall on both alike.
-			if (index % 2 === 1) sides.reverse();
-			const settled = await Promise.allSettled(
-				sides.map(({ side, sha }) =>
-					runOne({ arm: "pi-chart", index, label: `${side}-${index}`, source: trees.get(sha) as string, commit: sha }, ctx),
-				),
-			);
-			const outcome: Partial<Record<Side, RunOutcome>> = {};
-			let spent = 0;
-			let stop: { message: string; cause?: unknown } | undefined;
-			for (const [at, result] of settled.entries()) {
-				const { side } = sides[at] as (typeof sides)[number];
-				if (result.status === "rejected") {
-					const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
-					stop ??= { message: `${side}-${index}: ${reason}`, cause: result.reason };
-					continue;
-				}
-				const { record, measures } = result.value;
-				spent += measures.cost;
-				// A complete Run always left a Journal naming its model; a void one may have left none.
-				if (record.model === undefined ? measures.complete : record.model !== REFERENCE_MODEL) {
-					stop ??= { message: `${side}-${index} ran on ${record.model ?? "no recorded model"}, not ${REFERENCE_MODEL}` };
-				}
-				outcome[side] = { cost: measures.cost, lapses: gateLapses(measures), complete: measures.complete };
-			}
-			if (stop) throw new PairStop(stop.message, spent, { cause: stop.cause });
-			const pair = { index, base: outcome.base as RunOutcome, candidate: outcome.candidate as RunOutcome };
-			log(`pair ${index}: ${isComplete(pair) ? "complete" : "void"}`);
-			return pair;
-		};
+		const runPair = pairRunner(ctx, (side, index) => {
+			const sha = side === "base" ? base : candidate;
+			return { arm: "pi-chart", index, label: `${side}-${index}`, source: trees.get(sha) as string, commit: sha };
+		});
 
 		const gate: GateRecord = {
 			kind: aa ? "aa" : "gate",
@@ -761,11 +800,13 @@ async function main(argv: string[]): Promise<void> {
 				if (aa) break;
 				const current = completePairs(gathered.pairs);
 				if (gathered.capped) {
-					if (current.length > 0) gate.looks.push({ ...decide({ look, pairs: current, history, key }), verdict: "inconclusive" });
+					if (current.length > 0) {
+						gate.looks.push({ ...decide({ look, pairs: current, history, key, margin: MARGIN }), verdict: "inconclusive" });
+					}
 					gate.verdict = "inconclusive";
 					break;
 				}
-				const decision = decide({ look, pairs: current, history, key });
+				const decision = decide({ look, pairs: current, history, key, margin: MARGIN });
 				gate.looks.push(decision);
 				if (decision.verdict !== "continue") {
 					gate.verdict = decision.verdict;
