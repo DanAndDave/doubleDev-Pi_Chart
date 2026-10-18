@@ -310,7 +310,7 @@ bun scripts/measures.ts /tmp/pichart-bench-…/runs/pi-chart-0   # one Run's Mea
 
 ```sh
 bun scripts/evocode.ts --task theme_d10_w8_ml_ai_mlops_security_patch_hardening --arm pi-chart --rounds 2   # smoke: first 2 rounds
-bun scripts/evocode.ts --task <id> --arm vanilla --runs 3 --out /tmp/evo
+bun scripts/evocode.ts --task <id> --arm vanilla --runs 3 --model <id> --thinking <level> --out /tmp/evo   # model defaults to the Gate's reference model
 bun scripts/evocode.ts --admit                                 # admission: the four candidates on pi-chart, $60 cap
 ```
 

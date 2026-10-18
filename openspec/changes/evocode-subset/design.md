@@ -138,6 +138,8 @@ Alternative considered: `min_reward` in a local task copy. Rejected because it s
 
 `text` is read from the task folder on the host, not from Harbor. The byte-for-byte scenario then compares the Journal against the task as published.
 
+Beside the record's files, the Run's folder keeps `harbor.log`, Harbor's own output, which `measures.ts` does not read.
+
 ### 9. Dataset: pinned, verified, cached outside the repo
 
 `bench/evocode/subset.json` holds:
@@ -159,13 +161,14 @@ Admission records stay in the output folder, because their Journals quote task t
 **Status.**
 - No `failedTurn` and an evicting Call: admitted.
 - No `failedTurn`, and every Call that could show an Eviction is known and carried every earlier Turn: `no eviction`.
+- A `failedTurn`: `failed Turn <n>`. A Run that throws is judged by the record it wrote; one that wrote none is `failed Turn 1`, since its first Turn did not complete, and admission goes on with the next candidate.
 - Otherwise: `unknown`.
 
 The Calls that could show an Eviction are those of Turn 2 and later.
 
 `subset.json` is rewritten after each Run, so a stopped admission keeps what finished. The command prints one line per candidate.
 
-`bun scripts/evocode.ts --task <id> --arm <arm> [--runs n] [--rounds n] [--out <dir>]` runs Runs outside admission. The comparison report calls it. `--rounds n` gives Harbor a copy of the task, made in the Run's output folder, whose `task.toml` keeps only the first *n* steps. The record then holds those *n* prompts. This is for smoke Runs, the way `bench-tokens --turns` is.
+`bun scripts/evocode.ts --task <id> --arm <arm> [--model <id>] [--thinking <level>] [--runs n] [--rounds n] [--out <dir>]` runs Runs outside admission. The comparison report calls it. The model defaults to the reference model, and the thinking level to omp's default; admission takes neither flag. `--rounds n` gives Harbor a copy of the task, made in the Run's output folder, whose `task.toml` keeps only the first *n* steps. The record then holds those *n* prompts. This is for smoke Runs, the way `bench-tokens --turns` is.
 
 **Preconditions,** checked before any Run:
 - `srcIsCommitted()`;
@@ -198,6 +201,7 @@ Additive. `RunRecord.harbor` is optional. `journalsIn` replaces `journalsFor` at
 | Rounds as Turns; Graded Tasks by reward; failed Turn ends the Run; same record | `recordOf(trialDir, task, spec)` over fixture trial folders (a `result.json`, `steps/round-N/{agent/sessions,agent/turns,verifier}`, a two-Turn Journal) | Rewards 1, 0, 1 give Pass, Fail, Pass. `.done` missing for round 3 gives `failedTurn` 2, outcomes for rounds 1–2 only, though `result.json` has rewards for all. Prompts equal `instruction.md` bytes, including a trailing newline. Workload id `evocode-<id>`, version 1, commit = revision. Plants and Revisits empty. |
 | Journals outside `~/.omp` | `journalsIn(root, cwd)` | Main chosen by header `cwd` among top-level files. Subagents one deeper. A Journal of another cwd ignored. The existing `runOne` paths stay green. |
 | Admission keeps only tasks that evict | `admissionOf(record, calls)` | A Turn-3 Call missing Turn 1: admitted. All carried: `no eviction`. Turn-2+ Calls all `unknown`: `unknown`. `failedTurn` 4: `failed Turn 4`. |
-| Cap; statuses written | `admit` with injected `runTask` | $61 after three Runs leaves the fourth `not run`. `subset.json` rewritten after each Run. Preconditions refused with their messages. |
+| Cap; statuses written | `admit` with injected `runTask` | $61 after three Runs leaves the fourth `not run`. `subset.json` rewritten after each Run. A `runTask` that throws gives `failed Turn 1` and the rest still run. Preconditions refused with their messages. |
+| A Run limited to fewer rounds | `cutTask(task, rounds, dir)` over a fixture `task.toml` with a preamble and a sub-table per step | 2 of 3 rounds keeps the first two steps with their settings and leaves the task untouched. No limit, or all rounds, gives the task itself. A table after the steps refuses the cut. |
 | Agent command line | smoke | Harbor oracle run (no model) builds a candidate's image and passes round 1. Host fresh-`HOME` session check. `--task <cheapest> --arm pi-chart --rounds 2` through Harbor, read by `measures.ts`. |
 | Measures read the record unchanged | smoke | `bun scripts/measures.ts <out>/runs/<label>` over an admission Run. |

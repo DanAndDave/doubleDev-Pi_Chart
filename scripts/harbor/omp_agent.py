@@ -129,9 +129,11 @@ class OmpAgent(BaseInstalledAgent):
             f"if [ -d {SESSIONS} ]; then mkdir -p {LOGS}/sessions && cp -a {SESSIONS}/. {LOGS}/sessions/"
             f" && chmod -R a+rX {LOGS}/sessions; fi"
         )
+        # The round this call sends: one more than the rounds started before it.
+        next_round = f"n=$(( $(ls {TURNS} | grep -c '\\.started$') + 1 ))"
         if len(instruction.encode()) > MAX_ARGUMENT:
             # Marked started and never done, so no later round sends anything.
-            await environment.exec(command=f"mkdir -p {TURNS} && n=$(( $(ls {TURNS} | grep -c '\\.started$') + 1 )) && touch {TURNS}/$n.started")
+            await environment.exec(command=f"mkdir -p {TURNS} && {next_round} && touch {TURNS}/$n.started")
             raise RuntimeError(f"the round's instruction is {len(instruction.encode())} bytes, over Linux's {MAX_ARGUMENT} for one argument")
 
         script = "\n".join(
@@ -149,7 +151,7 @@ class OmpAgent(BaseInstalledAgent):
                 "    exit 0",
                 "  fi",
                 "done",
-                f"n=$(( $(ls {TURNS} | grep -c '\\.started$') + 1 ))",
+                next_round,
                 f'touch "{TURNS}/$n.started"',
                 f"{self.omp_command(instruction)} </dev/null",
                 "code=$?",
@@ -164,5 +166,5 @@ class OmpAgent(BaseInstalledAgent):
             # After a timeout the script never copied this round's Journal.
             try:
                 await environment.exec(command=copy_sessions)
-            except Exception:
-                pass
+            except Exception as error:
+                self.logger.warning("could not copy the round's sessions: %s", error)

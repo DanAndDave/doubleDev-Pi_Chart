@@ -13,28 +13,28 @@
 			"task": "theme_d10_w8_ml_ai_mlops_security_patch_hardening",
 			"status": "admitted",
 			"rounds": 8,
-			"cost": 6.316542400000001,
+			"cost": 6.32,
 			"passes": 7
 		},
 		{
 			"task": "theme_d10_w12_ml_ai_mlops_explanation_reporting",
 			"status": "admitted",
 			"rounds": 7,
-			"cost": 4.6748227999999985,
+			"cost": 4.67,
 			"passes": 7
 		},
 		{
 			"task": "theme_d10_w9_ml_ai_mlops_reproducibility_verification",
 			"status": "admitted",
 			"rounds": 8,
-			"cost": 6.427745600000001,
+			"cost": 6.43,
 			"passes": 3
 		},
 		{
 			"task": "theme_d1_w1_code_build_greenfield_implementation",
 			"status": "admitted",
 			"rounds": 9,
-			"cost": 4.556624400000001,
+			"cost": 4.56,
 			"passes": 8
 		}
 	]

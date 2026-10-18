@@ -19,7 +19,7 @@
 
 - [x] 3.1 Write `scripts/harbor/omp_agent.py`, an `OmpAgent(BaseInstalledAgent)` with `resume=True`:
   - `install()` fails unless `/opt/omp/omp --version` prints the version passed as an agent kwarg;
-  - `run()` sends the omp command of design decision 4 for the `arm` kwarg, with the environment built from nothing and the `turns/<n>.started|done` markers of decision 7;
+  - `run()` sends the omp command of design decision 4 for the `arm` kwarg, with the container's environment plus only decision 4's variables, and the `turns/<n>.started|done` markers of decision 7;
   - it sends nothing when an earlier round started without finishing.
 
   Verify that `PYTHONPATH=scripts/harbor uvx --from harbor==0.24.0 python -c "import omp_agent"` succeeds.
@@ -29,7 +29,7 @@
   - a missing `.done` for round 3 gives `failedTurn` 2 and outcomes for rounds 1–2 only;
   - the prompts equal the `instruction.md` bytes;
   - the Workload id, empty Plants and empty Revisits are as specified.
-- [x] 3.4 Implement the Run in `scripts/evocode.ts`: `--task <id> --arm <arm> [--runs n] [--rounds n] [--out <dir>]`, the preconditions of decision 10, and the steps of decisions 2, 3, 5 and 6. The steps are: database, token, Compose overlay, mounts, `harbor run`, `recordOf`, Accounting export, database drop, `measureRun`, all inside the `attempt` chain.
+- [x] 3.4 Implement the Run in `scripts/evocode.ts`: `--task <id> --arm <arm> [--model <id>] [--thinking <level>] [--runs n] [--rounds n] [--out <dir>]`, the preconditions of decision 10, and the steps of decisions 2, 3, 5 and 6. The steps are: database, token, Compose overlay, mounts, `harbor run`, `recordOf`, Accounting export, database drop, `measureRun`, all inside the `attempt` chain.
 
   Verify with a smoke on `theme_d10_w8_…` with `--rounds 2`, one Run per Arm (a few dollars):
   - `bun scripts/measures.ts` reads each record;

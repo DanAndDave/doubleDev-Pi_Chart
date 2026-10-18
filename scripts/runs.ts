@@ -178,6 +178,12 @@ export async function headerOf(file: string): Promise<{ cwd?: string; id?: strin
 	return header;
 }
 
+/** A Conversation's main Journal, when found, and its subagent Journals. */
+export interface Journals {
+	main?: string;
+	subagents: string[];
+}
+
 /**
  * The Journal of the Conversation started in `cwd` under the session root
  * `root`, and the subagent Journals beside it. The harness names a session
@@ -185,7 +191,7 @@ export async function headerOf(file: string): Promise<{ cwd?: string; id?: strin
  * and the main Journal is confirmed by its session header: a folder whose
  * name only holds this one's (`-w-run-10-` for `/w/run-1`) has none.
  */
-export async function journalsIn(root: string, cwd: string): Promise<{ main?: string; subagents: string[] }> {
+export async function journalsIn(root: string, cwd: string): Promise<Journals> {
 	const token = cwd.split("/").pop() ?? cwd;
 	for (const dir of await readdir(root).catch(() => [] as string[])) {
 		if (!dir.includes(token)) continue;
@@ -201,7 +207,7 @@ export async function journalsIn(root: string, cwd: string): Promise<{ main?: st
 }
 
 /** Copies a Run's Journals into its record folder: `journal.jsonl`, and `subagents/<n>.jsonl`. */
-export async function copyJournals(journals: { main?: string; subagents: string[] }, recordDir: string): Promise<void> {
+export async function copyJournals(journals: Journals, recordDir: string): Promise<void> {
 	if (journals.main) await copyFile(journals.main, join(recordDir, "journal.jsonl"));
 	if (journals.subagents.length > 0) await mkdir(join(recordDir, "subagents"), { recursive: true });
 	for (const [n, file] of journals.subagents.entries()) await copyFile(file, join(recordDir, "subagents", `${n}.jsonl`));

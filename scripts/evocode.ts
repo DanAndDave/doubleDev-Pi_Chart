@@ -15,6 +15,7 @@ import { join, resolve } from "node:path";
 
 import { readSavedUrl } from "../src/config.ts";
 import { readCalibration } from "./calibration.ts";
+import { REFERENCE_MODEL } from "./gate.ts";
 import { type Call, type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
 import {
 	type Arm,
@@ -25,6 +26,7 @@ import {
 	exportAccounting,
 	flagsOf,
 	headerOf,
+	type Journals,
 	journalsIn,
 	log,
 	srcIsCommitted,
@@ -49,14 +51,14 @@ export interface Subset {
  * round and some main Call's window left out an earlier Turn; `no eviction`
  * when every such window carried every earlier Turn; `unknown` when no Call
  * that could show an Eviction has a window the record can say; the failed
- * Turn, counted from 1, when the Run did not complete; `not run` when the
- * cap was reached first.
+ * Turn, counted from 1, when the Run did not complete (Turn 1 when it left no
+ * record); `not run` when the cap was reached first.
  */
-export type Status = "admitted" | "no eviction" | "unknown" | "not run" | `failed Turn ${number}`;
+export type AdmissionStatus = "admitted" | "no eviction" | "unknown" | "not run" | `failed Turn ${number}`;
 
 export interface Candidate {
 	task: string;
-	status?: Status;
+	status?: AdmissionStatus;
 	/** The task's round count. */
 	rounds?: number;
 	/** The admission Run's cost, USD; absent when it did not run. */
@@ -167,7 +169,7 @@ export async function recordOf(
 	trialDir: string,
 	task: EvoTask,
 	spec: EvoRunSpec,
-): Promise<{ record: RunRecord; journals: { main?: string; subagents: string[] } }> {
+): Promise<{ record: RunRecord; journals: Journals }> {
 	const rounds = await roundsOf(task.dir);
 	const result = JSON.parse(await readFile(join(trialDir, "result.json"), "utf8")) as TrialResult;
 	const steps = result.step_results ?? [];
@@ -178,7 +180,7 @@ export async function recordOf(
 
 	const checks: CheckOutcome[] = [];
 	for (const step of rounds.slice(0, failed === -1 ? rounds.length : failed)) {
-		const outcome = steps.find((candidate) => candidate.step_name === step);
+		const outcome = steps.find((result) => result.step_name === step);
 		const pass = outcome?.verifier_result?.rewards?.reward === 1;
 		const { started_at, finished_at } = outcome?.verifier ?? {};
 		const stdout = await readFile(join(trialDir, "steps", step, "verifier", "test-stdout.txt"), "utf8").catch(() => "");
@@ -232,7 +234,7 @@ export async function recordOf(
  * Call evicted when its window left out a Turn before its own; only Calls of
  * Turn 2 and later can.
  */
-export function admissionOf(record: RunRecord, calls: Call[]): Status {
+export function admissionOf(record: RunRecord, calls: Call[]): AdmissionStatus {
 	if (record.failedTurn !== undefined) return `failed Turn ${record.failedTurn + 1}`;
 	const later = calls.filter((call) => !call.subagent && call.turn > 0);
 	const known = later.flatMap(({ turn, window }) => (window === undefined || window === "unknown" ? [] : [{ turn, carried: new Set(window.tail.turns) }]));
@@ -251,8 +253,9 @@ export interface AdmissionRun {
 /**
  * Runs each candidate of `subset` once, in order, `width` at a time, until
  * `cap` USD is spent, and gives the subset with each candidate's status,
- * rounds, cost and Passes. `write` gets the subset after each Run, so an
- * admission that stops keeps what finished.
+ * rounds, cost (to the cent) and Passes. A `runTask` that throws left no
+ * record: that Run did not complete its first Turn. `write` gets the subset
+ * after each Run, so an admission that stops keeps what finished.
  */
 export async function admit(input: {
 	subset: Subset;
@@ -264,7 +267,7 @@ export async function admit(input: {
 }): Promise<Subset> {
 	const { subset } = input;
 	const candidates: Candidate[] = await Promise.all(
-		subset.candidates.map(async ({ task }) => ({ task, status: "not run" as Status, rounds: await input.rounds(task) })),
+		subset.candidates.map(async ({ task }) => ({ task, status: "not run" as AdmissionStatus, rounds: await input.rounds(task) })),
 	);
 	const result: Subset = { ...subset, candidates };
 	await input.write(result);
@@ -274,17 +277,23 @@ export async function admit(input: {
 		width: input.width,
 		cap: input.cap,
 		jobs: candidates.map((candidate, at) => async () => {
-			const { record, measures } = await input.runTask(candidate.task);
-			candidates[at] = {
-				task: candidate.task,
-				status: admissionOf(record, measures.calls),
-				rounds: candidate.rounds,
-				cost: measures.cost,
-				passes: measures.passes,
-			};
+			const { task, rounds } = candidate;
+			const ran = await input.runTask(task).catch((error: unknown) => {
+				log(`${task} left no record: ${error instanceof Error ? error.message : error}`);
+				return undefined;
+			});
+			candidates[at] = ran
+				? {
+						task,
+						status: admissionOf(ran.record, ran.measures.calls),
+						rounds,
+						cost: Math.round(ran.measures.cost * 100) / 100,
+						passes: ran.measures.passes,
+					}
+				: { task, status: "failed Turn 1", rounds };
 			writing = writing.then(() => input.write(result));
 			await writing;
-			return { cost: measures.cost };
+			return { cost: ran?.measures.cost ?? 0 };
 		}),
 	});
 	return result;
@@ -303,11 +312,9 @@ export function admissionReport(subset: Subset): string {
 // ------------------------------------------------------------------- run --
 
 export const HARBOR = ["uvx", "--from", "harbor==0.24.0", "harbor"];
-/** The reference model, as the Gate's (`REFERENCE_MODEL` in `scripts/gate.ts`). */
-export const MODEL = "anthropic/claude-opus-5-5";
 
 /** What the host must have before any Run: each throws its own message. */
-export interface Probes {
+export interface HostChecks {
 	srcCommitted: () => boolean;
 	/** `harbor --version`. */
 	harbor: () => Promise<string>;
@@ -316,7 +323,7 @@ export interface Probes {
 	zstd: () => boolean;
 }
 
-export const hostProbes: Probes = {
+export const hostChecks: HostChecks = {
 	srcCommitted: srcIsCommitted,
 	harbor: async () => (await run([...HARBOR, "--version"], tmpdir())).trim(),
 	docker: () => run(["docker", "info", "--format", "{{.ServerVersion}}"]),
@@ -325,18 +332,18 @@ export const hostProbes: Probes = {
 };
 
 /** Refuses a host not ready for EvoCode Runs, before any spend; Harbor's version and the server when ready. */
-export async function preconditions(probes: Probes): Promise<{ harbor: string; server: string }> {
-	if (!probes.srcCommitted()) throw new Error("uncommitted changes under src/: a pi-chart Run could not name the commit it loaded");
+export async function preconditions(checks: HostChecks): Promise<{ harbor: string; server: string }> {
+	if (!checks.srcCommitted()) throw new Error("uncommitted changes under src/: a pi-chart Run could not name the commit it loaded");
 	const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
-	const harbor = await probes.harbor().catch((error: unknown) => {
+	const harbor = await checks.harbor().catch((error: unknown) => {
 		throw new Error(`Harbor cannot run: ${reason(error)}`);
 	});
-	await probes.docker().catch((error: unknown) => {
+	await checks.docker().catch((error: unknown) => {
 		throw new Error(`Docker cannot run: ${reason(error)}`);
 	});
-	const server = probes.server();
+	const server = checks.server();
 	if (!server) throw new Error("no Thread Store server: set PICHART_DATABASE_URL, or run setup to save one");
-	if (!probes.zstd()) throw new Error("zstd is not on PATH: the dataset archive cannot be extracted");
+	if (!checks.zstd()) throw new Error("zstd is not on PATH: the dataset archive cannot be extracted");
 	return { harbor, server };
 }
 
@@ -350,6 +357,7 @@ export interface EvoContext {
 	revision: string;
 	/** The checkout's commit, when its `src/` is `HEAD`'s. */
 	commit?: string;
+	model: string;
 	thinking?: string;
 }
 
@@ -445,7 +453,7 @@ export async function runTask(spec: { task: EvoTask; arm: Arm; index: number; la
 			"--ak",
 			`omp_version=${ctx.omp}`,
 			"--ak",
-			`model=${MODEL}`,
+			`model=${ctx.model}`,
 			...(ctx.thinking ? ["--ak", `thinking=${ctx.thinking}`] : []),
 			"-y",
 			"-q",
@@ -499,13 +507,15 @@ async function main(argv: string[]): Promise<void> {
 	const { flag, positive } = flagsOf(argv);
 	const admitting = argv.includes("--admit");
 	const taskId = flag("--task");
-	if (admitting === (taskId !== undefined)) {
+	const model = flag("--model");
+	const thinking = flag("--thinking");
+	if (admitting === (taskId !== undefined) || (admitting && (model !== undefined || thinking !== undefined))) {
 		throw new Error(
 			"usage: bun scripts/evocode.ts --admit [--out <dir>]\n" +
-				"       bun scripts/evocode.ts --task <id> --arm <vanilla|pi-chart> [--runs n] [--rounds n] [--out <dir>]",
+				"       bun scripts/evocode.ts --task <id> --arm <vanilla|pi-chart> [--model <id>] [--thinking <level>] [--runs n] [--rounds n] [--out <dir>]",
 		);
 	}
-	const { harbor, server } = await preconditions(hostProbes);
+	const { harbor, server } = await preconditions(hostChecks);
 	const subset = (await Bun.file(SUBSET_FILE).json()) as Subset;
 	const tasks = await fetchTasks(subset, { download, cacheRoot: CACHE_ROOT });
 	const stamp = Date.now();
@@ -519,6 +529,8 @@ async function main(argv: string[]): Promise<void> {
 		omp: (await run(["omp", "--version"])).trim(),
 		revision: subset.revision,
 		commit: (await run(["git", "-C", REPO, "rev-parse", "HEAD"])).trim(),
+		model: model ?? REFERENCE_MODEL,
+		...(thinking ? { thinking } : {}),
 	};
 	log(`EvoCode Runs: ${out}`);
 	const taskOf = (id: string): EvoTask => {
@@ -533,7 +545,25 @@ async function main(argv: string[]): Promise<void> {
 			cap: 60,
 			width: 2,
 			rounds: async (id) => (await roundsOf(taskOf(id).dir)).length,
-			runTask: (id) => runTask({ task: taskOf(id), arm: "pi-chart", index: 0, label: `${id}-pi-chart-0` }, ctx),
+			runTask: async (id) => {
+				const label = `${id}-pi-chart-0`;
+				try {
+					return await runTask({ task: taskOf(id), arm: "pi-chart", index: 0, label }, ctx);
+				} catch (error) {
+					// A Run that left a record is judged by it, however its cleanup went.
+					const recordDir = join(out, "runs", label);
+					const record = (await Bun.file(join(recordDir, "run.json"))
+						.json()
+						.catch(() => undefined)) as RunRecord | undefined;
+					if (!record) throw error;
+					const measures = await measureRun(recordDir, await readCalibration()).catch(() => ({
+						cost: 0,
+						passes: record.checks.filter((check) => check.pass).length,
+						calls: [],
+					}));
+					return { record, measures };
+				}
+			},
 			write: (file) => writeFile(SUBSET_FILE, `${JSON.stringify(file, null, "\t")}\n`),
 		});
 		process.stdout.write(admissionReport(admitted));

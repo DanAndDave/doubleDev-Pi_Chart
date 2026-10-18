@@ -7,11 +7,13 @@ import { join } from "node:path";
 import {
 	admissionOf,
 	admit,
+	cutTask,
 	type EvoRunSpec,
 	fetchTasks,
-	type Probes,
+	type HostChecks,
 	preconditions,
 	recordOf,
+	roundsOf,
 	type Subset,
 } from "../scripts/evocode.ts";
 import type { Call, KnownWindow, RunRecord } from "../scripts/measures.ts";
@@ -172,16 +174,11 @@ describe("recordOf", () => {
 		]);
 	});
 
-	test("the record names the task as its Workload at the dataset revision, with no Plants or Revisits, and the Run as given", async () => {
+	test("the record names the task as its Workload at the dataset revision, with no Plants or Revisits, and the Conversation from its Journal", async () => {
 		const { record, journals } = await recordOf(await trial([1, 1, 1], [1, 2, 3]), await task(), SPEC);
 
 		expect(record).toMatchObject({
-			arm: "pi-chart",
-			index: 0,
 			workload: { name: "evocode-theme_x", version: 1, commit: REVISION },
-			omp: "omp/18.11.0",
-			harbor: "0.24.0",
-			piChart: "90d9bc5",
 			cwd: "/app",
 			sessionId: "s1",
 			model: "claude-opus-5-5",
@@ -190,6 +187,41 @@ describe("recordOf", () => {
 		});
 		expect(journals.main?.endsWith(join("round-3", "agent", "sessions", "-app-", "2026_s1.jsonl"))).toBe(true);
 		expect(journals.subagents).toHaveLength(1);
+	});
+});
+
+describe("cutTask", () => {
+	/** A task whose `task.toml` has a preamble, and a sub-table under each step. */
+	async function tableTask(trailer = ""): Promise<{ id: string; dir: string }> {
+		const dir = join(scratch, "tasks", "theme_y");
+		await mkdir(dir, { recursive: true });
+		const steps = [1, 2, 3].map((n) => `[[steps]]\nname = "round-${n}"\n\n[steps.agent]\ntimeout_sec = ${n}00.0\n`);
+		await writeFile(join(dir, "task.toml"), `version = "1.0"\n\n${steps.join("\n")}${trailer}`);
+		return { id: "theme_y", dir };
+	}
+
+	test("a copy keeps the first rounds' steps with their own settings, and leaves the task untouched", async () => {
+		const original = await tableTask();
+		const cut = await cutTask(original, 2, join(scratch, "cut"));
+
+		expect(await roundsOf(cut.dir)).toEqual(["round-1", "round-2"]);
+		const config = Bun.TOML.parse(await readFile(join(cut.dir, "task.toml"), "utf8")) as { version: string; steps: { agent: { timeout_sec: number } }[] };
+		expect(config.version).toBe("1.0");
+		expect(config.steps.map((step) => step.agent.timeout_sec)).toEqual([100, 200]);
+		expect(await roundsOf(original.dir)).toEqual(["round-1", "round-2", "round-3"]);
+	});
+
+	test("no round limit, or a limit of all the task's rounds, runs the task itself", async () => {
+		const original = await tableTask();
+
+		expect(await cutTask(original, undefined, join(scratch, "cut"))).toBe(original);
+		expect(await cutTask(original, 3, join(scratch, "cut"))).toBe(original);
+	});
+
+	test("a table after the steps refuses the cut rather than dropping it", async () => {
+		const original = await tableTask('\n[verifier]\ntimeout_sec = 60.0\n');
+
+		await expect(cutTask(original, 2, join(scratch, "cut"))).rejects.toThrow("could not cut theme_y to 2 rounds");
 	});
 });
 
@@ -276,10 +308,31 @@ describe("admit", () => {
 		]);
 		expect(written.map((file) => file.candidates.filter((candidate) => candidate.status !== "not run").length)).toEqual([0, 1, 2, 3]);
 	});
+
+	test("a Run that throws is the failed Turn 1 of its candidate, and admission goes on", async () => {
+		const result = await admit({
+			subset: admissionSubset(),
+			rounds: async () => 8,
+			cap: 60,
+			width: 2,
+			write: async () => {},
+			runTask: async (task) => {
+				if (task === "t2") throw new Error("harbor run exited 1");
+				return finished(task, 5);
+			},
+		});
+
+		expect(result.candidates.map((candidate) => [candidate.task, candidate.status, candidate.cost])).toEqual([
+			["t1", "no eviction", 5],
+			["t2", "failed Turn 1", undefined],
+			["t3", "no eviction", 5],
+			["t4", "no eviction", 5],
+		]);
+	});
 });
 
 describe("preconditions", () => {
-	const ready: Probes = {
+	const ready: HostChecks = {
 		srcCommitted: () => true,
 		harbor: async () => "0.24.0",
 		docker: async () => undefined,
@@ -287,17 +340,13 @@ describe("preconditions", () => {
 		zstd: () => true,
 	};
 
-	test("a ready host gives Harbor's version and the server", async () => {
-		expect(await preconditions(ready)).toEqual({ harbor: "0.24.0", server: "postgres://localhost:55432/postgres" });
-	});
-
 	test.each([
 		["a dirty tree", { srcCommitted: () => false }, "uncommitted changes under src/"],
 		["no Harbor", { harbor: () => Promise.reject(new Error("uvx: not found")) }, "Harbor cannot run: uvx: not found"],
 		["no Docker", { docker: () => Promise.reject(new Error("daemon down")) }, "Docker cannot run: daemon down"],
 		["no server", { server: () => undefined }, "no Thread Store server"],
 		["no zstd", { zstd: () => false }, "zstd is not on PATH"],
-	] as [string, Partial<Probes>, string][])("%s is refused before any Run", async (_, broken, message) => {
+	] as [string, Partial<HostChecks>, string][])("%s is refused before any Run", async (_, broken, message) => {
 		await expect(preconditions({ ...ready, ...broken })).rejects.toThrow(message);
 	});
 });

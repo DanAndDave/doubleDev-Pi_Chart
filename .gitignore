@@ -2,6 +2,7 @@ node_modules/
 *.log
 *.stderr
 .env
+__pycache__/
 
 # Written by graph extraction (PICHART_GRAPH=on), derived from the tree.
 graphify-out/
