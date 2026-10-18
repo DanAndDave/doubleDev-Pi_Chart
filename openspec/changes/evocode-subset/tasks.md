@@ -42,9 +42,9 @@
 
 - [x] 4.1 Implement `admissionOf(record, calls)` per design decision 10. Verify with the seam cases: admitted, `no eviction`, `unknown`, and `failed Turn 4`.
 - [x] 4.2 Implement `--admit`. It runs the candidates through `runCapped` with width 2 and cap $60, rewrites `subset.json` after each Run with each candidate's status, rounds, cost and Passes, and prints one line per candidate. Verify, with an injected `runTask`, that $61 after three Runs leaves the fourth `not run`, that the file is written after each Run, and that each precondition is refused with its message.
-- [ ] 4.3 Run `bun scripts/evocode.ts --admit` (estimated $40, capped at $60). Commit `subset.json` with the admission results. Keep the output folder's path in the commit message, not the records.
+- [x] 4.3 Run `bun scripts/evocode.ts --admit` (estimated $40, capped at $60). Commit `subset.json` with the admission results. Keep the output folder's path in the commit message, not the records.
 
 ## 5. Close
 
-- [ ] 5.1 README: add EvoCode Runs (`--task`, `--rounds`), admission, the dataset's attribution and licence, and that nothing from it is committed. Verify that the README names the revision and the licence.
-- [ ] 5.2 Run `bun run typecheck`, `bunx biome check .` and `bun test` once, and `openspec validate evocode-subset`. Verify that all pass.
+- [x] 5.1 README: add EvoCode Runs (`--task`, `--rounds`), admission, the dataset's attribution and licence, and that nothing from it is committed. Verify that the README names the revision and the licence.
+- [x] 5.2 Run `bun run typecheck`, `bunx biome check .` and `bun test` once, and `openspec validate evocode-subset`. Verify that all pass.
