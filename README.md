@@ -306,6 +306,18 @@ bun scripts/bench-tokens.ts --report /tmp/pichart-bench-…      # re-print a sa
 bun scripts/measures.ts /tmp/pichart-bench-…/runs/pi-chart-0   # one Run's Measures
 ```
 
+`scripts/evocode.ts` runs tasks of [EvoCode-Bench](https://huggingface.co/datasets/UnipatAI/EvoCodeBench) ([arXiv 2605.24110](https://arxiv.org/abs/2605.24110)) on either Arm: multi-round tasks written outside this project, each round one Turn of one Conversation and graded by the task's own verifier. Each Run is one [Harbor](https://github.com/harbor-framework/harbor) 0.24.0 job (`uvx`, no install) in the task's own Docker container, with the host's omp, Bun and, on the pi-chart Arm, this checkout mounted read-only, and leaves the same record a Workload Run leaves, so `scripts/measures.ts` reads it unchanged. A round that does not complete ends the Run. pi-chart Runs get their own Thread Store database, reached from the container through the host gateway. Docker, `zstd` and a Thread Store server are required, and `src/` must be committed.
+
+```sh
+bun scripts/evocode.ts --task theme_d10_w8_ml_ai_mlops_security_patch_hardening --arm pi-chart --rounds 2   # smoke: first 2 rounds
+bun scripts/evocode.ts --task <id> --arm vanilla --runs 3 --out /tmp/evo
+bun scripts/evocode.ts --admit                                 # admission: the four candidates on pi-chart, $60 cap
+```
+
+Admission runs the candidates in `bench/evocode/subset.json` once each on the pi-chart Arm, cheapest first, two at a time, until $60 is spent, and writes each one's status, rounds, cost and Passes back into that file. A task is admitted only when some main Call's Context Window left out an earlier Turn; one whose every window carried every earlier Turn would compare nothing pi-chart does.
+
+The dataset is © its authors, CC BY-NC 4.0 ([licence](https://creativecommons.org/licenses/by-nc/4.0/); its card adds "not intended for model training"). It is fetched at run time from revision `9fcae3e5539d1c0e85e2481fe06bd6af42cc4bc6`, checked against the SHA-256 in `subset.json`, and cached in `~/.cache/pi-chart/evocode/`. Nothing from it is committed: not the tasks, and not the Run records, whose Journals quote task text; `subset.json` keeps only task ids and figures.
+
 ## Reaching other conversations
 
 Recall never leaves the current Conversation — that scoping has held since the first slice and still does. When the answer is somewhere else, the agent calls `recall_across_conversations(query, limit?)`, which searches every ingested Conversation within `PICHART_RECALL_MAX_DISTANCE` and returns hits nearest first with the Conversation and Codebase they came from.

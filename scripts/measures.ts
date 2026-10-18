@@ -87,6 +87,8 @@ export interface RunRecord {
 	thinking?: string;
 	/** `omp --version`. */
 	omp: string;
+	/** `harbor --version`, for a Run of a Harbor task (`scripts/evocode.ts`); absent on a Workload Run. */
+	harbor?: string;
 	cwd: string;
 	sessionId?: string;
 	/** The pi-chart commit a pi-chart Run loaded; absent when its tree did not match a commit under `src/`. */

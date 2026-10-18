@@ -20,7 +20,8 @@
  * Measures come from that record alone (`scripts/measures.ts`).
  *
  * Runs use the default session root on purpose: pi-chart finds a
- * Conversation's Journal only there.
+ * Conversation's Journal only there (an EvoCode Run, `scripts/evocode.ts`,
+ * moves the whole home instead).
  */
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
@@ -162,7 +163,7 @@ async function jsonlUnder(dir: string): Promise<string[]> {
 }
 
 /** The entries of a Journal that name its session and its model. */
-async function headerOf(file: string): Promise<{ cwd?: string; id?: string; model?: string }> {
+export async function headerOf(file: string): Promise<{ cwd?: string; id?: string; model?: string }> {
 	const header: { cwd?: string; id?: string; model?: string } = {};
 	for (const line of (await readFile(file, "utf8")).split("\n")) {
 		if (!line.trim()) continue;
@@ -178,26 +179,32 @@ async function headerOf(file: string): Promise<{ cwd?: string; id?: string; mode
 }
 
 /**
- * The Journal of the Conversation started in `cwd`, and any subagent Journals
- * beside it. The harness names a session directory after its working
- * directory, and every Run has a unique one, so the directory is matched by
- * that name and confirmed by the session header.
+ * The Journal of the Conversation started in `cwd` under the session root
+ * `root`, and the subagent Journals beside it. The harness names a session
+ * folder after its working directory, so folders are matched by that name
+ * and the main Journal is confirmed by its session header: a folder whose
+ * name only holds this one's (`-w-run-10-` for `/w/run-1`) has none.
  */
-async function journalsFor(cwd: string): Promise<{ main?: string; subagents: string[] }> {
+export async function journalsIn(root: string, cwd: string): Promise<{ main?: string; subagents: string[] }> {
 	const token = cwd.split("/").pop() ?? cwd;
-	for (const dir of await readdir(SESSION_ROOT).catch(() => [] as string[])) {
+	for (const dir of await readdir(root).catch(() => [] as string[])) {
 		if (!dir.includes(token)) continue;
-		const sessionDir = join(SESSION_ROOT, dir);
+		const sessionDir = join(root, dir);
 		const files = await jsonlUnder(sessionDir);
+		// Subagent Journals sit one folder deeper, beside the main one.
+		const nested = (file: string) => file.slice(sessionDir.length + 1).includes("/");
 		let main: string | undefined;
-		for (const file of files) {
-			// Subagent Journals sit one directory deeper, beside the main one.
-			if (file.slice(sessionDir.length + 1).includes("/")) continue;
-			if ((await headerOf(file)).cwd === cwd) main = file;
-		}
-		return { main, subagents: files.filter((file) => file !== main) };
+		for (const file of files) if (!nested(file) && (await headerOf(file)).cwd === cwd) main = file;
+		if (main) return { main, subagents: files.filter(nested) };
 	}
 	return { subagents: [] };
+}
+
+/** Copies a Run's Journals into its record folder: `journal.jsonl`, and `subagents/<n>.jsonl`. */
+export async function copyJournals(journals: { main?: string; subagents: string[] }, recordDir: string): Promise<void> {
+	if (journals.main) await copyFile(journals.main, join(recordDir, "journal.jsonl"));
+	if (journals.subagents.length > 0) await mkdir(join(recordDir, "subagents"), { recursive: true });
+	for (const [n, file] of journals.subagents.entries()) await copyFile(file, join(recordDir, "subagents", `${n}.jsonl`));
 }
 
 // ----------------------------------------------------------------- store --
@@ -285,7 +292,7 @@ export async function createDatabase(server: string, name: string, source: strin
 }
 
 /** Every Conversation's Accounting in the Run's database, by Conversation id, read by `source`'s store. */
-async function exportAccounting(url: string, source: string): Promise<Record<string, TurnAccounting[]>> {
+export async function exportAccounting(url: string, source: string): Promise<Record<string, TurnAccounting[]>> {
 	const sql = new SQL(url);
 	let ids: string[];
 	try {
@@ -422,7 +429,7 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 			const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
 			clearTimeout(timer);
 
-			const { main } = await journalsFor(cwd);
+			const { main } = await journalsIn(SESSION_ROOT, cwd);
 			if (code !== 0 || !main) {
 				record.failedTurn = turn;
 				log(`${label} Turn ${turn + 1} failed (exit ${code}${main ? "" : ", no Journal"}) ${stderr.slice(-500)}`);
@@ -459,15 +466,13 @@ export async function runOne(spec: RunSpec, ctx: Context): Promise<{ record: Run
 		}
 	};
 	await attempt("copy its Journals", async () => {
-		const { main, subagents } = await journalsFor(cwd);
-		if (main) {
-			await copyFile(main, join(recordDir, "journal.jsonl"));
-			const header = await headerOf(main);
+		const journals = await journalsIn(SESSION_ROOT, cwd);
+		await copyJournals(journals, recordDir);
+		if (journals.main) {
+			const header = await headerOf(journals.main);
 			record.sessionId = header.id;
 			record.model = header.model;
 		}
-		if (subagents.length > 0) await mkdir(join(recordDir, "subagents"), { recursive: true });
-		for (const [n, file] of subagents.entries()) await copyFile(file, join(recordDir, "subagents", `${n}.jsonl`));
 	});
 	if (url) {
 		const migrated = url;

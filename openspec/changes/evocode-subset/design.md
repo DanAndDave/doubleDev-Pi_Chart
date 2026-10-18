@@ -84,23 +84,24 @@ Alternative considered: installing omp in the container from the network, as Har
 
 ### 4. The Conversation lives in `/logs/agent`
 
-- **The command.** Each round runs `omp -p --no-title --no-extensions --session-dir /logs/agent/sessions --model <model> [--thinking <level>] [-c] <instruction>`. It runs in the task's working directory, with `-c` when Harbor resumes. The pi-chart Arm inserts the three `-e` of `piChartExtensions`, under `/opt/pi-chart`.
+- **The command.** Each round runs `omp -p --no-title --no-extensions --model <model> [--thinking <level>] [-c] <instruction>`. It runs in the task's working directory, with `-c` when Harbor resumes. The pi-chart Arm inserts the three `-e` of `piChartExtensions`, under `/opt/pi-chart`.
 - **The instruction** is passed as one argv string, `shlex`-quoted, so it reaches omp byte for byte. A round over 128 KiB, Linux's limit for one argument, fails the Turn with that reason. No candidate comes near it.
-- **The environment** is built from nothing:
+- **The environment** is the container's own (the task's `ENV`, such as Go's `PATH`) plus only:
   - `HOME=/tmp/omp-home` (fresh, so omp runs at its defaults with none of the user's settings);
   - `ANTHROPIC_OAUTH_TOKEN` (decision 6);
   - `PICHART_DOC_BUNDLE=/tmp/pichart-bundle` (created empty);
   - `PICHART_BUN`;
   - for pi-chart, `BENCH_RUN_DATABASE_URL`.
 
-  No `PICHART_*` Budget from the host's shell is passed on, so the record names no Budget.
-- **Reading the Journals.** Because Harbor keeps `/logs/agent` across resumed steps, the final step's snapshot `steps/<last round>/agent/sessions/` holds the whole Conversation. `journalsFor` becomes `journalsIn(root, cwd)`, where the root is a session folder. `runOne` calls it on its `SESSION_ROOT` folder matched by name. The adapter calls it on the snapshot directly.
-- **The session layout is unverified** [INFERENCE]: where `--session-dir` puts main and subagent Journals. Task 1.2 checks it on the host, for under $1, before any Harbor Run.
+  Nothing from the host's shell is passed on, so no `PICHART_*` Budget reaches the Run and the record names none.
+- **Reading the Journals.** omp writes them under `$HOME/.omp/agent/sessions/<folder named after the cwd>/`, as on the host. After every round, and on the round's way out after a timeout, the agent copies that session root to `/logs/agent/sessions`. Because Harbor keeps `/logs/agent` across resumed steps, the final step's snapshot `steps/<last round>/agent/sessions/` holds the whole Conversation. `journalsFor` becomes `journalsIn(root, cwd)`, where the root is a session root; `runOne` passes `SESSION_ROOT`, the adapter the snapshot's.
+- **Why the home is fresh, not `--session-dir`.** pi-chart finds a Conversation's Journal only under `homedir()/.omp/agent/sessions` (`findJournal`), so Journals written elsewhere would leave pi-chart ingesting nothing. Task 1.2 checked on the host that a fresh `HOME` with `ANTHROPIC_OAUTH_TOKEN` writes the main Journal at `<home>/.omp/agent/sessions/<cwd folder>/<ts>_<id>.jsonl` and a subagent's one folder deeper, and that `journalsIn` finds both.
+- **Why the home is not under `/logs/agent`.** Harbor copies `/logs/agent` into the trial after every resumed round, and a home there would carry the task's build caches (Go's `GOCACHE` defaults under `$HOME`) into every copy.
 
 ### 5. The Thread Store is reached through the host gateway
 
 - **Before the job.** The host creates and migrates the Run's database exactly as `runOne` does, with `createDatabase` on the configured server.
-- **The container's address** is the same URL with its host replaced by `host.docker.internal`. It reaches omp as `BENCH_RUN_DATABASE_URL` via `--ae`, and `run-url-set.ts` / `run-url-unset.ts` keep it out of the agent's shell, as on the host.
+- **The container's address** is the same URL with its host replaced by `host.docker.internal`. The host hands it to Harbor's own process as `OMP_AGENT_DATABASE_URL`, the agent passes it to omp as `BENCH_RUN_DATABASE_URL`, and `run-url-set.ts` / `run-url-unset.ts` keep it out of the agent's shell, as on the host. It is not passed with `--ae`: Harbor writes agent env into the trial's `config.json`, masking only names that look secret.
 - **The host gateway.** A Compose overlay written into the Run's output folder adds `extra_hosts: ["host.docker.internal:host-gateway"]`.
 - **After the job,** `exportAccounting` and `dropDatabase` run on the host, inside the same `attempt` chain as `runOne`, so a failed job still drops its database.
 
@@ -108,7 +109,7 @@ Alternative considered: Postgres inside each task container. Rejected because it
 
 ### 6. Credentials are a short-lived token, never the login
 
-Before each Run, the host runs `omp token anthropic` and passes the access token as `ANTHROPIC_OAUTH_TOKEN` via `--ae`. This is the variable omp documents as taking precedence over an API key.
+Before each Run, the host runs `omp token anthropic` and hands the access token to Harbor's own process as `OMP_AGENT_TOKEN`; the agent passes it to omp as `ANTHROPIC_OAUTH_TOKEN`, the variable omp documents as taking precedence over an API key. It is not passed with `--ae`, for the same reason as the database address.
 
 Alternative considered: `omp auth export` / `import` into the container. Rejected because the container would refresh the OAuth login, rotate its refresh token and sign the host out.
 
@@ -116,7 +117,7 @@ Alternative considered: `omp auth export` / `import` into the container. Rejecte
 
 Harbor keeps running steps after an agent exception, as long as the verifier gives a result. The agent therefore writes `/logs/agent/turns/<n>.started` before omp and `<n>.done` after omp exits zero.
 
-At the start of each round, the agent sends nothing when any earlier round started without finishing. A timeout kills the agent mid-round and leaves `.done` unwritten, so it is caught the same way. The rest of the trial then costs only verifier time.
+At the start of each round, the agent sends nothing when any earlier round started without finishing, and first kills any omp still running from it. A timeout kills the agent mid-round and leaves `.done` unwritten, so it is caught the same way. The rest of the trial then costs only verifier time.
 
 The adapter's `failedTurn` is the first round with no `.done`. It records outcomes only for rounds before it (spec: *A failed Turn ends an EvoCode Run*).
 
@@ -198,5 +199,5 @@ Additive. `RunRecord.harbor` is optional. `journalsIn` replaces `journalsFor` at
 | Journals outside `~/.omp` | `journalsIn(root, cwd)` | Main chosen by header `cwd` among top-level files. Subagents one deeper. A Journal of another cwd ignored. The existing `runOne` paths stay green. |
 | Admission keeps only tasks that evict | `admissionOf(record, calls)` | A Turn-3 Call missing Turn 1: admitted. All carried: `no eviction`. Turn-2+ Calls all `unknown`: `unknown`. `failedTurn` 4: `failed Turn 4`. |
 | Cap; statuses written | `admit` with injected `runTask` | $61 after three Runs leaves the fourth `not run`. `subset.json` rewritten after each Run. Preconditions refused with their messages. |
-| Agent command line | smoke | Harbor oracle run (no model) builds a candidate's image and passes round 1. Host `--session-dir` check. `--task <cheapest> --arm pi-chart --rounds 2` through Harbor, read by `measures.ts`. |
+| Agent command line | smoke | Harbor oracle run (no model) builds a candidate's image and passes round 1. Host fresh-`HOME` session check. `--task <cheapest> --arm pi-chart --rounds 2` through Harbor, read by `measures.ts`. |
 | Measures read the record unchanged | smoke | `bun scripts/measures.ts <out>/runs/<label>` over an admission Run. |
