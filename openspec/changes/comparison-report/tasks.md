@@ -57,9 +57,9 @@
 
 ## 5. The comparison
 
-- [ ] 5.1 Run `--batch reference` into `<out>`, a folder outside the repository that is kept until the report is committed (about $70, cap $80).
+- [x] 5.1 Run `--batch reference` into `<out>`, a folder outside the repository that is kept until the report is committed (about $70, cap $80).
 - [ ] 5.2 Run `--ablate` (about $26, at most $40).
-- [ ] 5.3 Run `--batch second` (about $35, cap $45).
+- [x] 5.3 Run `--batch second` (about $35, cap $45).
 - [ ] 5.4 Run `--batch evocode` (about $110, cap $125). It needs Docker, Harbor and the host's Postgres, per `evocode.ts`'s preconditions.
 - [ ] 5.5 Run `--report`, read the report against the spec's scenarios, and commit `docs/benchmarks/<date>-plain-omp-comparison.{md,json}`.
 - [ ] 5.6 Add the report and the command to `README.md`'s benchmarks section, and the reproduce line to the report. Run `bun run typecheck` and `bun test` once.

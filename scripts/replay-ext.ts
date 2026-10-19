@@ -233,11 +233,16 @@ function headersOf(init: RequestInit | undefined): Record<string, string> {
 	return out;
 }
 
-function bodyText(body: RequestInit["body"]): string {
-	if (typeof body === "string") return body;
-	if (body instanceof Uint8Array) return new TextDecoder().decode(body);
-	if (body instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(body));
-	throw new Error(`replay-ext: unexpected request body ${Object.prototype.toString.call(body)}`);
+function bodyText(body: RequestInit["body"], encoding: string | undefined): string {
+	let bytes: Uint8Array;
+	if (typeof body === "string") bytes = new TextEncoder().encode(body);
+	else if (body instanceof Uint8Array) bytes = body;
+	else if (body instanceof ArrayBuffer) bytes = new Uint8Array(body);
+	else throw new Error(`replay-ext: unexpected request body ${Object.prototype.toString.call(body)}`);
+	// omp 18.12 gzips request bodies.
+	if (encoding === "gzip") bytes = Bun.gunzipSync(new Uint8Array(bytes));
+	else if (encoding !== undefined && encoding !== "identity") throw new Error(`replay-ext: unexpected content-encoding ${encoding}`);
+	return new TextDecoder().decode(bytes);
 }
 
 /** The endpoint's count of `body`, sent with the Call's own headers; retried on 429 and 5xx. */
@@ -559,6 +564,9 @@ export default function replay(pi: Api): void {
 		const isCall =
 			url.hostname === "api.anthropic.com" && url.pathname === "/v1/messages" && (init.method ?? "GET") === "POST";
 		if (!isCall) {
+			// omp 18.12 warms the connection with a bodiless HEAD to the host
+			// before its first Call; answered here, it never leaves the process.
+			if (url.hostname === "api.anthropic.com" && init.method === "HEAD") return new Response(null, { status: 200 });
 			if (url.hostname === "api.anthropic.com") throw new Error(`replay-ext: unexpected request to ${url}`);
 			return real(input, init);
 		}
@@ -567,10 +575,12 @@ export default function replay(pi: Api): void {
 		const index = names.length;
 		const reply = replies[index];
 		if (!reply) throw new Error(`replay-ext: the Journal has no Call ${index}`);
-		const raw = bodyText(init.body);
+		const headers = headersOf(init);
+		const raw = bodyText(init.body, headers["content-encoding"]);
+		// What the replay sends on, the count and the draws, is plain JSON.
+		delete headers["content-encoding"];
 		const body = JSON.parse(raw) as RequestBody;
 		const usage = reply.usage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-		const headers = headersOf(init);
 		const counted = await countTokens(real, url, headers, body);
 		const total = usage.input + usage.cacheRead + usage.cacheWrite;
 		const planned = (plan?.draws ?? []).flatMap((draw, at) => (draw.call === index ? [{ draw, at }] : []));
