@@ -18,7 +18,7 @@ Every decision needed to build pi-chart's context-need measures is settled, so `
 - Vocabulary is `CONTEXT.md` (`### Measuring`): Measure, Utilisation/Used, Ablation/Needed, Lapse, Re-fetch, Pull, Plant/Probe/Retention, Graded Task/Pass/Cost per Pass, Arm/Workload/Run. Use those words in tickets and specs.
 - Grilling tickets: call `grilling` and `domain-modeling`. Research tickets: `research`. Findings go in the ticket file under `## Resolution`, not `docs/research/` (`docs/agents/issue-tracker.md`).
 - The existing instrument is `scripts/bench-tokens.ts`: an arm pair of `omp -p` per Turn, plus a 40-Turn default workload with a codeword and build-number probe. Reuse it rather than starting a second harness.
-- Cost reference: 40 Turns, 3 runs per arm comes to about $26 and 804 s at parallel 6. Per Conversation that is $3.77 for pi-chart and $4.89 for plain omp (`docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md`).
+- Cost reference: 40 Turns, 3 runs per arm comes to about $26 and 804 s at parallel 6. Per Conversation that is $3.77 for pi-chart and $4.89 for plain omp (`docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md` at `5c3275b`).
 - Since ADR-0015 there is no Briefing. Recall, docs and structure are tools the model pulls, so a Pull is directly observable in the Journal. Ticket 15 lists which tools are Pulls.
 
 ## Decisions so far

@@ -11,7 +11,7 @@ Which model, version and thinking level is the reference for the measures? What 
 ## What's known
 
 - Every benchmark so far used the harness's default model (`claude-opus-5-5`) and default thinking level. `scripts/bench-tokens.ts` accepts `--model` and `--thinking`.
-- Plain omp's own cost rose from $0.80 to $1.00 per Conversation across the 2026-10-13 series (`docs/benchmarks/2026-10-14-token-usage.md`, "Since 2026-10-13"). Absolute figures drift; ratios were compared instead.
+- Plain omp's own cost rose from $0.80 to $1.00 per Conversation across the 2026-10-13 series (`docs/benchmarks/2026-10-14-token-usage.md` at `5c3275b`, "Since 2026-10-13"). Absolute figures drift; ratios were compared instead.
 
 ## Resolution
 

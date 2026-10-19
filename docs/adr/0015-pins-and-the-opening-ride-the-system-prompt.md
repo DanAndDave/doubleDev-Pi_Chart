@@ -2,7 +2,7 @@
 
 Supersedes ADR-0010 and ADR-0011. Partly supersedes ADR-0013 (where the tail's content comes from) and ADR-0014 (where the Opening sits and when it appears).
 
-The 2026-10-14 benchmark (`docs/benchmarks/2026-10-14-token-usage.md`) put pi-chart at 2.12× plain omp's cost, and $1.06 of the $1.12 gap was uncached input. From the tail's first Eviction on, every Call paid 12–13k tokens of Briefing at the full input rate: the current Briefing follows the cache breakpoint (ADR-0010) and changes on every Call, so it can never be read from cache. Most of it was recall, carried whether or not the model needed it, and recall still missed the one fact it was there for (0/3, excluded by its distance threshold). Pushing retrieved content into every Call costs full price on every Call; letting the model ask for it costs only when it asks.
+The 2026-10-14 benchmark (`docs/benchmarks/2026-10-14-token-usage.md` at `5c3275b`) put pi-chart at 2.12× plain omp's cost, and $1.06 of the $1.12 gap was uncached input. From the tail's first Eviction on, every Call paid 12–13k tokens of Briefing at the full input rate: the current Briefing follows the cache breakpoint (ADR-0010) and changes on every Call, so it can never be read from cache. Most of it was recall, carried whether or not the model needed it, and recall still missed the one fact it was there for (0/3, excluded by its distance threshold). Pushing retrieved content into every Call costs full price on every Call; letting the model ask for it costs only when it asks.
 
 **pi-chart no longer sends a Briefing.** What used to be in it splits two ways: what must always be in view goes into the system prompt, and everything retrieved is pulled by tools.
 

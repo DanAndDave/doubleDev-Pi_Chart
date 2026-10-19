@@ -14,7 +14,7 @@ Which claims does the plain-omp comparison report make, on how many Runs, at wha
 - Ticket 09: the headline claim needs a second model; the Gate does not.
 - Ticket 08: the Gate compares pi-chart with pi-chart; plain omp appears only in this report.
 - Ticket 03: one-Arm Measures report "n/a" and feed no headline; the Arms recover Lapses by different routes.
-- Cost reference per 40-Turn Conversation: $3.77 pi-chart, $4.89 plain omp (`docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md`).
+- Cost reference per 40-Turn Conversation: $3.77 pi-chart, $4.89 plain omp (`docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md` at `5c3275b`).
 - Existing reports live in `docs/benchmarks/<date>-<slug>.md` with raw JSON beside them.
 
 ## Resolution

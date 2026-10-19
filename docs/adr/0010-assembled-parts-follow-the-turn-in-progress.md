@@ -4,7 +4,7 @@ Superseded by ADR-0015: pi-chart no longer sends assembled parts as a message. T
 
 Supersedes ADR-0006's order. Below, "closing block", "opening line" and "Pins last" describe the order this ADR decided; ADR-0011 later made the parts one Briefing, and ADR-0015 removed the Briefing.
 
-ADR-0006 led every Pack with the longest run of messages the harness itself sent, so the harness could mark that run for caching, and put the assembled parts between the run and the rest of the tail. The 2026-10-13 token benchmark (`docs/benchmarks/2026-10-13-token-usage.md`) measured what that costs: pi-chart wrote 2.5× as much cache as plain omp over turns 1–6, and cost 2.3× as much over twelve turns while sending 26% fewer prompt tokens.
+ADR-0006 led every Pack with the longest run of messages the harness itself sent, so the harness could mark that run for caching, and put the assembled parts between the run and the rest of the tail. The 2026-10-13 token benchmark (`docs/benchmarks/2026-10-13-token-usage.md` at `5c3275b`) measured what that costs: pi-chart wrote 2.5× as much cache as plain omp over turns 1–6, and cost 2.3× as much over twelve turns while sending 26% fewer prompt tokens.
 
 **A Pack now carries everything the harness sent first — the verbatim tail, then the Turn in progress — and every assembled part after it, as a closing block.** The block opens with one fixed line saying it is background for the request above it and not a new request, then carries recalled Turns, curated knowledge, structure, and Pins last.
 
@@ -30,7 +30,7 @@ What has to hold instead is byte stability. A Turn is sent as the harness's own 
 
 ## What it measures
 
-`docs/benchmarks/2026-10-13-token-usage-parts-follow-turn.md`, same 12-turn workload, 3 runs per arm:
+`docs/benchmarks/2026-10-13-token-usage-parts-follow-turn.md` at `5c3275b`, same 12-turn workload, 3 runs per arm:
 
 | Figure | ADR-0006 order | This order | Plain omp |
 | --- | ---: | ---: | ---: |

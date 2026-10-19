@@ -151,7 +151,7 @@ export function pinBudget(config: Config): Budget {
 
 /**
  * The tail's two Budgets, with `DEFAULT_TAIL_TOKENS`. The 2026-10-14
- * eviction sweep (docs/benchmarks/2026-10-14-eviction-defaults.md) set
+ * eviction sweep (docs/benchmarks/2026-10-14-eviction-defaults.md at 5c3275b) set
  * 25,000 tokens / 8 Turns against 40,000 / 13 and 60,000 / 19: a larger
  * tail evicts less often, but sends as much again as cache read on every
  * Call, and cost no less.

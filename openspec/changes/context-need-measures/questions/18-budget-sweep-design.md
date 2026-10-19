@@ -10,7 +10,7 @@ Which Budgets are swept, over what grid, on which Workload, and what objective p
 
 ## What's known
 
-- Prior art: `docs/benchmarks/2026-10-14-eviction-defaults.md`, a 3×3 grid of tail size against low-water mark, 3 Runs per cell, objective lowest median cost with a $0.10 tie band. Within-cell spread reached $0.46, so "a future sweep that ranks cells this close needs more runs per cell".
+- Prior art: `docs/benchmarks/2026-10-14-eviction-defaults.md` at `5c3275b`, a 3×3 grid of tail size against low-water mark, 3 Runs per cell, objective lowest median cost with a $0.10 tie band. Within-cell spread reached $0.46, so "a future sweep that ranks cells this close needs more runs per cell".
 - Tunable Budgets: `PICHART_TAIL_TOKENS`/`TURNS`/`LOW_WATER`, `OPENING_TOKENS`, `PINS_TOKENS`, `RECALL_TOKENS`, `DOC_TOKENS`, `GRAPH_TOKENS`, `PACK_TOKENS` (`src/config.ts:208-229`).
 - Ticket 06: a held-out second Workload belongs to the sweep.
 - Ticket 08: the Gate gates Cost per Run and Lapses per Run; everything else is reported.

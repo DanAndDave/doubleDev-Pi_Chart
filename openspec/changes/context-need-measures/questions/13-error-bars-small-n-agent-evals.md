@@ -96,7 +96,7 @@ n       ≈ ((z_{1−α(/2)} + z_{1−β}) · σ_d / δ)² + z²_{1−α(/2)}/2 
 n_max   = floor( Cap / (K_A·c_A + K_B·c_B) )
 ```
 
-- **Unit costs** (`map.md`; [benchmark](../../../../docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md)): c_pi-chart ≈ $3.77, c_omp ≈ $4.89. A pi-chart-vs-pi-chart gate pair costs about $7.54; a pi-chart-vs-omp pair costs $8.66.
+- **Unit costs** (`map.md`; benchmark `docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md` at `5c3275b`): c_pi-chart ≈ $3.77, c_omp ≈ $4.89. A pi-chart-vs-pi-chart gate pair costs about $7.54; a pi-chart-vs-omp pair costs $8.66.
 - **K versus n.** Minimize `(ω² + 2σ²/K)(c₀ + K·c)`. This gives `K* = sqrt(2σ²c₀ / (ω²c))`, where c₀ is a fixed per-workload cost; this is the standard two-stage sampling optimum `[INFERENCE: derived]`. When c₀ ≈ 0, K* = 1, so new workloads beat repeats. Miller makes the same point: once σ²/K ≪ Var(x), more resamples barely help (§3.1).
 - **One workload.** pi-chart has one 40-Turn workload today, so *K* > 1 is forced. The CI then covers run noise only, and any claim generalizes to that workload, not to "workloads" (Miller's super-population framing, §2). `[INFERENCE]`
 - **Variance from history.** The largest cheap lever is σ estimated from pooled calibration runs: `s_p² = Σ(n_j−1)s_j² / Σ(n_j−1)`, with df = Σ(n_j−1). This moves the critical value from t_{2} = 4.30 toward z = 1.96. It holds only if the variance is stable across changes, which needs a periodic check. `[INFERENCE]`
@@ -191,4 +191,4 @@ Two side observations:
 - Pocock (1977) https://doi.org/10.1093/biomet/64.2.191 · O'Brien & Fleming (1979) https://doi.org/10.2307/2530245 · Lan & DeMets (1983) https://doi.org/10.1093/biomet/70.3.659
 - FDA, *Statistical Approaches to Establishing Bioequivalence* (May 2026). https://www.fda.gov/media/163638/download · Schuirmann (1987) https://doi.org/10.1007/BF01068419
 - Brown, Cai, DasGupta (2001). https://doi.org/10.1214/ss/1009213286 · Fieller (1954). https://doi.org/10.1111/j.2517-6161.1954.tb00159.x · Hanley & Lippman-Hand (1983). https://doi.org/10.1001/jama.1983.03330370053031
-- Computations (MDE via noncentral *t*, required *n*, binomial intervals, Fisher power, bootstrap coverage simulation, group-sequential boundaries): scipy/statsmodels script run for this ticket, not committed. Cost inputs: `docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md`.
+- Computations (MDE via noncentral *t*, required *n*, binomial intervals, Fisher power, bootstrap coverage simulation, group-sequential boundaries): scipy/statsmodels script run for this ticket, not committed. Cost inputs: `docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md` at `5c3275b`.

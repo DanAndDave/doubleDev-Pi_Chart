@@ -17,7 +17,7 @@ How does the regression gate decide? Settle the following:
 
 ## What's known
 
-- A 40-Turn run with 3 runs per arm costs about $26 and takes 804 s at parallel 6 (`docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md`).
+- A 40-Turn run with 3 runs per arm costs about $26 and takes 804 s at parallel 6 (`docs/benchmarks/2026-10-14-token-usage-40-turns-mark-0.2.md` at `5c3275b`).
 - Recall distance for the same Turn ranged from 0.478 to 0.541 across six identical runs, so run-to-run noise is material.
 - The 2026-10-13 benchmark could not tell low-water marks 0.5 to 0.7 apart (the earlier `DEFAULT_TAIL_LOW_WATER` doc comment). The 2026-10-14 sweep settled 0.2 only because each of its runs cost less than each 0.6 run, not through a statistical test (`src/config.ts:160-166`).
 
