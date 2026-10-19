@@ -34,10 +34,22 @@ A batch SHALL stop on either of these:
 
 Pairs already running SHALL finish, no new pair SHALL start, the stopped pair's finished Runs SHALL count toward spend, and the batch's record SHALL say why it stopped.
 
+A stopped EvoCode batch MAY be resumed. A resumed batch SHALL refuse unless omp's version, the admitted tasks and `src/` are what the batch ran on. It SHALL run only the pairs its record lacks, the stopping pair included, and keep its void pairs as they are. Its cap SHALL count what it spent before the stop. The stopping pair's Run folders SHALL be kept apart from the batch's Runs, and the record and the report SHALL name every stop resumed past. A batch stopped by its cap, or one that finished, SHALL NOT be resumed.
+
 #### Scenario: A Run on the wrong model stops the second-model batch
 
 - **WHEN** a Run of the second-model batch records `anthropic/claude-opus-5-5`
 - **THEN** the batch SHALL stop, start no further pair, and record that Run's label and model as the reason
+
+#### Scenario: A stopped EvoCode batch resumes on its own omp
+
+- **WHEN** the EvoCode batch stopped with 5 of its 8 pairs recorded, one of them void, after spending $56.72, and it is resumed on the omp version it ran on
+- **THEN** only the 3 missing pairs SHALL run, the void pair SHALL stay void, the cap SHALL leave $68.28 to spend, and the report SHALL name the stop
+
+#### Scenario: A resume on another omp is refused
+
+- **WHEN** a stopped EvoCode batch that ran on omp 18.12.1 is resumed while `omp --version` prints 18.12.2
+- **THEN** the comparison SHALL refuse, naming both versions, and SHALL start no Run
 
 ### Requirement: Spend is capped per batch
 

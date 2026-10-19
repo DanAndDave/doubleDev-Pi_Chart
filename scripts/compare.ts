@@ -5,6 +5,7 @@
  *
  *     bun scripts/compare.ts --out <dir> --batch reference|second|evocode [--parallel <pairs>] [--turn-timeout <s>]
  *     bun scripts/compare.ts --out <dir> --batch reference|second --workload <name> --pairs <n>   # a smoke run
+ *     bun scripts/compare.ts --out <dir> --batch evocode --resume [--parallel <pairs>]
  *     bun scripts/compare.ts --out <dir> --ablate
  *     bun scripts/compare.ts --out <dir> --report [--date YYYY-MM-DD]
  *
@@ -22,7 +23,9 @@
  * folder. pi-chart Runs of the Gate Workload load a tree of `HEAD`
  * (`buildTree`); EvoCode Runs mount the checkout, which is `HEAD`'s. Each
  * batch leaves its Runs in `<out>/<batch>/runs/<label>/` and `batch.json`
- * beside them.
+ * beside them. `--resume` picks up an EvoCode batch a Run stopped: on the
+ * omp, admitted tasks and `src/` it ran on, it runs only the pairs its record
+ * lacks, under the same cap, and names the stop in `resumed`.
  *
  * `--ablate` ablates both Runs of the reference batch's 2 lowest-indexed
  * complete pairs, 20 units and at most $10 each, and keeps what each spent in
@@ -33,7 +36,7 @@
  * `.json`. Neither holds prompt or Journal text: EvoCode's tasks are CC BY-NC.
  */
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { readSavedUrl } from "../src/config.ts";
@@ -328,6 +331,8 @@ export interface BatchRecord {
 	capped: boolean;
 	/** Why a Run stopped the batch. */
 	stopped?: string;
+	/** The stops an EvoCode batch was resumed past, oldest first; their pairs' Run folders are under `stopped/<n>/`. */
+	resumed?: string[];
 	pairs: BatchPair[];
 }
 
@@ -351,23 +356,29 @@ export interface EvoJob {
  * Runs `perTask` pairs of each task, `width` at once, every task's first pair
  * before any task's second, while the spend is below `cap`. A void pair is
  * kept and not run again. A `runPair` that throws stops the batch: the pairs
- * in flight finish, and a `PairStop`'s spend is counted.
+ * in flight finish, and a `PairStop`'s spend is counted. A resumed batch
+ * passes its record's pairs and spend as `prior`: only the pairs it lacks
+ * run, and the cap counts what it spent before.
  */
 export async function evocodeBatch(input: {
 	tasks: string[];
 	perTask: number;
 	cap: number;
 	width: number;
+	prior?: { pairs: BatchPair[]; spent: number };
 	runPair: (job: EvoJob) => Promise<{ pair: BatchPair; cost: number }>;
 }): Promise<{ pairs: BatchPair[]; spent: number; capped: boolean; stopped?: string }> {
 	const { tasks, perTask, cap, width, runPair } = input;
-	const pairs: BatchPair[] = [];
-	let spent = 0;
-	const jobs = Array.from({ length: perTask }, (_, replica) => tasks.map((task, at) => ({ index: replica * tasks.length + at, task, replica }))).flat();
+	const pairs: BatchPair[] = [...(input.prior?.pairs ?? [])];
+	let spent = input.prior?.spent ?? 0;
+	const done = new Set(pairs.map((pair) => pair.index));
+	const jobs = Array.from({ length: perTask }, (_, replica) => tasks.map((task, at) => ({ index: replica * tasks.length + at, task, replica })))
+		.flat()
+		.filter((job) => !done.has(job.index));
 	try {
 		const capped = await runCapped({
 			width,
-			cap,
+			cap: cap - spent,
 			jobs: jobs.map((job) => async () => {
 				try {
 					const { pair, cost } = await runPair(job);
@@ -488,22 +499,52 @@ async function gateBatch(
 	}
 }
 
-/** The EvoCode batch: `EVOCODE_PER_TASK` pairs of every admitted task on the reference model, under the batch's cap. */
-async function evoBatch(dir: string, parallel: number): Promise<BatchRecord> {
+/**
+ * The EvoCode batch: `EVOCODE_PER_TASK` pairs of every admitted task on the
+ * reference model, under the batch's cap. Given the record of a stopped
+ * batch, it runs only the pairs that record lacks, on the same omp, tasks
+ * and pi-chart source, and moves the stopping pairs' Run folders aside.
+ */
+async function evoBatch(dir: string, parallel: number, prior?: BatchRecord): Promise<BatchRecord> {
 	const { model, cap } = BATCHES.evocode;
 	const { harbor, server } = await preconditions(hostChecks);
 	const subset = (await Bun.file(SUBSET_FILE).json()) as Subset;
 	const tasks = subset.candidates.filter((candidate) => candidate.status === "admitted").map((candidate) => candidate.task);
 	if (tasks.length === 0) throw new Error(`${SUBSET_FILE} admits no task`);
-	const root = await fetchTasks(subset, { download, cacheRoot: CACHE_ROOT });
 	const omp = (await run(["omp", "--version"])).trim();
-	const commit = await resolveCommit("HEAD");
+	const commit = prior?.commit ?? (await resolveCommit("HEAD"));
+	if (prior) {
+		const workload = { tasks, revision: subset.revision };
+		if (JSON.stringify(prior.workload) !== JSON.stringify(workload)) {
+			throw new Error(`refusing: ${SUBSET_FILE} no longer admits the tasks the batch ran (${JSON.stringify(prior.workload)})`);
+		}
+		if (omp !== prior.omp) throw new Error(`refusing: omp is ${omp}, and the batch ran on ${prior.omp}; put that omp first on PATH`);
+		const changed = (await run(["git", "-C", REPO, "diff", "--name-only", prior.commit, "HEAD", "--", "src/"])).trim();
+		if (changed) throw new Error(`refusing: src/ has changed since ${prior.commit.slice(0, 7)}, which the batch's pi-chart Runs loaded (${changed.split("\n").join(", ")})`);
+	}
+	const root = await fetchTasks(subset, { download, cacheRoot: CACHE_ROOT });
+	if (prior) {
+		const kept = new Set(prior.pairs.map((pair) => pair.index));
+		const aside = join(dir, "stopped", String(prior.resumed?.length ?? 0));
+		for (const [index, task] of Array.from({ length: EVOCODE_PER_TASK }, () => tasks).flat().entries()) {
+			if (kept.has(index)) continue;
+			for (const arm of ["vanilla", "pi-chart"] as Arm[]) {
+				const label = `${task}-${arm}-${Math.floor(index / tasks.length)}`;
+				for (const kind of ["runs", "harbor"]) {
+					if (!existsSync(join(dir, kind, label))) continue;
+					await mkdir(join(aside, kind), { recursive: true });
+					await rename(join(dir, kind, label), join(aside, kind, label));
+				}
+			}
+		}
+	}
 	const ctx: EvoContext = { out: dir, stamp: Date.now(), server, harbor, omp, revision: subset.revision, commit, model };
 	const batch = await evocodeBatch({
 		tasks,
 		perTask: EVOCODE_PER_TASK,
 		cap,
 		width: parallel,
+		...(prior ? { prior: { pairs: prior.pairs, spent: prior.spent } } : {}),
 		runPair: evoPairRunner(ctx, (task) => join(root, task)),
 	});
 	return {
@@ -516,6 +557,7 @@ async function evoBatch(dir: string, parallel: number): Promise<BatchRecord> {
 		parallel,
 		cap,
 		...batch,
+		...(prior ? { resumed: [...(prior.resumed ?? []), prior.stopped as string] } : {}),
 	};
 }
 
@@ -713,7 +755,8 @@ function batchSection(batch: ReportedBatch): string[] {
 	lines.push(
 		`${workloadLabel(batch)} on \`${batch.model}\`; ${plural(complete, "complete pair")}, ${voids} void; spent ${usd2(batch.spent)} of a ${usd2(batch.cap)} cap.` +
 			(batch.capped ? ` **The cap stopped the batch** after ${plural(batch.pairs.length, "pair")}.` : "") +
-			(batch.stopped ? ` **Stopped:** ${batch.stopped}.` : ""),
+			(batch.stopped ? ` **Stopped:** ${batch.stopped}.` : "") +
+			(batch.resumed?.length ? ` Resumed, with the stopping pair run again, after: ${batch.resumed.join("; ")}.` : ""),
 		"",
 		...headlineTable(batch.headline),
 		"",
@@ -881,6 +924,7 @@ async function writeReport(out: string, date: string, into: string): Promise<str
 
 const USAGE =
 	"usage: bun scripts/compare.ts --out <dir> --batch reference|second|evocode [--parallel n] [--turn-timeout s] [--workload <name> --pairs n]\n" +
+	"       bun scripts/compare.ts --out <dir> --batch evocode --resume [--parallel n]\n" +
 	"       bun scripts/compare.ts --out <dir> --ablate\n" +
 	"       bun scripts/compare.ts --out <dir> --report [--date YYYY-MM-DD]";
 
@@ -908,7 +952,18 @@ async function main(argv: string[]): Promise<void> {
 	const dirty = await uncommittedSource();
 	if (dirty.length > 0) throw new Error(`refusing: uncommitted changes under src/ (${dirty.join(", ")}); a pi-chart Run could not name the commit it loaded`);
 	const dir = join(out, batch);
-	if (existsSync(dir)) throw new Error(`refusing: ${dir} exists, so this batch has already run into ${out}; a batch started again goes into a new --out`);
+	const resume = argv.includes("--resume");
+	let prior: BatchRecord | undefined;
+	if (resume) {
+		if (batch !== "evocode") throw new Error("--resume is for the EvoCode batch only: a Gate Workload batch replaces void pairs, and cannot pick up where it stopped");
+		prior = await readBatch(out, batch);
+		if (!prior) throw new Error(`refusing: ${dir} holds no batch.json, so there is no batch to resume`);
+		if (prior.stopped === undefined) {
+			throw new Error(`refusing: the batch at ${dir} was not stopped by a Run${prior.capped ? "; its cap stopped it" : ""}, so there is nothing to resume`);
+		}
+	} else if (existsSync(dir)) {
+		throw new Error(`refusing: ${dir} exists, so this batch has already run into ${out}; a batch started again goes into a new --out, a stopped EvoCode batch takes --resume`);
+	}
 	const smoke = flag("--workload") !== undefined || flag("--pairs") !== undefined;
 	if (batch === "evocode" && smoke) throw new Error("--workload and --pairs are for the Gate Workload batches only");
 
@@ -917,7 +972,7 @@ async function main(argv: string[]): Promise<void> {
 	try {
 		record =
 			batch === "evocode"
-				? await evoBatch(dir, positive("--parallel", 1))
+				? await evoBatch(dir, positive("--parallel", 1), prior)
 				: await gateBatch(batch, dir, {
 						workload: flag("--workload") ?? GATE_WORKLOAD,
 						want: positive("--pairs", GATE_PAIRS),

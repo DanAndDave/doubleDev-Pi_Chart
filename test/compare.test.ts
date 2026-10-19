@@ -317,4 +317,43 @@ describe("evocodeBatch", () => {
 		expect(batch.stopped).toBe("b-pi-chart-0: harbor run exited 1");
 		expect(batch.capped).toBe(false);
 	});
+
+	test("a resumed batch runs only the pairs its record lacks, and keeps the void one", async () => {
+		const started: number[] = [];
+		const batch = await evocodeBatch({
+			tasks: ["a", "b"],
+			perTask: 2,
+			cap: 100,
+			width: 1,
+			prior: { pairs: [pairOf({ index: 0, task: "a", replica: 0 }, false), pairOf({ index: 1, task: "b", replica: 0 })], spent: 10 },
+			runPair: async (job) => {
+				started.push(job.index);
+				return { pair: pairOf(job), cost: 2 };
+			},
+		});
+
+		expect(started).toEqual([2, 3]);
+		expect(batch.pairs.map((each) => [each.index, each.complete])).toEqual([
+			[0, false],
+			[1, true],
+			[2, true],
+			[3, true],
+		]);
+		expect(batch.spent).toBe(14);
+	});
+
+	test("a resumed batch's cap counts what it spent before it stopped", async () => {
+		const batch = await evocodeBatch({
+			tasks: ["a", "b", "c", "d"],
+			perTask: 2,
+			cap: 125,
+			width: 1,
+			prior: { pairs: [0, 1, 2, 3].map((index) => pairOf({ index, task: "abcd"[index] as string, replica: 0 })), spent: 120 },
+			runPair: async (job) => ({ pair: pairOf(job), cost: 25 }),
+		});
+
+		expect(batch.pairs).toHaveLength(5);
+		expect(batch.spent).toBe(145);
+		expect(batch.capped).toBe(true);
+	});
 });
