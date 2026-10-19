@@ -318,14 +318,23 @@ Admission runs the candidates in `bench/evocode/subset.json` once each on the pi
 
 The dataset is © its authors, CC BY-NC 4.0 ([licence](https://creativecommons.org/licenses/by-nc/4.0/); its card adds "not intended for model training"). It is fetched at run time from revision `9fcae3e5539d1c0e85e2481fe06bd6af42cc4bc6`, checked against the SHA-256 in `subset.json`, and cached in `~/.cache/pi-chart/evocode/`. Nothing from it is committed: not the tasks, and not the Run records, whose Journals quote task text; `subset.json` keeps only task ids and figures.
 
-`scripts/compare.ts` compares pi-chart with plain omp in three batches of paired Runs, one plain-omp Run and one pi-chart Run started together per pair: the Gate Workload on the reference model until 10 pairs are complete ($80 cap), the same on `anthropic/claude-sonnet-5-5` ($45 cap), and 2 pairs of each admitted EvoCode task ($125 cap). Each batch is its own command into one `--out` folder, refused while `src/` has uncommitted changes or when that batch's folder already exists; a Run off the batch's model, or one that could not be run, stops it. `--ablate` ablates both Runs of the reference batch's 2 lowest-indexed complete pairs. `--report` recomputes every Run's Measures from its record, with no model Call, and writes `docs/benchmarks/<date>-plain-omp-comparison.{md,json}`: Cost per Run, Cost per Pass, Lapses per Run and Retention per distance band as paired differences with two-sided 95% intervals, EvoCode's pooled within its tasks, and no prompt or Journal text.
+`scripts/compare.ts` compares pi-chart with plain omp in three batches of paired Runs, one plain-omp Run and one pi-chart Run started together per pair: the Gate Workload on the reference model until 10 pairs are complete ($80 cap), the same on `anthropic/claude-sonnet-5-5` ($45 cap), and 2 pairs of each admitted EvoCode task ($125 cap). Each batch is its own command into one `--out` folder, refused while `src/` has uncommitted changes or when that batch's folder already exists; a Run off the batch's model, or one that could not be run, stops it. A stopped EvoCode batch takes `--resume`, which runs only its missing pairs under the same cap and refuses unless omp, the tasks and `src/` are what it ran on. omp updates itself, so put the recorded version first on `PATH`. `--ablate` ablates both Runs of the reference batch's 2 lowest-indexed complete pairs. `--report` recomputes every Run's Measures from its record, with no model Call, and writes `docs/benchmarks/<date>-plain-omp-comparison.{md,json}`: Cost per Run, Cost per Pass, Lapses per Run and Retention per distance band as paired differences with two-sided 95% intervals, EvoCode's pooled within its tasks, and no prompt or Journal text.
 
 ```sh
 bun scripts/compare.ts --out /tmp/compare --batch reference --workload smoke --pairs 1   # smoke: one pair, named as such in the report
 bun scripts/compare.ts --out /tmp/compare --batch reference        # then --batch second and --batch evocode, into the same --out
+bun scripts/compare.ts --out /tmp/compare --batch evocode --resume # only after a Run stopped it
 bun scripts/compare.ts --out /tmp/compare --ablate
 bun scripts/compare.ts --out /tmp/compare --report
 ```
+
+The first comparison is `docs/benchmarks/2026-10-19-plain-omp-comparison.md`, at `65b9de1` on omp 18.12.1. Every Gate Workload Run passed every step on both Arms. Plain omp never compacted, and pi-chart cost more and retained less:
+
+| Batch | Pairs | Cost per Run, pi-chart / plain omp [95%] | Retention, ≥25 Turns, plain omp → pi-chart |
+| --- | ---: | ---: | ---: |
+| Gate Workload, `claude-opus-5-5` | 10 | 1.96× [1.85×, 2.08×] | 100% → 40% |
+| Gate Workload, `claude-sonnet-5-5` | 10 | 1.31× [1.18×, 1.46×] | 100% → 26% |
+| EvoCode, 4 tasks | 7 (1 void) | 1.00× [0.67×, 1.48×] | no Plants |
 
 ## Reaching other conversations
 

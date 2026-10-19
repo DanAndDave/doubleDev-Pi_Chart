@@ -62,6 +62,6 @@
 - [x] 5.3 Run `--batch second` (about $35, cap $45).
 - [x] 5.4 Run `--batch evocode` (about $110, cap $125). It needs Docker, Harbor and the host's Postgres, per `evocode.ts`'s preconditions.
 - [x] 5.4a Red, then green: `evocodeBatch`'s `prior` (decision 4, Resume): only the missing jobs run and a void pair stays; the cap counts the prior spend. Then `--batch evocode --resume`, refusing on another omp, other tasks or changed `src/`, moving the stopping pair's folders to `stopped/<n>/`, and naming the stop in `resumed` and the report.
-- [ ] 5.4b Resume the EvoCode batch with omp 18.12.1 first on `PATH` (about $35; the batch's cap leaves $68.28).
-- [ ] 5.5 Run `--report`, read the report against the spec's scenarios, and commit `docs/benchmarks/<date>-plain-omp-comparison.{md,json}`.
-- [ ] 5.6 Add the report and the command to `README.md`'s benchmarks section, and the reproduce line to the report. Run `bun run typecheck` and `bun test` once.
+- [x] 5.4b Resume the EvoCode batch with omp 18.12.1 first on `PATH` (about $35; the batch's cap leaves $68.28).
+- [x] 5.5 Run `--report`, read the report against the spec's scenarios, and commit `docs/benchmarks/<date>-plain-omp-comparison.{md,json}`.
+- [x] 5.6 Add the report and the command to `README.md`'s benchmarks section, and the reproduce line to the report. Run `bun run typecheck` and `bun test` once.

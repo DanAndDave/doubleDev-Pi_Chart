@@ -862,7 +862,7 @@ export function comparisonMarkdown(file: ComparisonFile, reproduce: string): str
 		`- Instrument: \`scripts/compare.ts\`; figures in [\`${file.date}-plain-omp-comparison.json\`](${file.date}-plain-omp-comparison.json)`,
 		`- Reproduce: ${reproduce}`,
 		"",
-		"Each pair is one plain-omp Run and one pi-chart Run, started together. Ratios are pi-chart over plain omp, of geometric means; counts and shares are pi-chart minus plain omp. Void pairs count toward spend and in no figure. This is descriptive: no margin, verdict or sequential look applies.",
+		"Each pair is one plain-omp Run and one pi-chart Run, started together. An Arm's Cost figures are geometric means over the batch's complete pairs. A ratio is pi-chart over plain omp, exp of the mean log difference; counts and shares are pi-chart minus plain omp. On EvoCode, a difference is the mean of its task means, so each task weighs the same, and it can differ from what the Arm columns, pooled over pairs, suggest. Void pairs count toward spend and in no figure. This is descriptive: no margin, verdict or sequential look applies.",
 		"",
 	);
 	for (const name of BATCH_NAMES) {
@@ -915,7 +915,7 @@ async function writeReport(out: string, date: string, into: string): Promise<str
 	await mkdir(into, { recursive: true });
 	await writeFile(`${stem}.json`, `${JSON.stringify(file, null, "\t")}\n`);
 	const reproduce =
-		"`bun scripts/compare.ts --out <dir> --batch reference`, then `--ablate`, `--batch second` and `--batch evocode` into the same `<dir>`, then `--report`; the Run folders are not committed.";
+		"`bun scripts/compare.ts --out <dir> --batch reference`, then `--ablate`, `--batch second` and `--batch evocode` into the same `<dir>`, a stopped EvoCode batch taking `--batch evocode --resume` on the omp it ran on, then `--report`; the Run folders are not committed.";
 	await writeFile(`${stem}.md`, comparisonMarkdown(file, reproduce));
 	return `${stem}.md`;
 }
