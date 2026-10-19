@@ -26,7 +26,6 @@ import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { readSavedUrl } from "../src/config.ts";
 import { SESSION_ROOT } from "../src/journal.ts";
 import { readRecord, type RunRecord } from "./measures.ts";
 import { CALL_FILE, type CallFile, journalMessages, restoredJournal } from "./replay-ext.ts";
@@ -38,10 +37,12 @@ import {
 	flagsOf,
 	loadNamedWorkload,
 	ompEnv,
+	ompVersion,
 	piChartExtensions,
+	requireThreadStore,
 	resolveCommit,
 } from "./runs.ts";
-import { buildWorkspace, installDependencies, run } from "./workload.ts";
+import { buildWorkspace, installDependencies } from "./workload.ts";
 
 const REPLAY_EXT = join(import.meta.dir, "replay-ext.ts");
 /** Any value: omp then routes Anthropic Calls through fetch, which the extension wraps. */
@@ -100,7 +101,7 @@ function sessionDir(cwd: string): string {
  * anything is recreated.
  */
 export async function refusal(runDir: string, record: RunRecord, commit: string | undefined): Promise<string | undefined> {
-	const omp = (await run(["omp", "--version"])).trim();
+	const omp = await ompVersion();
 	if (omp !== record.omp) return `the record ran on ${record.omp}, and ${omp} is installed`;
 	const workload = await loadNamedWorkload(record.workload.name);
 	if (workload.version !== record.workload.version) {
@@ -175,8 +176,7 @@ export async function replay(options: ReplayOptions): Promise<Replayed> {
 		if (record.arm === "pi-chart") {
 			const tree = options.tree ?? (await buildTree(commit as string));
 			if (!options.tree) temporary.push(tree);
-			server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
-			if (!server) throw new Error("a pi-chart replay needs a Thread Store server: set PICHART_DATABASE_URL, or run setup");
+			server = requireThreadStore("pi-chart replays");
 			database = `replay_${Date.now()}_${process.pid}`;
 			env = ompEnv(env, await createDatabase(server, database, tree));
 			extension = join(tree, "src", "extension.ts");

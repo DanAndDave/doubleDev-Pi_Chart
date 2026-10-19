@@ -13,7 +13,6 @@ import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, writeFile 
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { readSavedUrl } from "../src/config.ts";
 import { readCalibration } from "./calibration.ts";
 import { REFERENCE_MODEL } from "./gate.ts";
 import { type Call, type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
@@ -29,6 +28,8 @@ import {
 	type Journals,
 	journalsIn,
 	log,
+	ompVersion,
+	savedThreadStore,
 	srcIsCommitted,
 } from "./runs.ts";
 import { runCapped } from "./sweep.ts";
@@ -327,7 +328,7 @@ export const hostChecks: HostChecks = {
 	srcCommitted: srcIsCommitted,
 	harbor: async () => (await run([...HARBOR, "--version"], tmpdir())).trim(),
 	docker: () => run(["docker", "info", "--format", "{{.ServerVersion}}"]),
-	server: () => process.env.PICHART_DATABASE_URL ?? readSavedUrl(),
+	server: savedThreadStore,
 	zstd: () => Bun.which("zstd") !== null,
 };
 
@@ -526,7 +527,7 @@ async function main(argv: string[]): Promise<void> {
 		stamp,
 		server,
 		harbor,
-		omp: (await run(["omp", "--version"])).trim(),
+		omp: await ompVersion(),
 		revision: subset.revision,
 		commit: (await run(["git", "-C", REPO, "rev-parse", "HEAD"])).trim(),
 		model: model ?? REFERENCE_MODEL,

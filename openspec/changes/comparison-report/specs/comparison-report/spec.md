@@ -97,12 +97,17 @@ The interval SHALL be the mean difference plus or minus the Student t quantile a
 
 ### Requirement: Pass counts are given per step
 
-For each batch, the report SHALL give, per graded step and per Arm, the number of complete Runs that passed the step out of the complete Runs, with no interval and no difference. It SHALL also give each Arm's count of Runs per first failing step.
+For each batch, the report SHALL give, per graded step and per Arm, the number of complete Runs that passed the step out of the complete Runs that graded it, with no interval and no difference. It SHALL also give each Arm's count of Runs per first failing step.
 
 #### Scenario: A step's Passes per Arm
 
 - **WHEN** a Gate Workload step was passed by 9 of 10 complete plain-omp Runs and 10 of 10 pi-chart Runs
 - **THEN** that step's row SHALL read 9/10 and 10/10
+
+#### Scenario: A step a Run did not grade is not in its count
+
+- **WHEN** an EvoCode round was graded in 3 of an Arm's 4 complete Runs of the task, and passed in 2
+- **THEN** that round's row SHALL read 2/3 for that Arm
 
 ### Requirement: One-Arm Measures read n/a
 

@@ -30,6 +30,7 @@ import { join, resolve } from "node:path";
 import { SQL } from "bun";
 
 import type { TurnAccounting } from "../src/accounting.ts";
+import { readSavedUrl } from "../src/config.ts";
 import { SESSION_ROOT } from "../src/journal.ts";
 import { readCalibration } from "./calibration.ts";
 import { type CheckOutcome, measureRun, type RunMeasures, type RunRecord } from "./measures.ts";
@@ -350,6 +351,23 @@ export async function resolveCommit(revision: string): Promise<string> {
 /** Whether this checkout's `src/` is `HEAD`'s: only then does a Run that loads it run `HEAD`'s pi-chart. */
 export function srcIsCommitted(): boolean {
 	return Bun.spawnSync(["git", "-C", REPO, "diff", "--quiet", "HEAD", "--", "src/"]).exitCode === 0;
+}
+
+/** The installed omp, as `omp --version` prints it: what a Run record and a batch key name. */
+export async function ompVersion(): Promise<string> {
+	return (await run(["omp", "--version"])).trim();
+}
+
+/** The Thread Store server pi-chart Runs create their databases on, if one is set or saved. */
+export function savedThreadStore(): string | undefined {
+	return process.env.PICHART_DATABASE_URL ?? readSavedUrl();
+}
+
+/** `savedThreadStore()`, or an error naming what `runs` need it for. */
+export function requireThreadStore(runs: string): string {
+	const server = savedThreadStore();
+	if (!server) throw new Error(`${runs} need a Thread Store server: set PICHART_DATABASE_URL, or run setup to save one`);
+	return server;
 }
 
 /**

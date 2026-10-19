@@ -49,7 +49,6 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { readSavedUrl } from "../src/config.ts";
 import {
 	aggregate,
 	BANDS,
@@ -75,7 +74,21 @@ import {
 } from "./measures.ts";
 import { PULL_TOOLS } from "./units.ts";
 import { armHolds, CAVEATS, JUDGED_KINDS, KIND_LABEL, share, type Tally as UsedTally, utilisationLabel } from "./utilisation.ts";
-import { type Arm, ARMS, buildContext, flagsOf, loadNamedWorkload, log, type Options, pool, runOne, srcIsCommitted } from "./runs.ts";
+import {
+	type Arm,
+	ARMS,
+	buildContext,
+	flagsOf,
+	loadNamedWorkload,
+	log,
+	ompVersion,
+	type Options,
+	pool,
+	requireThreadStore,
+	runOne,
+	savedThreadStore,
+	srcIsCommitted,
+} from "./runs.ts";
 import { runSweep, sweepReport } from "./sweep.ts";
 import { REPO, run, turnsOf } from "./workload.ts";
 
@@ -417,10 +430,7 @@ if (flag("--sweep")) {
 		throw new Error(`--arm is "${only}"; expected ${ARMS.join(" or ")}`);
 	}
 	const arms = only === undefined ? ARMS : [only as Arm];
-	const server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
-	if (arms.includes("pi-chart") && !server) {
-		throw new Error("pi-chart Runs need a Thread Store server: set PICHART_DATABASE_URL, or run setup to save one");
-	}
+	const server = arms.includes("pi-chart") ? requireThreadStore("pi-chart Runs") : savedThreadStore();
 	const stamp = Date.now();
 	const out = resolve(flag("--out") ?? join(tmpdir(), `pichart-bench-${stamp}`));
 	await mkdir(join(out, "runs"), { recursive: true });
@@ -430,7 +440,7 @@ if (flag("--sweep")) {
 		model: flag("--model"),
 		thinking: flag("--thinking"),
 		turns: turns.length,
-		omp: (await run(["omp", "--version"])).trim(),
+		omp: await ompVersion(),
 	};
 	// A pi-chart Run names the commit it loaded only when this checkout's `src/` is that commit's.
 	const commit = srcIsCommitted() ? (await run(["git", "-C", REPO, "rev-parse", "HEAD"])).trim() : undefined;

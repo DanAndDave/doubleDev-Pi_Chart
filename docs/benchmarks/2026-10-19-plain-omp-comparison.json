@@ -4175,7 +4175,7 @@
 			"headline": [
 				{
 					"measure": "Cost per Run",
-					"scale": "ratio",
+					"scale": "cost",
 					"vanilla": 2.480708259072734,
 					"piChart": 4.871853232492815,
 					"diff": {
@@ -4191,7 +4191,7 @@
 				},
 				{
 					"measure": "Cost per Pass",
-					"scale": "ratio",
+					"scale": "cost",
 					"vanilla": 0.41345137651212227,
 					"piChart": 0.8119755387488026,
 					"diff": {
@@ -8650,7 +8650,7 @@
 			"headline": [
 				{
 					"measure": "Cost per Run",
-					"scale": "ratio",
+					"scale": "cost",
 					"vanilla": 0.9699974104594641,
 					"piChart": 1.2734976247761722,
 					"diff": {
@@ -8666,7 +8666,7 @@
 				},
 				{
 					"measure": "Cost per Pass",
-					"scale": "ratio",
+					"scale": "cost",
 					"vanilla": 0.16166623507657737,
 					"piChart": 0.21224960412936206,
 					"diff": {
@@ -10647,7 +10647,7 @@
 			"headline": [
 				{
 					"measure": "Cost per Run",
-					"scale": "ratio",
+					"scale": "cost",
 					"vanilla": 5.142335836065349,
 					"piChart": 5.391336559391583,
 					"diff": {
@@ -10663,7 +10663,7 @@
 				},
 				{
 					"measure": "Cost per Pass",
-					"scale": "ratio",
+					"scale": "cost",
 					"vanilla": 0.8903859810387224,
 					"piChart": 0.9131676004733491,
 					"diff": {

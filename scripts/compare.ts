@@ -18,9 +18,10 @@
  * once a batch's spend reaches its cap (`BATCHES`); pairs in flight finish.
  * A Run that cannot be run, or that records another model, stops the batch.
  *
- * A batch refuses to start while `src/` has uncommitted changes, and when its
- * folder `<out>/<batch>/` exists, so a batch is never run twice into one
- * folder. pi-chart Runs of the Gate Workload load a tree of `HEAD`
+ * A batch refuses to start while `src/` differs from `HEAD`'s
+ * (`srcIsCommitted`), and when its folder `<out>/<batch>/` exists, so a
+ * batch is never run twice into one folder. pi-chart Runs of the Gate
+ * Workload load a tree of `HEAD`
  * (`buildTree`); EvoCode Runs mount the checkout, which is `HEAD`'s. Each
  * batch leaves its Runs in `<out>/<batch>/runs/<label>/` and `batch.json`
  * beside them. `--resume` picks up an EvoCode batch a Run stopped: on the
@@ -39,7 +40,6 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { readSavedUrl } from "../src/config.ts";
 import { AblationStop, ablateRun, ppiByArm, readAblation } from "./ablate.ts";
 import { type AblationRecord, percentLabel, type Summary, shareLabel, summarise } from "./ablation.ts";
 import { readCalibration } from "./calibration.ts";
@@ -56,7 +56,19 @@ import {
 } from "./evocode.ts";
 import { gatherPairs, gateLapses, isComplete, offModel, PairStop, pairRunner, REFERENCE_MODEL, referenceOptions } from "./gate.ts";
 import { BANDS, bandLabel, measureRun, type Outcome, type RunMeasures, type RunRecord, readRecord, type Score } from "./measures.ts";
-import { type Arm, buildContext, buildTree, flagsOf, headerOf, loadNamedWorkload, log, resolveCommit } from "./runs.ts";
+import {
+	type Arm,
+	buildContext,
+	buildTree,
+	flagsOf,
+	headerOf,
+	loadNamedWorkload,
+	log,
+	ompVersion,
+	requireThreadStore,
+	resolveCommit,
+	srcIsCommitted,
+} from "./runs.ts";
 import { mean, type PairedFigure, pairedWithinTasks } from "./stats.ts";
 import { runCapped } from "./sweep.ts";
 import { PULL_TOOLS } from "./units.ts";
@@ -123,24 +135,25 @@ export interface ComparedPair {
 	piChart: RunSummary;
 }
 
-export interface Tally {
+/** A Run's planted Probes scored right, of those scored. */
+export interface PlantTally {
 	right: number;
 	of: number;
 }
 
 /**
- * One headline Measure. `ratio`: each Arm's figure is a geometric mean and
- * `diff` the mean log ratio, pi-chart over plain omp. `count`: means, and
+ * One headline Measure. `cost`: each Arm's figure is a geometric mean in USD
+ * and `diff` the mean log ratio, pi-chart over plain omp. `count`: means, and
  * pi-chart minus plain omp. `share`: each Arm's right of scored over the
  * pairs counted, and the mean of pi-chart's share minus plain omp's.
  */
 export interface HeadlineRow {
 	measure: string;
-	scale: "ratio" | "count" | "share";
+	scale: "cost" | "count" | "share";
 	/** Absent when no pair counts. */
 	vanilla?: number;
 	piChart?: number;
-	tallies?: { vanilla: Tally; piChart: Tally };
+	tallies?: { vanilla: PlantTally; piChart: PlantTally };
 	diff: PairedFigure;
 	/** Complete pairs left out of this row. */
 	excluded: number;
@@ -159,14 +172,14 @@ function byTask(pairs: ComparedPair[], diff: (pair: ComparedPair) => number): nu
 
 function figureRow(
 	measure: string,
-	scale: "ratio" | "count",
+	scale: "cost" | "count",
 	all: ComparedPair[],
 	counts: (pair: ComparedPair) => boolean,
 	value: (run: RunSummary) => number,
 ): HeadlineRow {
 	const pairs = all.filter(counts);
-	const average = scale === "ratio" ? geometricMean : mean;
-	const diff = scale === "ratio" ? (pair: ComparedPair) => Math.log(value(pair.piChart)) - Math.log(value(pair.vanilla)) : (pair: ComparedPair) => value(pair.piChart) - value(pair.vanilla);
+	const average = scale === "cost" ? geometricMean : mean;
+	const diff = scale === "cost" ? (pair: ComparedPair) => Math.log(value(pair.piChart)) - Math.log(value(pair.vanilla)) : (pair: ComparedPair) => value(pair.piChart) - value(pair.vanilla);
 	return {
 		measure,
 		scale,
@@ -179,19 +192,19 @@ function figureRow(
 }
 
 /** A Run's scores of planted Plants in `band`: unplanted scores have no distance, so are in none. */
-function inBand(run: RunSummary, [low, high]: (typeof BANDS)[number]): Tally {
+function inBand(run: RunSummary, [low, high]: (typeof BANDS)[number]): PlantTally {
 	const scores = run.plants.filter((score) => score.distance !== undefined && score.distance >= low && score.distance <= high);
 	return { right: scores.filter((score) => score.right).length, of: scores.length };
 }
 
 function retentionRow(band: (typeof BANDS)[number], all: ComparedPair[]): HeadlineRow {
 	const pairs = all.filter((pair) => inBand(pair.vanilla, band).of > 0 && inBand(pair.piChart, band).of > 0);
-	const pooled = (side: "vanilla" | "piChart"): Tally =>
+	const pooled = (side: Side): PlantTally =>
 		pairs.reduce((sum, pair) => {
 			const tally = inBand(pair[side], band);
 			return { right: sum.right + tally.right, of: sum.of + tally.of };
 		}, { right: 0, of: 0 });
-	const rightShare = ({ right, of }: Tally) => right / of;
+	const rightShare = ({ right, of }: PlantTally) => right / of;
 	const tallies = { vanilla: pooled("vanilla"), piChart: pooled("piChart") };
 	return {
 		measure: `Retention, ${bandLabel(band)} Turns`,
@@ -211,8 +224,8 @@ export function headline(pairs: ComparedPair[], planted: boolean): HeadlineRow[]
 	const complete = pairs.filter((pair) => pair.vanilla.complete && pair.piChart.complete);
 	const always = () => true;
 	return [
-		figureRow("Cost per Run", "ratio", complete, always, (run) => run.cost),
-		figureRow("Cost per Pass", "ratio", complete, (pair) => pair.vanilla.passes > 0 && pair.piChart.passes > 0, (run) => run.cost / run.passes),
+		figureRow("Cost per Run", "cost", complete, always, (run) => run.cost),
+		figureRow("Cost per Pass", "cost", complete, (pair) => pair.vanilla.passes > 0 && pair.piChart.passes > 0, (run) => run.cost / run.passes),
 		figureRow("Lapses per Run", "count", complete, always, (run) => run.lapses),
 		...(planted
 			? BANDS.map((band) => retentionRow(band, complete))
@@ -221,6 +234,10 @@ export function headline(pairs: ComparedPair[], planted: boolean): HeadlineRow[]
 }
 
 // ------------------------------------------------------- per-Run tables --
+
+/** The key a per-Arm row holds an Arm's figure under. */
+type Side = "vanilla" | "piChart";
+const sideOf = (arm: Arm): Side => (arm === "vanilla" ? "vanilla" : "piChart");
 
 /** Each graded step's Passes per Arm, of the complete Runs that graded it, in the order steps first appear. */
 export function passCounts(runs: RunSummary[]): { step: string; vanilla: { pass: number; of: number }; piChart: { pass: number; of: number } }[] {
@@ -231,7 +248,7 @@ export function passCounts(runs: RunSummary[]): { step: string; vanilla: { pass:
 			const step = run.task === undefined ? id : `${run.task}: ${id}`;
 			let row = rows.get(step);
 			if (!row) rows.set(step, (row = { step, vanilla: { pass: 0, of: 0 }, piChart: { pass: 0, of: 0 } }));
-			const cell = run.arm === "vanilla" ? row.vanilla : row.piChart;
+			const cell = row[sideOf(run.arm)];
 			cell.of++;
 			if (outcome === "Pass") cell.pass++;
 		}
@@ -250,7 +267,7 @@ export function firstFails(runs: RunSummary[]): { step: string; vanilla: number;
 			row = rows.get(step) ?? { step, vanilla: 0, piChart: 0 };
 			rows.set(step, row);
 		}
-		row[run.arm === "vanilla" ? "vanilla" : "piChart"]++;
+		row[sideOf(run.arm)]++;
 	}
 	return [...rows.values(), none];
 }
@@ -334,15 +351,6 @@ export interface BatchRecord {
 	/** The stops an EvoCode batch was resumed past, oldest first; their pairs' Run folders are under `stopped/<n>/`. */
 	resumed?: string[];
 	pairs: BatchPair[];
-}
-
-/** The uncommitted paths under `src/`, untracked ones included. */
-export async function uncommittedSource(): Promise<string[]> {
-	const status = await run(["git", "-C", REPO, "status", "--porcelain", "--untracked-files=all", "--", "src/"]);
-	return status
-		.split("\n")
-		.filter((line) => line.trim())
-		.map((line) => line.slice(3));
 }
 
 /** One EvoCode pair to run: its place in the batch, its task, and which of the task's pairs it is. */
@@ -432,13 +440,6 @@ function evoPairRunner(ctx: EvoContext, taskDir: (task: string) => string): (job
 	};
 }
 
-/** The Thread Store server pi-chart Runs create their databases on. */
-function threadStore(): string {
-	const server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
-	if (!server) throw new Error("pi-chart Runs need a Thread Store server: set PICHART_DATABASE_URL, or run setup to save one");
-	return server;
-}
-
 /** A Gate Workload batch: pairs on `model` until `want` are complete, void ones replaced, under the batch's cap. */
 async function gateBatch(
 	name: Exclude<BatchName, "evocode">,
@@ -447,9 +448,9 @@ async function gateBatch(
 ): Promise<BatchRecord> {
 	const { model, cap } = BATCHES[name];
 	const workload = await loadNamedWorkload(settings.workload);
-	const omp = (await run(["omp", "--version"])).trim();
+	const omp = await ompVersion();
 	const commit = await resolveCommit("HEAD");
-	const server = threadStore();
+	const server = requireThreadStore("pi-chart Runs");
 	const record: BatchRecord = {
 		batch: name,
 		model,
@@ -511,7 +512,7 @@ async function evoBatch(dir: string, parallel: number, prior?: BatchRecord): Pro
 	const subset = (await Bun.file(SUBSET_FILE).json()) as Subset;
 	const tasks = subset.candidates.filter((candidate) => candidate.status === "admitted").map((candidate) => candidate.task);
 	if (tasks.length === 0) throw new Error(`${SUBSET_FILE} admits no task`);
-	const omp = (await run(["omp", "--version"])).trim();
+	const omp = await ompVersion();
 	const commit = prior?.commit ?? (await resolveCommit("HEAD"));
 	if (prior) {
 		const workload = { tasks, revision: subset.revision };
@@ -618,7 +619,7 @@ async function ablate(out: string): Promise<void> {
 			);
 			ledger.runs.push(entry);
 			await writeFile(join(out, "ablation.json"), `${JSON.stringify(ledger, null, "\t")}\n`);
-			log(`${label}: Ablation spent $${entry.spent.toFixed(2)}`);
+			log(`${label}: Ablation spent ${usd2(entry.spent)}`);
 		}
 	} finally {
 		await rm(tree, { recursive: true, force: true });
@@ -684,27 +685,26 @@ async function reportBatch(out: string, record: BatchRecord): Promise<ReportedBa
 
 const usd2 = (x: number) => (Number.isFinite(x) ? `$${x.toFixed(2)}` : "—");
 const num = (x: number | undefined, digits: number) => (x !== undefined && Number.isFinite(x) ? x.toFixed(digits) : "—");
-const pct = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? `${(100 * x).toFixed(1)}%` : "—");
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 
 /** A headline row's difference: ×ratio, signed count or percentage points, with its 95% bounds when it has df. */
 function diffCell(row: HeadlineRow): string {
 	const { diff } = row;
 	if (diff.pairs === 0) return "—";
 	const show = (x: number) =>
-		row.scale === "ratio" ? `${Math.exp(x).toFixed(3)}×` : row.scale === "share" ? `${(100 * x).toFixed(1)} pp` : `${x >= 0 ? "+" : ""}${x.toFixed(2)}`;
+		row.scale === "cost" ? `${Math.exp(x).toFixed(3)}×` : row.scale === "share" ? `${(100 * x).toFixed(1)} pp` : `${x >= 0 ? "+" : ""}${x.toFixed(2)}`;
 	const bounds = diff.lower === undefined || diff.upper === undefined ? "no interval (df 0)" : `[${show(diff.lower)}, ${show(diff.upper)}]`;
 	return `${show(diff.mean)} ${bounds}`;
 }
 
-function armCell(row: HeadlineRow, side: "vanilla" | "piChart"): string {
+function armCell(row: HeadlineRow, side: Side): string {
 	const value = row[side];
 	if (value === undefined) return "—";
 	if (row.scale === "share") {
 		const tally = row.tallies?.[side];
-		return `${pct(value)}${tally ? ` (${tally.right}/${tally.of})` : ""}`;
+		return `${percentLabel(value)}${tally ? ` (${tally.right}/${tally.of})` : ""}`;
 	}
-	return row.measure.startsWith("Cost") ? usd2(value) : num(value, 2);
+	return row.scale === "cost" ? usd2(value) : num(value, 2);
 }
 
 function headlineTable(rows: HeadlineRow[]): string[] {
@@ -719,8 +719,8 @@ function headlineTable(rows: HeadlineRow[]): string[] {
 	return lines;
 }
 
-/** How a batch's Runs ran: the model ids and thinking levels they record, with counts when they differ. */
-function levels(values: (string | undefined)[], unrecorded: string): string {
+/** The distinct values a batch's Runs record, such as model ids or thinking levels, with counts when they differ. */
+function valuesWithCounts(values: (string | undefined)[], unrecorded: string): string {
 	const counts = new Map<string, number>();
 	for (const value of values) counts.set(value ?? unrecorded, (counts.get(value ?? unrecorded) ?? 0) + 1);
 	if (counts.size === 1) return [...counts.keys()][0] as string;
@@ -798,7 +798,7 @@ function ablationSection(ablation: ComparisonFile["ablation"]): string[] {
 		const unclear = summary ? percentLabel(summary.unclear) : "—";
 		const unstable = summary ? `${summary.unstable.k}/${summary.unstable.n}` : "—";
 		const spend = summary ? usd2(summary.spend) : "—";
-		lines.push(`| ${arm === "vanilla" ? "plain omp" : arm} | ${needed} | ${unclear} | ${unstable} | ${spend} | ${pct(ablation.utilisation[arm])} | ${ablation.ppi[arm] ?? "no Runs"} |`);
+		lines.push(`| ${arm === "vanilla" ? "plain omp" : arm} | ${needed} | ${unclear} | ${unstable} | ${spend} | ${percentLabel(ablation.utilisation[arm] ?? Number.NaN)} | ${ablation.ppi[arm] ?? "no Runs"} |`);
 	}
 	lines.push(
 		"",
@@ -823,13 +823,13 @@ function caveats(batches: ReportedBatch[]): string[] {
 	for (const batch of batches) {
 		const { complete, void: voids } = pairCounts(batch);
 		const given = batch.runs.some((each) => each.thinkingGiven);
-		const thinking = levels(batch.runs.map((each) => each.thinking), "unrecorded");
+		const thinking = valuesWithCounts(batch.runs.map((each) => each.thinking), "unrecorded");
 		const method =
 			"tasks" in batch.workload
 				? `two-sided 95% paired t pooled within the ${batch.workload.tasks.length} tasks (${batch.workload.tasks.join(", ")}), which describes these tasks, not EvoCode-Bench as a whole`
 				: "two-sided 95% paired t over the batch's own pairs";
 		lines.push(
-			`   - ${BATCHES[batch.batch].title}: model ${levels(batch.runs.map((each) => each.model), "unrecorded")}; ` +
+			`   - ${BATCHES[batch.batch].title}: model ${valuesWithCounts(batch.runs.map((each) => each.model), "unrecorded")}; ` +
 				`thinking ${thinking}${given ? "" : " (the harness default, from the Journals)"}; ${batch.omp}; ` +
 				`${plural(complete, "complete pair")}, ${voids} void; interval: ${method}. No multiplicity correction applies.`,
 		);
@@ -949,8 +949,7 @@ async function main(argv: string[]): Promise<void> {
 
 	if (!BATCH_NAMES.includes(name as BatchName)) throw new Error(`--batch must be one of ${BATCH_NAMES.join(", ")}`);
 	const batch = name as BatchName;
-	const dirty = await uncommittedSource();
-	if (dirty.length > 0) throw new Error(`refusing: uncommitted changes under src/ (${dirty.join(", ")}); a pi-chart Run could not name the commit it loaded`);
+	if (!srcIsCommitted()) throw new Error("refusing: uncommitted changes under src/; a pi-chart Run could not name the commit it loaded");
 	const dir = join(out, batch);
 	const resume = argv.includes("--resume");
 	let prior: BatchRecord | undefined;

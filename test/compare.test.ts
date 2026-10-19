@@ -120,7 +120,7 @@ describe("headline", () => {
 		const rows = headline([pair({ cost: 2 }, { cost: 4 }), pair({ cost: 2 }, { cost: 3 }), pair({ cost: 4 }, { cost: 4 })], true);
 		const cost = row(rows, "Cost per Run");
 
-		expect(cost.scale).toBe("ratio");
+		expect(cost.scale).toBe("cost");
 		expect(cost.vanilla).toBeCloseTo(2.519842, 5);
 		expect(cost.piChart).toBeCloseTo(3.634241, 5);
 		expect(Math.exp(cost.diff.mean)).toBeCloseTo(1.44225, 5);
@@ -145,10 +145,10 @@ describe("headline", () => {
 		expect(row(rows, "Lapses per Run").diff).toMatchObject({ pairs: 1, mean: 1 });
 	});
 
-	test("Retention counts a pair in a band only when both Runs scored a planted Probe there", () => {
+	test("Retention counts a pair in a band only when both Runs scored a planted Probe there, and an unplanted score in none", () => {
 		const rows = headline(
 			[
-				pair({ plants: [score(true, 3), score(false, 4)] }, { plants: [score(true, 2)] }),
+				pair({ plants: [score(true, 3), score(false, 4)] }, { plants: [score(true, 2), score(false)] }),
 				pair({ plants: [score(true, 3)] }, { plants: [score(false)] }),
 			],
 			true,

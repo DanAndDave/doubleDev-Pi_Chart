@@ -30,7 +30,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { type Config, loadConfig, readSavedUrl } from "../src/config.ts";
+import { type Config, loadConfig } from "../src/config.ts";
 import { readCalibration } from "./calibration.ts";
 import {
 	appendToPool,
@@ -70,14 +70,16 @@ import {
 	flagsOf,
 	loadNamedWorkload,
 	log,
+	ompVersion,
 	type Options,
+	requireThreadStore,
 	resolveCommit,
 	runOne,
 	srcIsCommitted,
 } from "./runs.ts";
 import { mean, sampleVariance } from "./stats.ts";
 import { CAVEATS, share, utilisationLabel } from "./utilisation.ts";
-import { isHeldOut, REPO, run, turnsOf } from "./workload.ts";
+import { isHeldOut, REPO, turnsOf } from "./workload.ts";
 
 // ------------------------------------------------------------------ grid --
 
@@ -544,15 +546,14 @@ export async function runSweep(argv: string[]): Promise<void> {
 	if (isHeldOut(workload.name)) throw refuse(workload.name);
 	const heldOut = await loadNamedWorkload(flag("--holdout") ?? `${workload.name}-holdout`);
 	if (heldOut.name === workload.name) throw new Error(`the held-out Workload is the screen's own, ${workload.name}`);
-	const omp = (await run(["omp", "--version"])).trim();
+	const omp = await ompVersion();
 	const options = { screen: referenceOptions(workload, omp), heldOut: referenceOptions(heldOut, omp) };
 	const keys = { screen: keyOf(options.screen.workload, omp), heldOut: keyOf(options.heldOut.workload, omp) };
 	const poolFile = resolve(flag("--pool") ?? POOL);
 	const history = (await readPool(poolFile)).batches;
 	pooledBatches(history, keys.screen);
 	pooledBatches(history, keys.heldOut);
-	const server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
-	if (!server) throw new Error("sweep Runs need a Thread Store server: set PICHART_DATABASE_URL, or run setup to save one");
+	const server = requireThreadStore("sweep Runs");
 
 	const runs = positive("--runs", 3);
 	const parallel = positive("--parallel", 3);

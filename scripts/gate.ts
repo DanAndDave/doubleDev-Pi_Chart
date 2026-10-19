@@ -46,7 +46,6 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { readSavedUrl } from "../src/config.ts";
 import { type AblateOptions, AblationStop, ablateRun, readAblation } from "./ablate.ts";
 import { type AblationRecord, type CalibrationFile, estimateLabel, shareLabel, summarise } from "./ablation.ts";
 import { ppiShare, readCalibration } from "./calibration.ts";
@@ -58,7 +57,9 @@ import {
 	flagsOf,
 	loadNamedWorkload,
 	log,
+	ompVersion,
 	type Options,
+	requireThreadStore,
 	resolveCommit,
 	runOne,
 	type RunSpec,
@@ -66,7 +67,7 @@ import {
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
 import { PULL_TOOLS } from "./units.ts";
 import { CAVEATS, share, utilisationLabel } from "./utilisation.ts";
-import { isHeldOut, REPO, run, turnsOf, type Workload, type WorkloadId } from "./workload.ts";
+import { isHeldOut, REPO, turnsOf, type Workload, type WorkloadId } from "./workload.ts";
 
 /**
  * The two looks: the pairs each needs, its one-sided level (O'Brien–Fleming,
@@ -737,13 +738,12 @@ async function main(argv: string[]): Promise<void> {
 	if (!aa && isHeldOut(workload.name)) {
 		throw new Error(`${workload.name} is a held-out Workload: it is run only by A/A (--aa) and a Budget sweep's confirm, never by a Gate`);
 	}
-	const options = referenceOptions(workload, (await run(["omp", "--version"])).trim());
+	const options = referenceOptions(workload, await ompVersion());
 	const key = keyOf(options.workload, options.omp);
 	const poolFile = resolve(flag("--pool") ?? POOL);
 	const history = (await readPool(poolFile)).batches;
 	if (!aa) pooledBatches(history, key);
-	const server = process.env.PICHART_DATABASE_URL ?? readSavedUrl();
-	if (!server) throw new Error("Gate Runs need a Thread Store server: set PICHART_DATABASE_URL, or run setup to save one");
+	const server = requireThreadStore("Gate Runs");
 	const parallel = positive("--parallel", 2);
 	const stamp = Date.now();
 	const out = resolve(flag("--out") ?? join(tmpdir(), `pichart-gate-${stamp}`));

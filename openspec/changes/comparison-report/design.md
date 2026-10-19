@@ -27,7 +27,7 @@ What the archived slices built, and what this change reuses:
 - Any verdict, margin or sequential look; this is not a Gate.
 - A new calibration. The PPI row stays missing under the Gate v1 set's κ.
 - Committing the Run folders. EvoCode Journals quote CC BY-NC tasks; the Gate Workload Runs would add about 1.2 MB each.
-- Resuming a stopped batch. A batch restarted from the beginning goes into a new output folder.
+- Resuming a Gate Workload batch. It replaces void pairs as it goes, so one started again goes into a new output folder. Only a stopped EvoCode batch resumes (Decision 4).
 - A price table. Cost is the provider's `usage.cost.total`, as everywhere else.
 
 ## Decisions
@@ -35,12 +35,13 @@ What the archived slices built, and what this change reuses:
 ### 1. One command, one output folder, steps run separately
 
 ```
-bun scripts/compare.ts --out <dir> --batch reference|second|evocode [--parallel n] [--workload <name> --pairs n]
+bun scripts/compare.ts --out <dir> --batch reference|second|evocode [--parallel n] [--turn-timeout s] [--workload <name> --pairs n]
+bun scripts/compare.ts --out <dir> --batch evocode --resume [--parallel n]
 bun scripts/compare.ts --out <dir> --ablate
 bun scripts/compare.ts --out <dir> --report [--date YYYY-MM-DD]
 ```
 
-`--out` is required, so three invocations days apart write to the same folder. Each batch writes `<out>/<batch>/batch.json` and `<out>/<batch>/runs/<label>/`. A batch whose `batch.json` already exists is refused, so a finished batch is never overwritten. `--workload` and `--pairs` exist for the smoke run only (`smoke`, 1 pair). The report names any batch that ran on another Workload or at another n, so a smoke run cannot pass for the real one.
+`--out` is required, so three invocations days apart write to the same folder. Each batch writes `<out>/<batch>/batch.json` and `<out>/<batch>/runs/<label>/`. A batch whose folder `<out>/<batch>/` already exists is refused, so a finished batch is never overwritten. A batch that fails before its first Run removes its folder, so it can start again in place. `--workload` and `--pairs` exist for the smoke run only (`smoke`, 1 pair). The report names any batch that ran on another Workload or at another n, so a smoke run cannot pass for the real one. `--turn-timeout` is each Gate Workload Turn's limit (600 s by default, as in `bench-tokens`). `--parallel` defaults to 2 pairs at once for Gate Workload batches and to 1 for EvoCode.
 
 `batch.json`:
 
@@ -49,12 +50,15 @@ interface BatchRecord {
   batch: "reference" | "second" | "evocode";
   model: string;
   workload: { name: string; version: number } | { tasks: string[]; revision: string };
+  want: number;             // complete pairs (Gate Workload), or pairs per task (EvoCode)
   omp: string;
   commit: string;           // HEAD the pi-chart Runs loaded
+  parallel: number;
   cap: number;
   spent: number;
   capped: boolean;
   stopped?: string;
+  resumed?: string[];       // the stops an EvoCode batch was resumed past, oldest first
   pairs: { index: number; task?: string; vanilla: string; piChart: string; complete: boolean }[];
 }
 ```
@@ -63,7 +67,7 @@ Labels are `${arm}-${index}` for Gate Workload batches and `${task}-${arm}-${rep
 
 ### 2. Before any Run: clean `src/`, one tree
 
-A batch first checks `git diff --quiet HEAD -- src/` and refuses with the paths when it fails. Gate Workload batches then load pi-chart from `buildTree(HEAD)`, as the Gate does, and record its sha as `commit`. EvoCode Runs mount the repository itself (`evocode.ts`), so the clean-`src/` check is what makes their recorded commit true.
+A batch first checks `srcIsCommitted()` (`git diff --quiet HEAD -- src/`, as the Gate, the sweep and `evocode.ts` check it) and refuses when it fails. Gate Workload batches then load pi-chart from `buildTree(HEAD)`, as the Gate does, and record its sha as `commit`. EvoCode Runs mount the repository itself (`evocode.ts`), so the clean-`src/` check is what makes their recorded commit true.
 
 ### 3. Gate Workload batches reuse the Gate's pair machinery
 
@@ -81,6 +85,8 @@ Jobs are ordered replica-major (all 4 tasks for replica 0, then replica 1), so a
 
 **Resume.** The first EvoCode batch stopped after 5 of 8 pairs. omp upgraded itself from 18.12.1 to 18.12.2 mid-batch, and `omp_agent.py` refused a container whose omp differed from the host's. Starting over would have cost about $110 again. Instead, `--batch evocode --resume` runs the same jobs with `prior: { pairs, spent }` from the stopped record: jobs whose index the record holds are skipped (void pairs included, since they are not replaced), and `runCapped` gets `cap − spent`. It refuses unless `omp --version`, the admitted tasks and their revision, and `src/` at `HEAD` against the recorded `commit` all match, and it keeps the recorded `commit`. The stopping pair's `runs/<label>` and `harbor/<label>` folders move to `stopped/<n>/`, so the report reads only the rerun's Runs. The new record appends the stop to `resumed`, and the report names it. A Gate Workload batch has no resume: `gatherPairs` replaces void pairs as it goes and has no state to restart from, and no Gate Workload batch needed one.
 
+The record names the stop as it reached the batch, "the trial holds no main Journal": the refused container ran no agent, so its trial left no Journal.
+
 ### 5. The paired interval, pooled within tasks
 
 `pairedWithinTasks(groups: number[][])` in `scripts/stats.ts` takes per-task lists of pair differences and returns `{ pairs, tasks, mean, df, se, lower?, upper? }`:
@@ -94,12 +100,12 @@ With one task this is the ordinary paired t. Pooling within tasks targets the me
 
 ### 6. Headline rows from per-Run summaries
 
-`summaryOf(record, measures, thinking)` reduces a Run to what the JSON keeps and the headline needs:
+`summaryOf(run: { label, task? }, record, measures, thinking)` reduces a Run to what the JSON keeps and the headline needs:
 
 ```ts
 interface RunSummary {
   label: string; arm: Arm; index: number; task?: string;
-  model?: string; thinking?: string; complete: boolean;
+  model?: string; thinking?: string; thinkingGiven?: true; complete: boolean;
   cost: number; steps: { id: string; outcome: Outcome }[]; passes: number; firstFail?: string;
   lapses: number;                      // gateLapses
   plants: Score[];                     // no prompt or value text in a Score
@@ -108,30 +114,34 @@ interface RunSummary {
 }
 ```
 
-`headline(pairs: { task: string; vanilla: RunSummary; piChart: RunSummary }[])` takes complete pairs only and returns rows. Each row is `{ measure, vanilla, piChart, diff: PairedFigure, excluded }`.
+`headline(pairs: { task: string; vanilla: RunSummary; piChart: RunSummary }[], planted: boolean)` takes complete pairs only and returns rows. Each row is `{ measure, scale: "cost" | "count" | "share", vanilla?, piChart?, tallies?, diff: PairedFigure, excluded, note? }`; `scale` decides how the report prints it.
 
 - **Cost per Run**: the difference per pair is `ln(pi.cost) − ln(van.cost)`. Arm figures are geometric means. The ratio and its bounds are `exp` of the difference and its bounds.
 - **Cost per Pass**: the same on `cost / passes`, with pairs where either side has `passes === 0` counted in `excluded`.
 - **Lapses per Run**: `pi.lapses − van.lapses`. Arm figures are means.
-- **Retention**, one row per `BANDS` entry: per Run, scores with `distance` in the band (unplanted scores have none) give `right / scored`. A pair counts only when both sides have at least one such score. Arm figures are pooled `right/of` over the counted pairs. A batch whose first record states no Plants gives a single "n/a: no Plants" row.
+- **Retention**, one row per `BANDS` entry: per Run, scores with `distance` in the band (unplanted scores have none) give `right / scored`. A pair counts only when both sides have at least one such score. Arm figures are pooled `right/of` over the counted pairs. A batch none of whose Run records states a Plant gives a single "n/a: no Plants" row.
 
 Grouping for the interval is by `task` (`pairs[].task`, or the Workload name for Gate Workload batches).
 
-Pass counts per step and first failing steps come from the same summaries, with complete Runs only. One-Arm rows are the mean per Run of `compactions` (plain omp), `pulls[tool].calls` per tool and `recall.recall` per band (pi-chart). The other Arm reads "n/a".
+Pass counts per step and first failing steps come from the same summaries, with complete Runs only; a step's count is of the complete Runs that graded it, as the Gate counts Graded Tasks. One-Arm rows are the mean per Run of `compactions` (plain omp), `pulls[tool].calls` per tool and `recall.recall` per band (pi-chart). The other Arm reads "n/a".
 
 ### 7. Thinking level from the Journal
 
-`headerOf` also returns `thinking`, the `thinkingLevel` of the first `thinking_level_change`. Caveat 6 gives the record's `thinking` when the Run was given one, else the Journal's. When a batch's Runs disagree, it lists each level with its count. This adds a field to `headerOf`'s result. `run.json` stays as it is, because the benchmark-runs spec records only a level that was given.
+`headerOf` also returns `thinking`, the `thinkingLevel` of the first `thinking_level_change`. Caveat 6 gives the record's `thinking` when the Run was given one, else the Journal's, which `thinkingGiven` tells apart. When a batch's Runs disagree, it lists each level with its count. This adds a field to `headerOf`'s result. `run.json` stays as it is, because the benchmark-runs spec records only a level that was given.
 
 ### 8. Ablation
 
 `--ablate` reads `reference/batch.json`, takes the 2 lowest-indexed complete pairs, and runs `ablateRun` on each of the 4 Runs one at a time. Each call uses `{ units: 20, nulls: 0, controls: false, cap: 10, seed: random, commit: sha, tree: buildTree(sha) }`, the Gate's `ablateSide` settings with the per-Run cap from ticket 05. An `AblationStop` logs the reason, counts its spend, and moves on. The expected spend is about 20 × ($0.25 + $0.39) × 2 ≈ $26. The hard limit is 4 × $10.
 
+Each ablated Run's spend, and the reason when it has no record, goes into `<out>/ablation.json` as soon as it finishes. `--ablate` skips a Run already there, so a pass stopped partway is finished without paying again for the Runs it completed.
+
+Ablation replays every Call through omp, and omp 18.12 changed what it sends: it gzips request bodies and opens with a connection warm-up `HEAD`. `scripts/replay-ext.ts` therefore gunzips a Call body before reading it, sends its own count and draws as plain JSON, and answers the warm-up itself without a network request.
+
 The report summarises the `ablation.json` records per Arm with `summarise`, and gives the Utilisation share and `utilisationLabel` from the batch's Run summaries. The PPI line per Arm comes from `ppiByArm` over the reference batch's complete Run folders, which this change exports from `ablate.ts`. Under Gate v1 that line is the "uncalibrated (…)" reason.
 
 ### 9. Report and JSON
 
-`--report` reads every `<out>/<batch>/batch.json` that exists, recomputes each Run with `measureRun(dir, readCalibration())`, builds summaries and headlines, and writes both files under `docs/benchmarks/`. The Markdown follows the existing reports: a title with the date, a bold paragraph of the headline ratios, then a bullet list (commit, omp, models, Workloads, n, caps and spend, and how to reproduce). Then come one section per batch (headline table, Pass counts, one-Arm rows), an Ablation section, and the caveats. The JSON is `{ date, batches: [{ ...BatchRecord, runs: RunSummary[], headline: Row[] }], ablation: { arm: Summary } }`. A `RunSummary` holds no prompt, reply or Journal text. A test checks this over an EvoCode-shaped record, because a record's `prompts` hold the task's instruction text. A batch with no `batch.json` gets a "not run" section.
+`--report` reads every `<out>/<batch>/batch.json` that exists, recomputes each Run with `measureRun(dir, readCalibration())`, builds summaries and headlines, and writes both files under `docs/benchmarks/`. The Markdown follows the existing reports: a title with the date, a bold paragraph of the headline ratios, then a bullet list (commit, omp, models, Workloads, n, caps and spend, and how to reproduce). Then come one section per batch (headline table, Pass counts, one-Arm rows), an Ablation section, and the caveats. The JSON is `{ date, batches: [{ ...BatchRecord, runs: RunSummary[], headline, passes, firstFails, oneArm } | { batch, notRun: true }], ablation?: { arms: { arm: Summary }, spent, runs, utilisation, utilisationLabel, ppi } }`, where `ablation.runs` is the ledger and `spent` includes the spend of Runs with no record. A `RunSummary` holds no prompt, reply or Journal text. A test checks this over an EvoCode-shaped record, because a record's `prompts` hold the task's instruction text. A batch with no `batch.json` gets a "not run" section.
 
 ## Risks / Trade-offs
 
@@ -141,20 +151,20 @@ The report summarises the `ablation.json` records per Arm with `summarise`, and 
 - **[Trade-off]** The batches use their own variance, not the A/A pool, so the reference batch's df is 9 rather than 13. The A/A pairs measure pi-chart against pi-chart and have a different variance from a plain-omp pair.
 - **[Trade-off]** The headline is one family of about 9 intervals with no multiplicity correction. The report is descriptive and says so (spec: no correction). A reader must not read one excluded zero as a finding.
 - **[Risk]** Retention rows are thin. Each Gate Workload Run scores a fixed set of Probes per band, so a band's per-Run share takes only a few values. The interval is computed regardless, and the pooled `right/of` beside it shows how few Probes back it.
-- **[Risk]** omp updates itself between batches, or during one. → Every batch records `omp`, the report gives each batch's version, and `omp_agent.py` refuses a container on a different omp. A resume refuses on a different omp, so it must be run with the recorded version first on `PATH`. All three batches of the 2026-10-18 comparison ran on 18.12.1.
+- **[Risk]** omp updates itself between batches, or during one. → Every batch records `omp`, the report gives each batch's version, and `omp_agent.py` refuses a container on a different omp. A resume refuses on a different omp, so it must be run with the recorded version first on `PATH`. Every batch of the comparison reported on 2026-10-19 ran on 18.12.1.
 
 ## Migration Plan
 
-None. The report is new. `offModel`'s new parameter is passed at its two call sites.
+None. The report is new. `offModel`'s new parameter is passed at its two call sites. `ompVersion()`, `savedThreadStore()` and `requireThreadStore(runs)` move into `scripts/runs.ts`, replacing the copies in `gate.ts`, `sweep.ts`, `replay.ts`, `bench-tokens.ts` and `evocode.ts`.
 
 ## Testing seams
 
 | Requirement | Seam | Cases |
 | --- | --- | --- |
 | Headline Measures are paired differences with 95% intervals | `pairedWithinTasks(groups)` | One task `[0.1, 0.2, 0.3]`: mean 0.2, df 2, bounds 0.2 ± 4.303·0.1/√3. Two tasks `[[0,0.2],[1,1.2]]`: mean 0.6, df 2, se √(0.02·1)/2. A task of one pair: in the mean, no df. All tasks of one pair: no bounds. No groups: `pairs: 0`. |
-| Headline Measures; Pass counts; one-Arm rows | `headline(pairs)` over hand-built `RunSummary`s | Cost ratio equals exp(mean log difference). A pair with 0 Passes on one side is excluded from Cost per Pass, and counted. A band with scores on one side only is excluded. A band with no pair shows no figure. Unplanted scores never count. No Plants gives the "n/a: no Plants" row. Compactions read n/a for pi-chart; Pulls read n/a for plain omp. |
-| Every Run is on its batch's model | `offModel(record, measures, model)` and `pairRunner` | A sonnet record passes under the sonnet model and fails under the reference model. Existing Gate cases still pass with `REFERENCE_MODEL` passed. |
+| Headline Measures; Pass counts; one-Arm rows | `headline(pairs, planted)` over hand-built `RunSummary`s | Cost ratio equals exp(mean log difference). A pair with 0 Passes on one side is excluded from Cost per Pass, and counted. A band with scores on one side only is excluded. A band with no pair shows no figure. An unplanted score on a counted side is in no band. No Plants gives the "n/a: no Plants" row. Compactions read n/a for pi-chart; Pulls read n/a for plain omp. |
+| Every Run is on its batch's model | `offModel(record, measures, model)` | A sonnet record passes under the sonnet model and fails under the reference model. Existing Gate cases still pass with `REFERENCE_MODEL` passed. `pairRunner` passing `ctx.options.model` is wiring with no seam short of spawning omp; the second-model batch's 10 sonnet pairs exercised it. |
 | EvoCode pairs: 2 per task, no replacement, spend counted | `evocodeBatch({ tasks, perTask, runPair, cap, width, prior? })` with an injected `runPair` | Jobs are replica-major. A void pair is not rerun. A cap reached after 5 pairs leaves 3 unstarted, with `capped` true. A pair whose Run throws stops the batch, and its finished Run's cost is in `spent`. Resumed with a prior void and complete pair, only the missing jobs run, and the void pair stays. Resumed after spending 120 of 125, one pair runs and the batch is capped at 145. |
 | Thinking level from the Runs | `headerOf(file)` over a fixture Journal | Returns `high` from `thinking_level_change`. A Journal with none returns no thinking. |
-| No task text reaches the repository | `summaryOf(record, measures, thinking)` | Over a record whose `prompts` hold a sentinel string, `JSON.stringify(summary)` does not contain it. |
+| No task text reaches the repository | `summaryOf(run, record, measures, thinking)` | Over a record whose `prompts` hold a sentinel string, `JSON.stringify(summary)` does not contain it. |
 | Refuses with uncommitted source; batch never overwritten; report rebuilt; missing batch "not run" | smoke | `--batch reference --workload smoke --pairs 1` into a tmp folder. A second identical call is refused. Editing `src/` refuses a batch. `--report` with only that batch prints the other two as not run, and its JSON holds no prompt text. |

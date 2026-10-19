@@ -58,6 +58,8 @@ None. The Gate's model check takes the model to check against as a parameter, wi
   - `buildTree` and `headerOf` from `scripts/runs.ts`. `headerOf` now also returns the Journal's thinking level.
 - `scripts/gate.ts`: `offModel` and `pairRunner` check each Run against the model its batch asked for, instead of the fixed `REFERENCE_MODEL`.
 - `scripts/stats.ts`: `pairedWithinTasks`, a two-sided paired interval pooled within tasks.
+- `scripts/replay-ext.ts`: Ablation's replay reads omp 18.12's gzipped Call bodies and answers its connection warm-up.
+- `scripts/runs.ts`: `ompVersion`, `savedThreadStore` and `requireThreadStore` replace the copies in `gate.ts`, `sweep.ts`, `replay.ts`, `bench-tokens.ts` and `evocode.ts`.
 - New tests: `test/compare.test.ts`, plus cases in `test/gate.test.ts` and `test/stats.test.ts`.
 - `README.md` (benchmarks section) and the new `docs/benchmarks/` report.
 - Spend: at most $250 for the batches and $40 for Ablation, about $290 in total, plus a smoke run of a few dollars.
