@@ -1,14 +1,16 @@
-import type {
-	CallAccounting,
-	MemoryBackendState,
-	RecordedPart,
-	TailSource,
-	TurnAccounting,
+import {
+	recordPart,
+	type CallAccounting,
+	type MemoryBackendState,
+	type RecordedPart,
+	type TailSource,
+	type TurnAccounting,
 } from "./accounting.ts";
 import type {
 	AbsenceCause,
 	Budget,
 	ExcludedCandidate,
+	Pack,
 	PackSource,
 	PartExclusion,
 } from "./assembler.ts";
@@ -133,6 +135,30 @@ export interface CallView {
 	explained: boolean;
 }
 
+/**
+ * The one condition a Pack is in against its ceiling, worst first: it went
+ * out over it, the ceiling had to reduce it, or it is past the warning share.
+ */
+export type CeilingMark = "over" | "reduced" | "near";
+
+/** The Pack a Call just assembled, as the footer and the widget show it. */
+export interface PackView {
+	approximateTokens: number;
+	/** The Pack ceiling in force; zero or less where none is. */
+	ceiling: number;
+	beforeCeiling: number;
+	/** Absent where the Pack fitted without reduction and within the share. */
+	mark?: CeilingMark;
+	parts: PartView[];
+}
+
+/**
+ * The last Call of a Conversation as the footer and the widget show it:
+ * absent until one is assembled, `"unassembled"` after one went out as the
+ * harness's own history.
+ */
+export type PackState = PackView | "unassembled" | undefined;
+
 /** What changed between two Calls' packs. */
 export interface PackDiff {
 	entered: PackItem[];
@@ -248,6 +274,35 @@ export function inspectCall(call: CallAccounting): CallView {
 			call.beforeCeiling !== undefined &&
 			call.approximateTokens !== undefined &&
 			call.beforeCeiling > call.approximateTokens,
+	};
+}
+
+/**
+ * The live Pack as an inspector presents it, without the store.
+ *
+ * Parts go through `recordPart` and `viewPart`, the conversion `/pack`
+ * applies to the recorded Call, so the footer, the widget and `/pack` say
+ * the same thing about the same Pack. "Near" is strictly past the share,
+ * as the log line's comparison is, so the gauge and the log agree.
+ */
+export function viewPack(pack: Pack, warnShare: number): PackView {
+	const { approximateTokens, ceiling, beforeCeiling } = pack;
+	const mark: CeilingMark | undefined =
+		ceiling <= 0
+			? undefined
+			: approximateTokens > ceiling
+				? "over"
+				: beforeCeiling > approximateTokens
+					? "reduced"
+					: approximateTokens > ceiling * warnShare
+						? "near"
+						: undefined;
+	return {
+		approximateTokens,
+		ceiling,
+		beforeCeiling,
+		mark,
+		parts: pack.parts.map((part) => viewPart(recordPart(part))),
 	};
 }
 

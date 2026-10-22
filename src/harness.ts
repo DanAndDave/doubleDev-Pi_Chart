@@ -49,6 +49,15 @@ export interface HarnessUI {
 	notify?: (message: string, level: string) => void;
 	/** A footer status under `key`; `undefined` clears it. */
 	setStatus?: (key: string, text: string | undefined) => void;
+	/**
+	 * Lines shown beside the editor under `key`; `undefined` removes them.
+	 * Only the string-array form is declared: it is the one RPC carries.
+	 */
+	setWidget?: (
+		key: string,
+		lines: string[] | undefined,
+		options?: { placement?: "aboveEditor" | "belowEditor" },
+	) => void;
 	/** A multi-line editor: the submitted text, or `undefined` if cancelled. */
 	editor?: (title: string, prefill?: string) => Promise<string | undefined>;
 }

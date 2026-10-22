@@ -50,7 +50,9 @@ import {
 	parseAddress,
 	resolveCall,
 	summarise,
+	viewPack,
 	type CallView,
+	type PackState,
 } from "./inspection.ts";
 import {
 	describeRecorded,
@@ -58,7 +60,9 @@ import {
 	renderConcept,
 	renderDiff,
 	renderExplanation,
+	renderGauge,
 	renderLevel,
+	renderPackWidget,
 	renderSearch,
 	renderSummary,
 } from "./report.ts";
@@ -185,6 +189,8 @@ export interface Dependencies {
 const UNKNOWN_CONVERSATION = "unknown-conversation";
 /** The footer status that says a Conversation holds Pins. */
 const PIN_STATUS = "pi-chart.pins";
+/** The footer status, and the widget below the editor, that show the last Call's Pack. */
+const PACK_VIEW = "pi-chart.pack";
 /** Said by every Pin command a harness without a Journal surface cannot serve. */
 const PINS_UNAVAILABLE =
 	"Pins are off: this harness does not let pi-chart read and write its journal.";
@@ -395,6 +401,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	let held = replayPins([]);
 	/** Said once a session: a harness without the Journal surface stays without it. */
 	let pinsUnavailableReported = false;
+	/** The last Call's Pack as the footer and the widget show it. */
+	let lastPack: PackState;
+	/** Whether `/pack show` opened the widget. Memory only, closed every session. */
+	let packShown = false;
 
 	/**
 	 * The Conversation's Journal as the Pins need it: read whole, written
@@ -479,19 +489,48 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
+	 * A write to the harness's screen that cannot fail what called it. A
+	 * status or a widget is an observation about a Call, never worth the Call.
+	 */
+	function showSafely(write: () => void): void {
+		try {
+			write();
+		} catch {
+			// The screen is the only place this had to go.
+		}
+	}
+
+	/**
 	 * Says on the footer that Pins are held, and whether the last Call
 	 * carried them. Cleared when there are none, so a Conversation without
 	 * Pins shows nothing.
 	 */
 	function showPins(target: HarnessUI | undefined): void {
 		if (held.pins.length === 0) {
-			target?.setStatus?.(PIN_STATUS, undefined);
+			showSafely(() => target?.setStatus?.(PIN_STATUS, undefined));
 			return;
 		}
 		const unsent = governing && pinsOffered ? "" : " — not sent";
-		target?.setStatus?.(
-			PIN_STATUS,
-			`pinned: ${held.pins.length} (~${pinTokens(held.pins)} tok)${unsent}`,
+		showSafely(() =>
+			target?.setStatus?.(
+				PIN_STATUS,
+				`pinned: ${held.pins.length} (~${pinTokens(held.pins)} tok)${unsent}`,
+			),
+		);
+	}
+
+	/**
+	 * The last Call's Pack on the footer, and in the widget while it is open.
+	 * Built from the Pack just assembled rather than read back from
+	 * Accounting, whose write is still in flight and may have no store.
+	 */
+	function showPack(target: HarnessUI | undefined): void {
+		showSafely(() => target?.setStatus?.(PACK_VIEW, renderGauge(lastPack)));
+		if (!packShown) return;
+		showSafely(() =>
+			target?.setWidget?.(PACK_VIEW, renderPackWidget(lastPack), {
+				placement: "belowEditor",
+			}),
 		);
 	}
 
@@ -509,13 +548,17 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	}
 
 	/**
-	 * Says so once when a Conversation's packs start crowding the ceiling,
-	 * and every time one cannot be brought under it at all.
+	 * Logs once when a Conversation's packs start crowding the ceiling, and
+	 * every time one cannot be brought under it at all.
 	 *
-	 * The approach is reported once: the condition persists for as long as
+	 * The approach is logged once: the condition persists for as long as
 	 * the work does, and a line per model request is a line nobody reads. An
-	 * overrun is reported every time, because it means a Call went out larger
+	 * overrun is logged every time, because it means a Call went out larger
 	 * than the operator asked for and only the prompt kept it that way.
+	 *
+	 * Never posted into the conversation: one Turn makes many Calls, and a
+	 * notice per Call buries the conversation without being actionable
+	 * while the Turn runs. The pack gauge marks every such Call instead.
 	 *
 	 * Measured against the ceiling rather than the model's window because the
 	 * harness reports the size of each window it sent and never the model's
@@ -528,7 +571,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const tailCarried = pack.parts.some(
 				(part) => part.source === "verbatim-tail" && (part.carried ?? 0) > 0,
 			);
-			announce(
+			reportSafely(
 				`Context Pack exceeds its ceiling: ~${pack.approximateTokens} of ` +
 					`${pack.ceiling} tokens. The current turn` +
 					`${tailCarried ? " and the newest tail turn" : ""} could not be ` +
@@ -539,10 +582,10 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		}
 
 		if (warnedNearCeiling.has(conversationId)) return;
-		if (pack.approximateTokens < pack.ceiling * deps.config.packWarnShare) return;
+		if (pack.approximateTokens <= pack.ceiling * deps.config.packWarnShare) return;
 		warnedNearCeiling.add(conversationId);
 		const share = Math.round((100 * pack.approximateTokens) / pack.ceiling);
-		announce(
+		reportSafely(
 			`Context Packs are approaching their ceiling: ~${pack.approximateTokens} ` +
 				`of ${pack.ceiling} tokens (${share}%). Parts will start being reduced; ` +
 				`\`pack\` shows what, and \`pack budget pack <n>\` raises the ceiling ` +
@@ -585,6 +628,14 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		pinsOffered = true;
 		held = pinsOf(ctx.sessionManager);
 		showPins(ui);
+		// A session starts with no Call assembled and the widget closed: it
+		// opens only on `/pack show`, and that is never carried over.
+		lastPack = undefined;
+		if (packShown) {
+			packShown = false;
+			showSafely(() => ui?.setWidget?.(PACK_VIEW, undefined));
+		}
+		showPack(ui);
 		// Said once: without the Journal surface every Pack goes out with no
 		// Pins, which must not look like a Conversation that holds none.
 		if (!pinJournal(ctx.sessionManager) && !pinsUnavailableReported) {
@@ -799,6 +850,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			const offered = turnAdditions.get(conversationId);
 			pinsOffered = offered !== undefined && offered.pinned.absent === undefined;
 			showPins(ui);
+			lastPack = viewPack(pack, deps.config.packWarnShare);
+			showPack(ui);
 			return { messages: pack.messages };
 		} catch (error) {
 			// Fails open, toward the accumulating window this exists to prevent,
@@ -807,6 +860,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			// is what goes out now, so its own compaction is left to it.
 			governing = false;
 			showPins(ui);
+			// Never the earlier Pack: it is not what went out.
+			lastPack = "unassembled";
+			showPack(ui);
 			reportSafely(`Assembly failed, turn left unassembled: ${describe(error)}`);
 			inBackground(
 				"Unassembled turn",
@@ -827,6 +883,9 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 		ui = ctx.ui;
 		held = pinsOf(ctx.sessionManager);
 		showPins(ui);
+		// Another Conversation: nothing of it is assembled yet.
+		lastPack = undefined;
+		showPack(ui);
 	});
 
 	// A branch, a fork at an entry and `/btw` promotion copy only the path
@@ -844,6 +903,8 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			held = copied;
 		}
 		showPins(ui);
+		lastPack = undefined;
+		showPack(ui);
 	});
 
 	pi.on("auto_compaction_start", async (event, ctx) => {
@@ -1774,10 +1835,11 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 				"`pack <turn>[.<call>]` for any recorded call, " +
 				"`pack why [<address>] <subject>` for why something was not " +
 				"carried, `pack diff [<a> <b>]`, `pack summary`, " +
+				"`pack show` / `pack hide` for the last call's parts below the editor, " +
 				"`pack budget <tail|tail-tokens|recall-tokens|opening-tokens|" +
 				"docs-tokens|graph-tokens|pack|pins|pins-tokens> <n>`",
 			handler: async (args, commandCtx) => {
-				const text = await inspect(args.trim());
+				const text = await inspect(args.trim(), commandCtx.ui);
 				tell(commandCtx, text);
 			},
 		});
@@ -1906,7 +1968,7 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 	 * out, and an inspector that only reads the last two Calls cannot be
 	 * asked about it.
 	 */
-	async function inspect(args: string): Promise<string> {
+	async function inspect(args: string, commandUi: HarnessUI | undefined): Promise<string> {
 		const [verb = "", ...rest] = args.split(/\s+/).filter(Boolean);
 
 		if (verb === "budget") {
@@ -1915,6 +1977,23 @@ export function register(pi: ExtensionAPI, deps: Dependencies): void {
 			return result.ok
 				? `Budget ${name} is now ${result.budget}; it applies from the next call.`
 				: `Budget unchanged: ${result.reason}`;
+		}
+
+		// Before Accounting is read, as `budget` is: the widget shows the Pack
+		// held in memory, so neither verb waits on a store or needs one.
+		if (verb === "show") {
+			if (!commandUi?.setWidget) {
+				return "This harness cannot show the pack beside the editor; /pack reads it.";
+			}
+			packShown = true;
+			showPack(commandUi);
+			return "Showing the pack below the editor; /pack hide closes it.";
+		}
+
+		if (verb === "hide") {
+			packShown = false;
+			showSafely(() => commandUi?.setWidget?.(PACK_VIEW, undefined));
+			return "Pack widget closed.";
 		}
 
 		const turns = await deps.accounting.readAccounting(lastConversation);

@@ -546,7 +546,7 @@ function droppedMarker(dropped: HarnessMessage[]): string {
 }
 
 /** Exact below a thousand; rounded thousands, marked as such, from there. */
-function tokenFigure(tokens: number): string {
+export function tokenFigure(tokens: number): string {
 	return tokens < 1_000 ? String(tokens) : `~${Math.round(tokens / 1_000)}k`;
 }
 

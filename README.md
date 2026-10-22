@@ -150,7 +150,7 @@ Each part of a pack is bounded twice — by a count of items and by a size in es
 | `PICHART_GRAPH_TOKENS` | `3000` | The cap on each `codebase_structure` result. |
 | `PICHART_PINS` | `8` | How many Pins a Conversation may hold. Bound when a Pin is written, never at assembly: lowering it below what is held refuses the next `/pins add` and carries every Pin already held. |
 | `PICHART_PINS_TOKENS` | `2000` | How large the Pins may be together, in estimated tokens, measured as the pack carries them. Bound like `PICHART_PINS`. Text larger than this is a document and belongs in the Doc Store. |
-| `PICHART_PACK_WARN_SHARE` | `0.75` | The share of the ceiling at which the extension says a Conversation's packs are creeping up. Reported once per Conversation; a pack that cannot be brought under the ceiling at all is reported every time. |
+| `PICHART_PACK_WARN_SHARE` | `0.75` | The share of the ceiling past which a pack counts as near it. The footer gauge marks every such Call `near ceiling`; the log says so once per Conversation. A pack that cannot be brought under the ceiling at all is logged every time and marked `over ceiling`. |
 | `PICHART_TAIL_DEADLINE_MS` | `1500` | How long a Call waits for the verbatim tail before assembling without it. The tail is one indexed read — 47.9 ms at worst against this machine's 388-Turn store — so anything slower is a Store in trouble. |
 | `PICHART_RECALL_DEADLINE_MS` | `5000` | How long a `recall_earlier_turns` or `recall_across_conversations` call waits for the Store. Its worst measured read is 81.4 ms, most of it embedding the query, and a fresh embedder adds 350 ms loading the model. |
 | `PICHART_DOC_DEADLINE_MS` | `5000` | How long a `search_documentation` call waits for the Doc Store. |
@@ -389,5 +389,23 @@ Turn 6, call 0
 - `/pack budget <name> <n>` — change a Budget from the next Call; in memory only, so it never leaks into the next session. Counts: `tail`, and `pins` for the Pin Budget. Sizes, in estimated tokens: `tail-tokens`, `recall-tokens` and `docs-tokens` and `graph-tokens` (each tool result's cap), `opening-tokens` (`0` turns the Opening off), `pins-tokens`, and `pack` for the whole pack's ceiling
 
 Part sizes are the local approximation and are labelled as such. Pack-versus-Floor uses the harness's own reported figures on both sides, and the `estimate` line puts our figure beside the harness's so the bias the Budgets are applied to is visible.
+
+The footer carries a gauge for the last Call's pack, updated on every Call:
+
+```
+pack ▕████████▏ 268% ~805k/300k · over ceiling
+```
+
+It carries at most one mark, worst first: `over ceiling` where the pack went out larger than `PICHART_PACK_TOKENS`, `reduced from ~<n>` where the ceiling cut it to fit, `near ceiling` past `PICHART_PACK_WARN_SHARE`. A Call that went out as the harness's own history reads `pack: not assembled`; a session switch or branch clears the gauge until the next Call. Neither condition is posted into the conversation: the log records every overrun, and the approach once per Conversation.
+
+- `/pack show` — itemise the last Call's parts below the editor, refreshed on every Call until `/pack hide`. Closed at every session start; harnesses without widgets (print, headless) say so and leave `/pack`:
+
+```
+pack ~805k of 300k (268%) · over ceiling
+pinned         ▏                       ~4k  in the system prompt (2 of 5)
+opening        ▏                       ~9k  in the system prompt (1 of 1)
+verbatim-tail  ███▊                  ~151k  (1 of 8, 4 for the pack ceiling, 412 messages dropped)
+current-turn   ███████████████▏      ~612k  (content shortened)
+```
 
 What a Call excluded is kept by identity, never by content: a Turn by its position, a Concept by its id, a symbol by its name, with the distance or size that decided. The Pins a Call carried are recorded the same way, by id. The Journal and the bundle stay the record of what was actually said.

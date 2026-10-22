@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
 import type { RecordedPart } from "../src/accounting.ts";
-import { inspectCall, type CallView, type ConversationSummary, type PackDiff } from "../src/inspection.ts";
+import type { Pack, PackPart } from "../src/assembler.ts";
+import {
+	inspectCall,
+	viewPack,
+	type CallView,
+	type ConversationSummary,
+	type PackDiff,
+} from "../src/inspection.ts";
 import {
 	renderCall,
 	renderDiff,
+	renderGauge,
+	renderPackWidget,
 	renderSearch,
 	renderSummary,
 } from "../src/report.ts";
@@ -537,5 +546,192 @@ describe("rendering a search", () => {
 
 	test("a search that found nothing says so", () => {
 		expect(renderSearch([])).toBe("No conversation holds anything relevant to that.");
+	});
+});
+
+/** A pack as the Assembler hands it back, from the figures a test cares about. */
+function livePack(
+	fields: Partial<Omit<Pack, "parts">> & { parts?: (Partial<PackPart> & Pick<PackPart, "source">)[] } = {},
+): Pack {
+	const { parts = [], ...rest } = fields;
+	return {
+		messages: [],
+		systemTokens: 0,
+		budgets: { tail: 8, opening: 1_000, pins: 2_000 },
+		ceiling: 1_000,
+		beforeCeiling: 100,
+		approximateTokens: 100,
+		...rest,
+		parts: parts.map((each) => ({ messages: [], approximateTokens: 0, ...each })),
+	};
+}
+
+describe("the live pack's view", () => {
+	test("a pack that fitted within the share carries no mark", () => {
+		expect(viewPack(livePack({ approximateTokens: 400, beforeCeiling: 400 }), 0.75).mark).toBeUndefined();
+	});
+
+	test("a pack is near the ceiling only once it is past the share", () => {
+		const at = viewPack(livePack({ approximateTokens: 750, beforeCeiling: 750 }), 0.75);
+		const past = viewPack(livePack({ approximateTokens: 751, beforeCeiling: 751 }), 0.75);
+
+		expect([at.mark, past.mark]).toEqual([undefined, "near"]);
+	});
+
+	test("a pack the ceiling reduced is marked reduced, even past the share", () => {
+		const view = viewPack(livePack({ approximateTokens: 980, beforeCeiling: 1_400 }), 0.75);
+
+		expect(view.mark).toBe("reduced");
+		expect(view.beforeCeiling).toBe(1_400);
+	});
+
+	test("a pack reduced and still over the ceiling is over, and nothing else", () => {
+		const view = viewPack(livePack({ approximateTokens: 1_200, beforeCeiling: 2_000 }), 0.75);
+
+		expect(view.mark).toBe("over");
+	});
+
+	test("with no ceiling in force there is no mark at all", () => {
+		const view = viewPack(
+			livePack({ ceiling: 0, approximateTokens: 5_000, beforeCeiling: 5_000 }),
+			0.75,
+		);
+
+		expect(view.mark).toBeUndefined();
+	});
+});
+
+describe("the pack gauge", () => {
+	const gauge = (fields: Partial<Omit<Pack, "parts">>) =>
+		renderGauge(viewPack(livePack({ ceiling: 300_000, ...fields }), 0.9));
+
+	test("a pack that fits shows its size against the ceiling, unmarked", () => {
+		expect(gauge({ approximateTokens: 123_000, beforeCeiling: 123_000 })).toBe(
+			"pack ▕███▎    ▏ 41% ~123k/300k",
+		);
+	});
+
+	test("a pack past the share is near the ceiling", () => {
+		expect(gauge({ approximateTokens: 294_000, beforeCeiling: 294_000 })).toBe(
+			"pack ▕███████▊▏ 98% ~294k/300k · near ceiling",
+		);
+	});
+
+	test("a reduced pack says what it was reduced from", () => {
+		expect(gauge({ approximateTokens: 298_000, beforeCeiling: 410_000 })).toBe(
+			"pack ▕███████▉▏ 99% ~298k/300k · reduced from ~410k",
+		);
+	});
+
+	test("a pack over the ceiling fills the bar and goes no further", () => {
+		expect(gauge({ approximateTokens: 804_839, beforeCeiling: 900_000 })).toBe(
+			"pack ▕████████▏ 268% ~805k/300k · over ceiling",
+		);
+	});
+
+	test("an empty pack draws an empty bar", () => {
+		expect(gauge({ approximateTokens: 0, beforeCeiling: 0 })).toBe("pack ▕        ▏ 0% 0/300k");
+	});
+
+	test("with no ceiling in force it shows the size alone", () => {
+		expect(gauge({ ceiling: 0, approximateTokens: 123_000, beforeCeiling: 123_000 })).toBe(
+			"pack ~123k",
+		);
+	});
+
+	test("an unassembled call says so, and no call clears it", () => {
+		expect(renderGauge("unassembled")).toBe("pack: not assembled");
+		expect(renderGauge(undefined)).toBeUndefined();
+	});
+});
+
+describe("the pack widget", () => {
+	/** Pins and the Opening in the system prompt, a tail the ceiling cut, a current Turn over the ceiling on its own. */
+	const overrun = () =>
+		viewPack(
+			livePack({
+				ceiling: 300_000,
+				approximateTokens: 804_839,
+				beforeCeiling: 900_000,
+				parts: [
+					{ source: "pinned", placement: "system-prompt", approximateTokens: 4_000, carried: 2, pinIds: [1, 2], budget: { count: 5, tokens: 8_000 }, candidates: 2 },
+					{ source: "opening", placement: "system-prompt", approximateTokens: 9_000, carried: 1, turnIndices: [0], budget: { count: 1, tokens: 10_000 }, candidates: 1 },
+					{ source: "verbatim-tail", approximateTokens: 151_000, carried: 1, turnIndices: [9], budget: { count: 8, tokens: 200_000 }, candidates: 5, excluded: { ceiling: 4 }, droppedMessages: 412 },
+					{ source: "current-turn", approximateTokens: 612_000, carried: 1, turnIndices: [10], shortened: true },
+				],
+			}),
+			0.9,
+		);
+	const lineOf = (lines: string[], source: string) =>
+		lines.find((line) => line.startsWith(source)) ?? "";
+	const barOf = (line: string) => line.match(/[█▏▎▍▌▋▊▉]+/)?.[0] ?? "";
+
+	test("heads the parts with the size, the ceiling and the gauge's mark", () => {
+		expect(renderPackWidget(overrun())[0]).toBe("pack ~805k of 300k (268%) · over ceiling");
+	});
+
+	test("lists each part once, in the order /pack lists them, in at most five lines", () => {
+		const lines = renderPackWidget(overrun());
+
+		expect(lines.slice(1).map((line) => line.split(" ")[0])).toEqual([
+			"pinned",
+			"opening",
+			"verbatim-tail",
+			"current-turn",
+		]);
+		expect(lines.length).toBeLessThanOrEqual(5);
+	});
+
+	test("the pins and the opening are marked as sent in the system prompt, in the words /pack uses", () => {
+		const lines = renderPackWidget(overrun());
+
+		expect(lineOf(lines, "pinned")).toContain("in the system prompt (2 of 5)");
+		expect(lineOf(lines, "opening")).toContain("in the system prompt (1 of 1)");
+		expect(lineOf(lines, "verbatim-tail")).not.toContain("system prompt");
+		expect(lineOf(lines, "current-turn")).not.toContain("system prompt");
+	});
+
+	test("a tail the ceiling cut says so in the words /pack uses for it", () => {
+		const pack = overrun();
+		const tail = lineOf(renderPackWidget(pack), "verbatim-tail");
+		const inspected = renderCall(view({ parts: pack.parts }))
+			.split("\n")
+			.find((line) => line.trimStart().startsWith("verbatim-tail"));
+
+		expect(tail).toContain("(1 of 8, 4 for the pack ceiling, 412 messages dropped");
+		expect(tail).toContain(inspected?.match(/\(.*\)/)?.[0] ?? "no reasons in /pack");
+	});
+
+	test("bars are drawn against the larger of the ceiling and the pack, so none overflows", () => {
+		const lines = renderPackWidget(overrun()).slice(1);
+
+		for (const line of lines) expect(barOf(line).length).toBeLessThanOrEqual(20);
+		// 612k of 805k: three quarters, not a bar pinned full against 300k.
+		expect(barOf(lineOf(lines, "current-turn"))).toBe("███████████████▏");
+	});
+
+	test("a part that contributed nothing says why", () => {
+		const lines = renderPackWidget(
+			viewPack(livePack({ parts: [{ source: "opening", placement: "system-prompt", absent: "missing" }] }), 0.9),
+		);
+
+		expect(lineOf(lines, "opening")).toContain("absent: the first turn is no longer stored");
+	});
+
+	test("pins the conversation does not hold get no line", () => {
+		const lines = renderPackWidget(
+			viewPack(livePack({ parts: [{ source: "pinned", placement: "system-prompt", carried: 0 }] }), 0.9),
+		);
+
+		expect(lines).toHaveLength(1);
+	});
+
+	test("an unassembled call and a conversation with none each say so", () => {
+		expect(renderPackWidget("unassembled")).toEqual([
+			"pack: not assembled — the harness's history went out",
+		]);
+		expect(renderPackWidget(undefined)).toEqual([
+			"pack: no call assembled yet in this conversation",
+		]);
 	});
 });

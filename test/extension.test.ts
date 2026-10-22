@@ -111,6 +111,8 @@ interface Harness {
 	journal: BranchEntry[];
 	/** Every footer status set, in order. */
 	statuses: { key: string; text: string | undefined }[];
+	/** Every widget set beside the editor, in order; `undefined` lines remove it. */
+	widgets: { key: string; lines: string[] | undefined; placement?: string }[];
 	/** What the editor answers next, first to last; `undefined` cancels. */
 	editorAnswers: (string | undefined)[];
 	/** What the commands told the user through the UI. */
@@ -253,11 +255,17 @@ function harness(overrides: Overrides = {}): Harness {
 	}
 
 	const statuses: Harness["statuses"] = [];
+	const widgets: Harness["widgets"] = [];
 	const editorAnswers: Harness["editorAnswers"] = [];
 	const notified: string[] = [];
 	const ui = {
 		notify: (message: string) => notified.push(message),
 		setStatus: (key: string, text: string | undefined) => statuses.push({ key, text }),
+		setWidget: (
+			key: string,
+			lines: string[] | undefined,
+			options?: { placement?: "aboveEditor" | "belowEditor" },
+		) => widgets.push({ key, lines, placement: options?.placement }),
 		editor: async () => editorAnswers.shift(),
 	};
 
@@ -293,6 +301,7 @@ function harness(overrides: Overrides = {}): Harness {
 		shown,
 		journal,
 		statuses,
+		widgets,
 		editorAnswers,
 		notified,
 		session: (branch = []) => ({
@@ -667,18 +676,27 @@ describe("the system prompt a Turn starts with", () => {
 	});
 });
 
-describe("a pack approaching its ceiling", () => {
-	/** A prompt of roughly `tokens` estimated tokens. */
-	const prompt = (tokens: number) => ({
-		role: "user" as const,
-		content: "z".repeat(tokens * 4),
-	});
+/** A prompt of roughly `tokens` estimated tokens. */
+const sizedPrompt = (tokens: number) => ({
+	role: "user" as const,
+	content: "z".repeat(tokens * 4),
+});
+/** The pack gauge as the footer last showed it. */
+const packGauge = (cm: Harness) =>
+	cm.statuses.filter((each) => each.key === "pi-chart.pack").at(-1)?.text;
 
-	test("says so once when a call crosses the configured share", async () => {
+describe("a pack approaching its ceiling", () => {
+	const prompt = sizedPrompt;
+	const gauge = packGauge;
+	/** What reached the conversation about the ceiling. */
+	const posted = (cm: Harness) => cm.notified.filter((line) => line.includes("ceiling"));
+
+	test("is logged once, and marked on the gauge at every call past the share", async () => {
 		const cm = harness({ config: { packTokens: 1000, packWarnShare: 0.75 } });
 
-		await cm.context({ messages: [prompt(800)] }, ctx());
-		await cm.context({ messages: [prompt(800)] }, ctx());
+		await cm.context({ messages: [prompt(800)] }, cm.session());
+		const first = gauge(cm);
+		await cm.context({ messages: [prompt(800)] }, cm.session());
 		await cm.settle();
 
 		const warnings = cm.reported.filter((line) =>
@@ -686,43 +704,143 @@ describe("a pack approaching its ceiling", () => {
 		);
 		expect(warnings).toHaveLength(1);
 		expect(warnings[0]).toContain("of 1000 tokens");
+		expect([first, gauge(cm)].map((text) => text?.endsWith(" · near ceiling"))).toEqual([
+			true,
+			true,
+		]);
+		expect(posted(cm)).toEqual([]);
 	});
 
 	test("says nothing while packs stay under the share", async () => {
 		const cm = harness({ config: { packTokens: 1000, packWarnShare: 0.75 } });
 
-		await cm.context({ messages: [prompt(100)] }, ctx());
+		await cm.context({ messages: [prompt(100)] }, cm.session());
 		await cm.settle();
 
 		expect(cm.reported.filter((line) => line.includes("ceiling"))).toEqual([]);
+		expect(gauge(cm)).not.toContain("ceiling");
 	});
 
-	test("reports a pack that could not be brought under its ceiling", async () => {
+	test("logs every pack that could not be brought under its ceiling, and posts none", async () => {
 		const cm = harness({ config: { packTokens: 200, packWarnShare: 0.75 } });
 
 		// A prompt is never shortened and the current Turn is never dropped,
-		// so this pack goes out over budget and must say so.
-		const result = await cm.context({ messages: [prompt(900)] }, ctx());
+		// so these packs go out over budget and must say so.
+		const result = await cm.context({ messages: [prompt(900)] }, cm.session());
+		await cm.context({ messages: [prompt(900)] }, cm.session());
 		await cm.settle();
 
 		expect(result?.messages).toHaveLength(1);
-		expect(cm.reported.some((line) => line.includes("exceeds its ceiling"))).toBe(
-			true,
-		);
+		expect(cm.reported.filter((line) => line.includes("exceeds its ceiling"))).toHaveLength(2);
+		expect(gauge(cm)).toEndWith(" · over ceiling");
+		expect(posted(cm)).toEqual([]);
 	});
 
 	test("a reporter that throws neither alters the pack nor fails the turn", async () => {
-		const cm = harness({
-			config: { packTokens: 1000, packWarnShare: 0.75 },
+		const throwing = {
 			report: () => {
 				throw new Error("nowhere to report");
 			},
+		};
+		const near = harness({ config: { packTokens: 1000, packWarnShare: 0.75 }, ...throwing });
+		const over = harness({ config: { packTokens: 200, packWarnShare: 0.75 }, ...throwing });
+
+		const approaching = await near.context({ messages: [prompt(800)] }, near.session());
+		const overrun = await over.context({ messages: [prompt(900)] }, over.session());
+		await near.settle();
+		await over.settle();
+
+		expect(approaching?.messages).toEqual([prompt(800)]);
+		expect(overrun?.messages).toEqual([prompt(900)]);
+	});
+});
+
+describe("the pack gauge on the footer", () => {
+	const prompt = sizedPrompt;
+	const gauge = packGauge;
+	const config = { packTokens: 1000, packWarnShare: 0.75 };
+
+	test("shows the last call's pack against the ceiling", async () => {
+		const cm = harness({ config });
+
+		await cm.context({ messages: [prompt(100)] }, cm.session());
+
+		expect(gauge(cm)).toMatch(/^pack ▕.{8}▏ 1\d% 1\d\d\/1k$/);
+	});
+
+	test("follows each call, so an overrun does not outlive the call that had it", async () => {
+		const cm = harness({ config });
+
+		await cm.context({ messages: [prompt(1500)] }, cm.session());
+		const over = gauge(cm);
+		await cm.context({ messages: [prompt(100)] }, cm.session());
+
+		expect(over).toEndWith(" · over ceiling");
+		expect(gauge(cm)).toMatch(/^pack ▕.{8}▏ 1\d% 1\d\d\/1k$/);
+	});
+
+	test("a call that went out unassembled replaces the earlier pack", async () => {
+		let calls = 0;
+		const cm = harness({
+			config,
+			assemble: (input, settings) => {
+				if (calls++ > 0) throw new Error("boom");
+				return assemble(input, settings);
+			},
 		});
 
-		const result = await cm.context({ messages: [prompt(800)] }, ctx());
-		await cm.settle();
+		await cm.context({ messages: [prompt(100)] }, cm.session());
+		await cm.context({ messages: [prompt(100)] }, cm.session());
 
-		expect(result?.messages).toEqual([prompt(800)]);
+		expect(gauge(cm)).toBe("pack: not assembled");
+	});
+
+	test("a session switch clears it until the next call", async () => {
+		const cm = harness({ config });
+
+		await cm.context({ messages: [prompt(100)] }, cm.session());
+		await cm.sessionSwitch({ reason: "new" }, cm.session());
+
+		expect(cm.statuses.filter((each) => each.key === "pi-chart.pack").at(-1)).toEqual({
+			key: "pi-chart.pack",
+			text: undefined,
+		});
+	});
+
+	test("a branch clears it until the next call", async () => {
+		const cm = harness({ config });
+
+		await cm.context({ messages: [prompt(100)] }, cm.session());
+		await cm.sessionBranch({ reason: "branch" }, cm.session());
+
+		expect(gauge(cm)).toBeUndefined();
+	});
+
+	test("without a status line the turn completes and /pack still reports the call", async () => {
+		const cm = harness({ config, accounting: new MemoryAccounting() });
+
+		const result = await cm.context(
+			{ messages: [prompt(100)] },
+			ctx([], { ui: { notify: () => {} } }),
+		);
+		await cm.settle();
+		await cm.commands.pack?.handler("", {});
+
+		expect(result?.messages).toEqual([prompt(100)]);
+		expect(cm.shown.join()).toContain("current-turn");
+	});
+
+	test("a status line that throws costs the gauge, not the turn", async () => {
+		const cm = harness({ config });
+		const broken = {
+			setStatus: () => {
+				throw new Error("footer gone");
+			},
+		};
+
+		const result = await cm.context({ messages: [prompt(100)] }, ctx([], { ui: broken }));
+
+		expect(result?.messages).toEqual([prompt(100)]);
 	});
 });
 
@@ -1477,6 +1595,120 @@ describe("the pack command", () => {
 		await cm.commands.pack?.handler("", {});
 
 		expect(cm.shown.join()).toContain("Nothing recorded");
+	});
+
+	describe("show and hide", () => {
+		const packWidgets = (cm: Harness) => cm.widgets.filter((each) => each.key === "pi-chart.pack");
+
+		test("the widget stays closed until asked for", async () => {
+			const cm = harness();
+
+			await cm.sessionStart({}, cm.session());
+			await cm.context({ messages: prompt }, cm.session());
+
+			expect(packWidgets(cm).filter((each) => each.lines !== undefined)).toEqual([]);
+		});
+
+		test("shown before any call, it says none is assembled yet", async () => {
+			const cm = harness();
+
+			await cm.commands.pack?.handler("show", cm.session());
+
+			expect(packWidgets(cm)).toEqual([
+				{
+					key: "pi-chart.pack",
+					lines: ["pack: no call assembled yet in this conversation"],
+					placement: "belowEditor",
+				},
+			]);
+			expect(cm.notified.at(-1)).toBe("Showing the pack below the editor; /pack hide closes it.");
+		});
+
+		test("once shown, it itemises each call's pack below the editor", async () => {
+			const cm = harness();
+
+			await cm.commands.pack?.handler("show", cm.session());
+			await cm.context({ messages: prompt }, cm.session());
+
+			const last = packWidgets(cm).at(-1);
+			expect(last?.placement).toBe("belowEditor");
+			expect(last?.lines?.[0]).toMatch(/^pack \d+ of \d+k \(\d+%\)$/);
+			expect(last?.lines?.some((line) => line.startsWith("current-turn"))).toBe(true);
+		});
+
+		test("while open, it follows each call, down to one that went out unassembled", async () => {
+			let calls = 0;
+			const cm = harness({
+				assemble: (input, settings) => {
+					if (calls++ > 1) throw new Error("boom");
+					return assemble(input, settings);
+				},
+			});
+			const header = () => packWidgets(cm).at(-1)?.lines?.[0];
+
+			await cm.commands.pack?.handler("show", cm.session());
+			await cm.context({ messages: [sizedPrompt(100)] }, cm.session());
+			const small = header();
+			await cm.context({ messages: [sizedPrompt(2000)] }, cm.session());
+			const large = header();
+			await cm.context({ messages: [sizedPrompt(100)] }, cm.session());
+
+			expect(small).toMatch(/^pack 1\d\d of /);
+			expect(large).toMatch(/^pack ~2k of /);
+			expect(header()).toBe("pack: not assembled — the harness's history went out");
+		});
+
+		test("a session start closes a widget left open", async () => {
+			const cm = harness();
+
+			await cm.commands.pack?.handler("show", cm.session());
+			await cm.sessionStart({}, cm.session());
+			const atStart = packWidgets(cm).length;
+			await cm.context({ messages: prompt }, cm.session());
+
+			expect(packWidgets(cm).at(-1)?.lines).toBeUndefined();
+			expect(packWidgets(cm)).toHaveLength(atStart);
+		});
+
+		test("hidden, it is removed and later calls do not bring it back", async () => {
+			const cm = harness();
+
+			await cm.commands.pack?.handler("show", cm.session());
+			await cm.commands.pack?.handler("hide", cm.session());
+			const afterHide = packWidgets(cm).length;
+			await cm.context({ messages: prompt }, cm.session());
+
+			expect(packWidgets(cm).at(-1)).toEqual({ key: "pi-chart.pack", lines: undefined, placement: undefined });
+			expect(packWidgets(cm)).toHaveLength(afterHide);
+			expect(cm.notified.at(-1)).toBe("Pack widget closed.");
+		});
+
+		test("a harness without widgets says so and names /pack", async () => {
+			const cm = harness();
+			const said: string[] = [];
+
+			await cm.commands.pack?.handler("show", { ui: { notify: (text) => said.push(text) } });
+
+			expect(said).toEqual(["This harness cannot show the pack beside the editor; /pack reads it."]);
+		});
+
+		test("showing never waits on the thread store", async () => {
+			const cm = harness({
+				accounting: {
+					recordPack: async () => {},
+					recordUnassembled: async () => {},
+					recordCosts: async () => {},
+					recordMeasurements: async () => {},
+					readAccounting: async () => {
+						throw new Error("store unreachable");
+					},
+				},
+			});
+
+			await cm.commands.pack?.handler("show", cm.session());
+
+			expect(packWidgets(cm)).toHaveLength(1);
+		});
 	});
 
 	/**

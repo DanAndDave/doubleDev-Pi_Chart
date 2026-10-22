@@ -3,11 +3,14 @@ import type { Concept } from "./concept.ts";
 import type { Level } from "./doc-store.ts";
 import type { FoundTurn } from "./thread-store.ts";
 import type { AbsenceCause, ExcludedCandidate } from "./assembler.ts";
+import { tokenFigure } from "./elision.ts";
 import type {
 	CallView,
 	ConversationSummary,
 	Explanation,
 	PackDiff,
+	PackState,
+	PackView,
 	PartView,
 } from "./inspection.ts";
 
@@ -126,6 +129,40 @@ function identities(part: PartView): string {
 	return `${turns}${pins}`;
 }
 
+/**
+ * Whether a part earns a line. A Conversation holding no Pins is the usual
+ * case, and a line on every Call saying so would bury the parts that did
+ * something. Pins the hook never reached, or failed to build, are another
+ * matter: the Conversation may hold some, and silence would read as
+ * holding none.
+ */
+function listed(part: PartView): boolean {
+	return !(
+		part.source === "pinned" &&
+		part.carried === 0 &&
+		part.absent !== "unhooked" &&
+		part.absent !== "failed"
+	);
+}
+
+/**
+ * What `/pack` and the widget both say about a part after its size: the
+ * cause where it contributed nothing, else where it was placed and how
+ * much it carried. One phrasing, so the two never describe a part apart.
+ */
+function saidOf(part: PartView): string {
+	// An absent part still gets a line, with the cause where the record
+	// holds one: "no store is configured" and "the harness never offered
+	// the system prompt" are different problems with different remedies,
+	// and omitting the part entirely reads as neither.
+	if (part.absent !== undefined) return `${absenceOf(part.absent)}${reasonsOf(part)}`;
+	// The Pins and the Opening ride the system prompt (ADR-0015); a reader
+	// must not take them for messages. Older records, sent as messages,
+	// carry no placement and no mark.
+	const placed = part.placement === "system-prompt" ? " in the system prompt" : "";
+	return `${placed}${carriedOf(part)}`;
+}
+
 /** Renders an inspection as text, which is the shape a pack actually has. */
 export function renderCall(view: CallView): string {
 	const lines: string[] = [
@@ -133,35 +170,13 @@ export function renderCall(view: CallView): string {
 	];
 
 	for (const part of view.parts) {
-		// A Conversation holding no Pins is the usual case, and a line on
-		// every Call saying so would bury the parts that did something.
-		// Pins the hook never reached, or failed to build, are another
-		// matter: the Conversation may hold some, and silence would read as
-		// holding none.
-		if (
-			part.source === "pinned" &&
-			part.carried === 0 &&
-			part.absent !== "unhooked" &&
-			part.absent !== "failed"
-		) {
-			continue;
-		}
-		// An absent part still gets a line, with the cause where the record
-		// holds one: "no store is configured" and "the harness never offered
-		// the system prompt" are different problems with different
-		// remedies, and omitting the part entirely reads as neither.
-		if (part.absent !== undefined) {
-			lines.push(
-				`  ${part.source.padEnd(14)} ${absenceOf(part.absent)}${reasonsOf(part)}`,
-			);
-			continue;
-		}
-		// The Pins and the Opening ride the system prompt (ADR-0015); a
-		// reader must not take them for messages. Older records, sent as
-		// messages, carry no placement and no mark.
-		const placed = part.placement === "system-prompt" ? " in the system prompt" : "";
-		lines.push(`  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
-			`${placed}${carriedOf(part)}${identities(part)}`);
+		if (!listed(part)) continue;
+		lines.push(
+			part.absent !== undefined
+				? `  ${part.source.padEnd(14)} ${saidOf(part)}`
+				: `  ${part.source.padEnd(14)} ~${part.approximateTokens} tokens` +
+						`${saidOf(part)}${identities(part)}`,
+		);
 	}
 
 	// Where the harness rewrote the Conversation behind this Call: every
@@ -254,6 +269,94 @@ export function renderCall(view: CallView): string {
 		);
 	}
 	return lines.join("\n");
+}
+
+/** Eighths of a cell, so a bar moves before a whole cell fills. */
+const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
+
+/**
+ * `share` of `cells` in block characters, never longer than `cells`. Floored,
+ * so a bar reads full only when the share is; anything above nothing shows
+ * at least an eighth, so a part that carried something never reads as empty.
+ */
+function bar(share: number, cells: number): string {
+	const eighths =
+		share <= 0 ? 0 : Math.max(1, Math.floor(Math.min(share, 1) * cells * 8));
+	const drawn = "█".repeat(Math.floor(eighths / 8)) + EIGHTHS[eighths % 8];
+	return drawn.padEnd(cells);
+}
+
+/**
+ * A ceiling as configured: exact thousands read as `300k`, anything else in
+ * full. It is a setting, not an estimate, so it is never marked `~`.
+ */
+function limitFigure(tokens: number): string {
+	return tokens >= 1_000 && tokens % 1_000 === 0 ? `${tokens / 1_000}k` : String(tokens);
+}
+
+/** The mark the footer and the widget both end their line with. */
+function markOf(view: PackView): string {
+	switch (view.mark) {
+		case "over":
+			return " · over ceiling";
+		case "reduced":
+			return ` · reduced from ${tokenFigure(view.beforeCeiling)}`;
+		case "near":
+			return " · near ceiling";
+		case undefined:
+			return "";
+	}
+}
+
+/** The Pack's size as a whole-number percentage of a ceiling in force. */
+function percentOf(view: PackView): number {
+	return Math.round((100 * view.approximateTokens) / view.ceiling);
+}
+
+/**
+ * The last Call's Pack on one footer line. Short figures, because the footer
+ * is shared and truncated; the mark last, after the figures it qualifies.
+ * `undefined` clears the status: no Call of this Conversation is assembled.
+ */
+export function renderGauge(state: PackState): string | undefined {
+	if (state === undefined) return undefined;
+	if (state === "unassembled") return "pack: not assembled";
+	const size = tokenFigure(state.approximateTokens);
+	if (state.ceiling <= 0) return `pack ${size}`;
+	return (
+		`pack ▕${bar(state.approximateTokens / state.ceiling, 8)}▏ ${percentOf(state)}% ` +
+		`${size}/${limitFigure(state.ceiling)}${markOf(state)}`
+	);
+}
+
+/**
+ * The last Call's Pack, one line per part, for a widget beside the editor.
+ *
+ * The same parts `/pack` lists, in the same order and under the same
+ * reasons, because both are built from one `PartView` and one `REASONS`.
+ * Bars are against the larger of the ceiling and the Pack, so a Pack over
+ * its ceiling still draws every bar inside its cells.
+ */
+export function renderPackWidget(state: PackState): string[] {
+	if (state === undefined) return ["pack: no call assembled yet in this conversation"];
+	if (state === "unassembled") {
+		return ["pack: not assembled — the harness's history went out"];
+	}
+	const size = tokenFigure(state.approximateTokens);
+	const lines = [
+		state.ceiling <= 0
+			? `pack ${size}`
+			: `pack ${size} of ${limitFigure(state.ceiling)} (${percentOf(state)}%)${markOf(state)}`,
+	];
+	const scale = Math.max(state.ceiling, state.approximateTokens);
+	for (const part of state.parts) {
+		if (!listed(part)) continue;
+		const said = saidOf(part);
+		const drawn = bar(scale > 0 ? part.approximateTokens / scale : 0, 20);
+		const figures = `${part.source.padEnd(14)} ${drawn} ${tokenFigure(part.approximateTokens).padStart(6)}`;
+		lines.push(said === "" ? figures : `${figures}  ${said.trimStart()}`);
+	}
+	return lines;
 }
 
 export function renderDiff(diff: PackDiff): string {
