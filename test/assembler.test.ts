@@ -203,16 +203,14 @@ function turnOf(index: number, ...messages: HarnessMessage[]): Turn {
 describe("the token estimate", () => {
 	test("counts what is sent with a message, not its content alone", () => {
 		const bare: HarnessMessage = { role: "toolResult", content: "maple" };
-		const withDetails: HarnessMessage = {
+		const addressed: HarnessMessage = {
 			...bare,
-			toolName: "read",
 			toolCallId: "call-1",
-			details: { totalLines: 1, meta: { source: { value: "/work/leaf.txt" } } },
+			toolName: "read",
+			isError: false,
 		};
 
-		expect(approximateTokens([withDetails])).toBeGreaterThan(
-			approximateTokens([bare]),
-		);
+		expect(approximateTokens([addressed])).toBeGreaterThan(approximateTokens([bare]));
 	});
 
 	test("ignores what the harness records but never sends", () => {
@@ -226,6 +224,58 @@ describe("the token estimate", () => {
 		};
 
 		expect(approximateTokens([recorded])).toBe(approximateTokens([sent]));
+	});
+
+	test("a tool result's display details are not counted", () => {
+		const sent: HarnessMessage = {
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "read",
+			content: [{ type: "text", text: "maple" }],
+		};
+		const recorded: HarnessMessage = {
+			...sent,
+			details: { totalLines: 1, lines: ["maple ".repeat(2_000)], meta: { source: "/work/leaf.txt" } },
+		};
+
+		expect(approximateTokens([recorded])).toBe(approximateTokens([sent]));
+	});
+
+	test("the record of the response that produced a message is not counted", () => {
+		const sent: HarnessMessage = { role: "assistant", content: [{ type: "text", text: "done" }] };
+		const recorded: HarnessMessage = {
+			...sent,
+			inputTransformations: [{ kind: "cache-breakpoint", at: 3, note: "n".repeat(4_000) }],
+			requestControls: { effort: "high", thinking: { budget: 32_000 } },
+			responseId: "msg_01AbCdEf",
+			duration: 41_200,
+			ttft: 1_830,
+			completedAt: 1_789_577_185_275,
+			credentialId: "cred-7",
+		};
+
+		expect(approximateTokens([recorded])).toBe(approximateTokens([sent]));
+	});
+
+	test("a thinking block counts its text and not its signature", () => {
+		const reply = { type: "text", text: "done" };
+		const thinking = { type: "thinking", thinking: "weighing the two reads ".repeat(50) };
+		const signedThinking = { ...thinking, thinkingSignature: "Eo8BCkYIBhgCKkB".repeat(400) };
+		const unsigned: HarnessMessage = { role: "assistant", content: [thinking, reply] };
+		const signed: HarnessMessage = { role: "assistant", content: [signedThinking, reply] };
+		const without: HarnessMessage = { role: "assistant", content: [reply] };
+
+		expect(approximateTokens([signed])).toBe(approximateTokens([unsigned]));
+		expect(approximateTokens([unsigned])).toBeGreaterThan(approximateTokens([without]));
+	});
+
+	test("a tool call's intent, a copy of its arguments, is not counted twice", () => {
+		const call = { type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.ts", i: "Reading a" } };
+		const annotatedCall = { ...call, intent: "Reading a" };
+		const plain: HarnessMessage = { role: "assistant", content: [call] };
+		const annotated: HarnessMessage = { role: "assistant", content: [annotatedCall] };
+
+		expect(approximateTokens([annotated])).toBe(approximateTokens([plain]));
 	});
 
 	test("is the same on repeated calls and independent of message order", () => {
@@ -542,12 +592,13 @@ describe("the ceiling never empties the tail", () => {
 
 	test("a tail whose smallest form exceeds what the current turn leaves is still carried", () => {
 		// The current Turn alone nearly fills the ceiling, so even the tail's
-		// prompt and reply, both elided, do not fit beside it.
+		// prompt and reply, both elided, do not fit beside it. At 280 the
+		// smallest form overruns it; at 300 it lands exactly on it.
 		const reply = "r".repeat(4_000);
 		const current = turnOf(2, bulky(2_000, "c"));
 		const pack = assemble(
 			{ turns: [workingTurn(1, groups, reply), current] },
-			budgets({ tailTurns: 1, packTokens: 300 }),
+			budgets({ tailTurns: 1, packTokens: 280 }),
 		);
 		const tail = tailOf(pack);
 		const now = pack.parts.find((part) => part.source === "current-turn");
@@ -558,7 +609,7 @@ describe("the ceiling never empties the tail", () => {
 		expect(tail?.droppedMessages).toBe(80);
 		expect(now?.shortened).toBe(true);
 		expect(now?.messages).toHaveLength(current.messages.length);
-		expect(pack.approximateTokens).toBeGreaterThan(300);
+		expect(pack.approximateTokens).toBeGreaterThan(280);
 	});
 });
 

@@ -49,55 +49,14 @@ describe("shortening", () => {
 		expect(shortened?.piChartShortened).toBe(true);
 	});
 
-	test("dropped tool metadata is counted and named, not silently removed", () => {
-		// `details` rivals the content it summarises: counting it as overhead
-		// starved the text of an allowance already spent on something being
-		// deleted, and the marker never mentioned it.
-		const heavy: HarnessMessage = {
-			role: "toolResult",
-			toolCallId: "call-d",
-			toolName: "read",
-			content: "c".repeat(40_000),
-			details: { lines: "d".repeat(30_000) },
-		};
-		const pack = assemble(
-			{
-				turns: [
-					{ index: 1, prompt: "read it", messages: [{ role: "user", content: "read it" }, heavy] },
-					turnOf(2),
-				],
-			},
-			budgets({ tailTurns: 1, tailTokens: 2000 }),
-		);
-		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
-		const shortened = tail?.messages.find(
-			(message) => message.role === "toolResult",
-		);
-		const text = messageText(shortened ?? { role: "toolResult" });
-		const elided = Number(/~(\d+) tokens/.exec(text)?.[1] ?? "0");
-
-		expect(shortened?.details).toBeUndefined();
-		// Named, so the agent knows the metadata went too.
-		expect(text).toContain("tool metadata");
-		// Counted: the marker covers the dropped metadata as well as the text.
-		expect(elided).toBeGreaterThan(30_000 / 4);
-		// And the Budget is spent on content rather than on the overhead of
-		// something being deleted.
-		expect(tail?.approximateTokens).toBeGreaterThan(1000);
-		expect(tail?.approximateTokens).toBeLessThanOrEqual(2000);
-	});
-
-	test("a message shortened for its metadata alone keeps its text once", () => {
-		// The text fits; only the `details` beside it have to go. Head and
-		// tail then cover the whole text between them, and carrying both
-		// used to carry the middle twice — a message that came back longer
-		// than it went in, with its content duplicated.
-		const text = "the whole answer, which fits. ".repeat(20);
+	test("a tool result whose text fits is carried whole, however large its details", () => {
+		// `details` never reach a provider, so they cost nothing and are no
+		// reason to touch the message.
 		const message: HarnessMessage = {
 			role: "toolResult",
 			toolCallId: "call-m",
 			toolName: "read",
-			content: text,
+			content: "the whole answer, which fits. ".repeat(20),
 			details: { lines: "d".repeat(40_000) },
 		};
 		const pack = assemble(
@@ -110,12 +69,38 @@ describe("shortening", () => {
 			budgets({ tailTurns: 1, tailTokens: 1000 }),
 		);
 		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
-		const carried = messageText(
-			tail?.messages.find((each) => each.role === "toolResult") ?? { role: "toolResult" },
-		);
 
-		expect(carried.split("the whole answer, which fits.")).toHaveLength(21);
-		expect(carried).toContain("tool metadata");
+		expect(tail?.messages.find((each) => each.role === "toolResult")).toEqual(message);
+	});
+
+	test("a shortened tool result keeps its details", () => {
+		const details = { lines: "d".repeat(30_000) };
+		const heavy: HarnessMessage = {
+			role: "toolResult",
+			toolCallId: "call-d",
+			toolName: "read",
+			content: "c".repeat(40_000),
+			details,
+		};
+		const pack = assemble(
+			{
+				turns: [
+					{ index: 1, prompt: "read it", messages: [{ role: "user", content: "read it" }, heavy] },
+					turnOf(2),
+				],
+			},
+			budgets({ tailTurns: 1, tailTokens: 2000 }),
+		);
+		const tail = pack.parts.find((part) => part.source === "verbatim-tail");
+		const shortened = tail?.messages.find((message) => message.role === "toolResult");
+		const text = messageText(shortened ?? { role: "toolResult" });
+
+		expect(shortened?.piChartShortened).toBe(true);
+		expect(shortened?.details).toEqual(details);
+		expect(text).toContain("elided");
+		// The Budget is spent on content, not on details that cost nothing.
+		expect(tail?.approximateTokens).toBeGreaterThan(1000);
+		expect(tail?.approximateTokens).toBeLessThanOrEqual(2000);
 	});
 
 	test("a shortened tool result keeps the blocks it arrived in", () => {

@@ -63,10 +63,10 @@ export interface Config {
 	 * trimmed to whichever binds first, and `packTokens` bounds the whole
 	 * Context Pack however the parts divide it.
 	 *
-	 * Derived from measurement, not taste: the estimate runs ~1.15× low
-	 * against the harness's reported figures at the median and 1.447× at the
-	 * p90, so a ceiling presumes a reported window of `ceiling × 1.5 + 28,000`
-	 * measured tokens — the derivation is on `DEFAULT_PACK_TOKENS`.
+	 * Derived from measurement, not taste: the reported window runs 1.57×
+	 * the estimate at the median and 1.84× at the p90, so a ceiling presumes
+	 * a reported window of `ceiling × 1.85 + 28,000` measured tokens — the
+	 * derivation is on `DEFAULT_PACK_TOKENS`.
 	 */
 	tailTokens: number;
 	/** The cap on each `recall_earlier_turns` result, elided visibly past it. */
@@ -212,12 +212,12 @@ export const DEFAULT_DOC_TOKENS = 5_000;
 export const DEFAULT_GRAPH_TOKENS = 3_000;
 /**
  * A ceiling for large-context models: 300,000 estimated tokens. Inverting
- * the estimator's measured 1.5× p90 bias and this project's ~28,000 Floor,
- * it presumes a reported window of `300,000 × 1.5 + 28,000 ≈ 478,000`
- * tokens, so an operator on a 200,000-token window MUST lower it with
- * `PICHART_PACK_TOKENS` or the pack will overrun the window it cannot see.
- * The parts default to 41,000 together, leaving the current Turn 259,000
- * before the ceiling touches it — beyond any real Turn measured here.
+ * the estimator's measured 1.85× p90 bias and this project's ~28,000 Floor,
+ * it presumes a reported window of `300,000 × 1.85 + 28,000 ≈ 583,000`
+ * tokens, so an operator on a 200,000-token window MUST lower it to about
+ * `(200,000 − 28,000) / 1.85 ≈ 93,000` with `PICHART_PACK_TOKENS` or the
+ * pack will overrun the window it cannot see. The parts default to 41,000
+ * together, leaving the current Turn 259,000 before the ceiling touches it.
  */
 export const DEFAULT_PACK_TOKENS = 300_000;
 /**

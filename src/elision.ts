@@ -22,14 +22,9 @@ import { approximateTokens } from "./tokens.ts";
  * "content" rather than "result": a tool result is elided this way, and so
  * are the arguments an assistant passed to a call, so a `write` whose file
  * went would otherwise read as a result that did.
- *
- * Metadata is named separately when the shortening dropped it, because a
- * marker that counted only the text would understate what went: on a real
- * tool result the harness's `details` can rival the content it summarises.
  */
-const ELISION = (tokens: number, alsoDropped: number) =>
-	`\n… [pi-chart elided ~${tokens} tokens from the middle of this` +
-	`${alsoDropped > 0 ? " content, and its tool metadata" : " content"}]\n`;
+const ELISION = (tokens: number) =>
+	`\n… [pi-chart elided ~${tokens} tokens from the middle of this content]\n`;
 
 /**
  * The marker for a payload with no room for a head and a tail at all: the
@@ -41,23 +36,8 @@ const ELISION = (tokens: number, alsoDropped: number) =>
 const ELIDED_WHOLE = (tokens: number) =>
 	`… [pi-chart elided ~${tokens} tokens here]`;
 
-/**
- * The marker for content carried whole that lost only what travelled
- * beside it: a tool result whose text fitted and whose `details` did not.
- * Says so rather than reusing the elision marker, which would claim a
- * middle went that is still there.
- */
-const METADATA_ONLY = (tokens: number) =>
-	`\n… [pi-chart dropped ~${tokens} tokens of tool metadata; this content is whole]\n`;
-
-/** What else went with the text, beside the characters it may spend. */
+/** How far an elision may go. */
 interface Elision {
-	/**
-	 * Tokens dropped beside the text — the `details` a shortened tool
-	 * result loses. Counted into the marker and named by it, so the marker
-	 * never reports less than the shortening removed.
-	 */
-	alsoDropped?: number;
 	/**
 	 * The fewest characters worth keeping on each side. Below it there is
 	 * no head and tail worth reading, and the caller is told so rather than
@@ -77,19 +57,16 @@ interface Elision {
 export function elide(
 	text: string,
 	characters: number,
-	{ alsoDropped = 0, floor = 1 }: Elision = {},
+	{ floor = 1 }: Elision = {},
 ): string | undefined {
-	const half = Math.floor((characters - ELISION(0, alsoDropped).length) / 2);
+	const half = Math.floor((characters - ELISION(0).length) / 2);
 	if (half < floor) return undefined;
 	// A head and a tail that between them cover the text would carry its
 	// middle twice, and a shortened message longer than the one it replaced
-	// is not a shortened message. Nothing of the text goes, so the marker
-	// names only what went beside it.
-	if (half * 2 >= text.length) {
-		return alsoDropped > 0 ? `${text}${METADATA_ONLY(alsoDropped)}` : text;
-	}
-	const removed = Math.ceil((text.length - half * 2) / 4) + alsoDropped;
-	return `${text.slice(0, half)}${ELISION(removed, alsoDropped)}${text.slice(-half)}`;
+	// is not a shortened message.
+	if (half * 2 >= text.length) return text;
+	const removed = Math.ceil((text.length - half * 2) / 4);
+	return `${text.slice(0, half)}${ELISION(removed)}${text.slice(-half)}`;
 }
 
 /** The marker for a payload elided whole, in tokens. */
@@ -98,8 +75,8 @@ export function elidedWhole(text: string): string {
 }
 
 /** The characters a marker and two floor-sized halves take together. */
-function atLeast(alsoDropped = 0): number {
-	return SHORTEST_HALF_CHARACTERS * 2 + ELISION(0, alsoDropped).length;
+function atLeast(): number {
+	return SHORTEST_HALF_CHARACTERS * 2 + ELISION(0).length;
 }
 
 /**
@@ -171,26 +148,11 @@ function shortenText(
 	cost: number,
 ): Shortened {
 	const text = messageText(message);
-	// `details` can rival the text it summarises, and a shortened message that
-	// kept them would not be shorter — so they go, and they are excluded from
-	// the overhead too. Counting them as overhead would starve the text of an
-	// allowance already spent on something being deleted: measured, a 30,000
-	// character `details` drove an otherwise 1,810-token text down to the
-	// floor of 231 against a 2,000-token Budget.
-	const withoutDetails: HarnessMessage = { ...message };
-	delete withoutDetails.details;
-
-	const keptCost = approximateTokens([withoutDetails]);
 	const textCost = Math.ceil(JSON.stringify(text).length / 4);
-	const overhead = keptCost - textCost;
+	const overhead = cost - textCost;
 	const forText = Math.max(allowance - overhead, SHORTEST_TOKENS);
 	const characters = forText * 4;
-	// The dropped `details` count as elided whatever happens to the text, so
-	// the marker never reports less than the shortening removed.
-	const droppedDetails = cost - keptCost;
-	if (text.length <= characters && droppedDetails === 0) {
-		return { message, tokens: cost, shortened: false };
-	}
+	if (text.length <= characters) return { message, tokens: cost, shortened: false };
 
 	// Sized by construction, then checked: JSON escaping means the estimate
 	// of the shortened message is not a linear function of the characters
@@ -199,13 +161,10 @@ function shortenText(
 	let room = characters;
 	let best: { message: HarnessMessage; tokens: number } | undefined;
 	while (true) {
-		const content = elide(text, room, {
-			alsoDropped: droppedDetails,
-			floor: SHORTEST_HALF_CHARACTERS,
-		});
+		const content = elide(text, room, { floor: SHORTEST_HALF_CHARACTERS });
 		if (content === undefined) break;
 		const candidate: HarnessMessage = {
-			...withoutDetails,
+			...message,
 			content: asCarried(message.content, content),
 			piChartShortened: true,
 		};
@@ -245,10 +204,8 @@ function shortenPayloads(
 	const cost = approximateTokens([message]);
 	if (!Array.isArray(blocks)) return { message, tokens: cost, shortened: false };
 
-	// Everything but the payloads, as the shortened message will carry it:
-	// the flag it gains is sent too.
-	const others =
-		approximateTokens([{ ...message, piChartShortened: true }]) - payloadCost(blocks);
+	// Everything but the payloads.
+	const others = cost - payloadCost(blocks);
 	// What the payloads may take together, shared evenly among them so one
 	// enormous call cannot starve the rest.
 	const calls = blocks.filter(isToolCall).length;
