@@ -34,6 +34,18 @@ const GRACE_MS = 2_000;
  * with the timeout named. Failing loudly with partial output is the
  * diagnosis — "graphify printed this much and stopped" — where a promise
  * nobody settles takes the caller's failure report down with it.
+ *
+ * The program runs in its own process group, and the deadline signals the
+ * group rather than the one process, because stopping a program means
+ * stopping what it started. A child that inherited the output pipe is a
+ * writer on it, so leaving one alive holds the read open long past the
+ * deadline: `pip` compiling, `openspec` with a worker, or a `/bin/sh` that
+ * forked rather than exec'd the command it was given. Signalling the group
+ * ends both the processes and the wait.
+ *
+ * The group is its own, so the program no longer receives the terminal's
+ * SIGINT through this process. Everything run here is a background step
+ * whose failure a session reports, not an interactive one.
  */
 export async function runProcess(
 	command: string,
@@ -45,7 +57,19 @@ export async function runProcess(
 		cwd,
 		stdout: "pipe",
 		stderr: "pipe",
+		detached: true,
 	});
+
+	/**
+	 * Signals the program's whole group. A group that has already gone
+	 * throws, which is the ordinary case for the kill that follows a
+	 * termination the program honoured: it wanted them gone, and they are.
+	 */
+	const stop = (signal: "SIGTERM" | "SIGKILL") => {
+		try {
+			process.kill(-spawned.pid, signal);
+		} catch {}
+	};
 
 	let timedOut = false;
 	let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -53,8 +77,8 @@ export async function runProcess(
 	if (timeoutMs !== undefined && timeoutMs > 0) {
 		deadline = setTimeout(() => {
 			timedOut = true;
-			spawned.kill("SIGTERM");
-			hardStop = setTimeout(() => spawned.kill("SIGKILL"), GRACE_MS);
+			stop("SIGTERM");
+			hardStop = setTimeout(() => stop("SIGKILL"), GRACE_MS);
 			hardStop.unref?.();
 		}, timeoutMs);
 		deadline.unref?.();

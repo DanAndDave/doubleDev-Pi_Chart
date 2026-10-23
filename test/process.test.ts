@@ -70,4 +70,32 @@ describe("running a program", () => {
 		expect(Number.isFinite(pid)).toBe(true);
 		expect(alive(pid)).toBe(false);
 	});
+
+	test("a stopped command takes the processes it started with it", async () => {
+		// The shell starts a process of its own and waits on it, so the
+		// deadline has two processes to stop rather than one — and the one it
+		// did not spawn directly holds the output pipe the caller is reading.
+		// Written this way rather than relying on a shell that forks for the
+		// last command of a list: dash does, bash execs, and the difference
+		// decided whether this behaviour was tested at all.
+		const file = `/tmp/cm-process-group-test-${process.pid}-${Date.now()}`;
+		const started = Date.now();
+		const result = await runProcess(
+			"sh",
+			["-c", `echo working; sleep 30 & echo $! > ${file}; wait`],
+			undefined,
+			200,
+		);
+
+		expect(result.ok).toBe(false);
+		expect(result.output).toContain("did not finish within 200ms");
+		expect(result.output).toContain("working");
+		// The child it left holding the pipe did not hold the answer: the
+		// call returned at its deadline, not at that child's own end.
+		expect(Date.now() - started).toBeLessThan(10_000);
+
+		const pid = Number((await Bun.file(file).text()).trim());
+		expect(Number.isFinite(pid)).toBe(true);
+		expect(alive(pid)).toBe(false);
+	});
 });
