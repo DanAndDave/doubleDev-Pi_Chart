@@ -481,7 +481,7 @@ export async function confirm(input: {
 export const SCREEN_CAP = 120;
 /**
  * Confirm's spend cap at each of the Gate's looks, USD: the Gate's own caps
- * ($45, $90) are sized for `gate` Runs, and a `gate-holdout` v1 Run costs
+ * ($55, $110) are sized for `gate` Runs, and a `gate-holdout` v1 Run costs
  * about $6.80 (design decision 11), so 10 and 20 Runs need these.
  */
 export const CONFIRM_CAPS = [70, 140] as const;

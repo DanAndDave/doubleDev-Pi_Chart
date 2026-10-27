@@ -68,7 +68,7 @@ If the change's commits touch `src/`, run the Gate before archiving: `bun script
 - **fail**: fix the change, commit, and run the Gate again.
 - **inconclusive**: the user decides.
 
-If the Gate says no A/A batch exists for its key (Workload name and version, model, omp version), it names `bun scripts/gate.ts --aa`; that batch cost $45.65 on gate v1, so the user approves the spend first. A full Gate costs up to about $90 and takes over an hour.
+If the Gate says no A/A batch exists for its key (Workload name and version, model, omp version), it names `bun scripts/gate.ts --aa`; that batch cost $45.65 on gate v1, so the user approves the spend first. A full Gate costs up to about $110 ($55 before its first look) and takes over an hour. Before building anything it refuses when the Thread Store server has fewer free connections than its Runs need (24 per pair at `--parallel`); close idle connections or pass a smaller `--parallel`. A Gate or A/A run that stopped keeps its pairs and spend in `gate.json`: `bun scripts/gate.ts --resume <output folder>` continues it on the same omp and Workload version.
 
 `--ablate` is optional: once the verdict is in, it measures each side's Needed share (`scripts/ablate.ts`) for up to $20 more, $10 per side, and never changes the verdict.
 

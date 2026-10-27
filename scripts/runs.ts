@@ -547,9 +547,14 @@ export function flagsOf(argv: string[]): {
 	return { flag, positive };
 }
 
-/** The Workload `--workload` names: a folder path when it holds a slash, else one under `bench/workloads/`. */
+/** The folder of the Workload `--workload` names: a folder path when it holds a slash, else one under `bench/workloads/`. */
+export function workloadFolder(name: string): string {
+	return name.includes("/") ? resolve(name) : join(WORKLOADS, name);
+}
+
+/** The Workload `--workload` names, loaded from `workloadFolder`. */
 export function loadNamedWorkload(name: string): Promise<Workload> {
-	return loadWorkload(name.includes("/") ? resolve(name) : join(WORKLOADS, name));
+	return loadWorkload(workloadFolder(name));
 }
 
 /**

@@ -1,0 +1,22 @@
+## 1. Resumable
+
+- [x] 1.1 In `describe("gatherPairs")` of `test/gate.test.ts`, add cases for the `settled` callback: it sees each settled pair's `{ pairs, spent, next }` before the freed slot refills, including a `PairStop` pair (spend counted, `next` past it). Add a case where a run seeded with `{ pairs, spent, next }` starts at `next` and returns `next`. Add cases for `nextIndex` (recorded `next`, pairs and `runs/` folder names), `lookPairs` (the first `want` complete pairs by index) and `resumeRefusal` (omp mismatch, Workload version mismatch, ended record, legacy record with and without `stopped`). Verify red.
+- [x] 1.2 In `scripts/gate.ts`, add `next` and `settled` to `gatherPairs` and `next` to `Gathered`. Add `writeJsonAtomic` and use it in `appendToPool` and for `gate.json`. Add `next`, `workload`, `turnTimeout`, `ended` and `resumed` to `GateRecord`. Export `nextIndex`, `lookPairs` and `resumeRefusal`. Verify 1.1 green.
+- [x] 1.3 In `main`, write `gate.json` once the trees are built and after every settled pair. Decide each look on `lookPairs`, set `ended` on the final write of a run that did not stop, and add `--resume <dir>`. It reads the record and refuses the flags the record decides. It checks `resumeRefusal` against the installed omp and the loaded Workload, then carries pairs, spend and `nextIndex` into the look loop under a new stamp, and moves the earlier `stopped` into `resumed`, which the report names. Verify with `bun run typecheck`.
+- [x] 1.4 In `test/gate.test.ts`, add cases for `connectionRefusal`: 100 max, 3 superuser reserved, 51 client backends at `--parallel 2` refuses, naming 46 free, 48 needed and the largest holder; at `--parallel 1` it passes. Verify red, then add `connectionRefusal` and the live query (`connectionState`) in `scripts/gate.ts`, call it in `main` before `buildContext`, and verify green.
+
+## 2. Cap enforced before each pair starts
+
+- [x] 2.1 In `test/gate.test.ts`, move the existing cap cases to $55 and $110 ("voids that bring spend to $55.20"). Add `gatherPairs` cases with an `estimate`: a pair that would cross ($38.40 spent, one in flight, $9.60 median) does not start; without an estimate the old `spent < cap` rule holds; the pool's median is used until the Gate's first pair finishes. Add direct cases for `mayStart` and `pairEstimate`. Verify red.
+- [x] 2.2 In `scripts/gate.ts`, set `LOOKS` caps to 55 and 110, add `mayStart` and `pairEstimate`, give `gatherPairs` the optional `estimate`, and pass `(pairs) => pairEstimate(pairs, history, key)` from `main`. Update the header comment and the report's cap line. Verify green, and verify `test/sweep.test.ts` and `test/compare.test.ts` still pass, since their callers pass no estimate.
+- [x] 2.3 Update `docs/agents/workflow.md`: a full Gate costs up to about $110, and a stopped Gate continues with `--resume <output folder>`. Check README for any statement of the Gate's caps; it has none.
+
+## 3. Stale Run databases swept
+
+- [x] 3.1 In `test/gate.test.ts`, add cases for `staleDatabases` (drops `bench_1792117753912_pi_chart_0` at 2026-10-27, keeps a 1-hour-old `bench_…`, `thread_store`, `pcval_1793135880353`, a 12-digit stamp, and a label outside `[a-z0-9_]`) and `ownDatabases` (only the Gate's stamp). Verify red, then add both to `scripts/gate.ts` and verify green.
+- [x] 3.2 In `main`, after the preflight, list the server's databases and drop each stale one with `dropDatabase`, logging each. In the error path, drop the Gate's own Run databases still on the server, logging a failed drop without masking the error. Verify with `bun run typecheck`.
+
+## 4. Close
+
+- [x] 4.1 Run `bun test test/gate.test.ts test/sweep.test.ts test/compare.test.ts test/runs.test.ts` and `bun run typecheck`; the full suite is run once by the integrator.
+- [x] 4.2 Smoke at no model spend: `bun scripts/gate.ts --base 7ef6898 --candidate 3b4304b` (a docs-only pair) stops with no Gate needed; `--aa --parallel 5` (need 120) is refused by the preflight naming free, needed and the holders; with `bench_1000000000000_smoke_0` created on the server, `--aa --parallel 1 --out /dev/null/gate-smoke` passes the preflight, drops that database and leaves `thread_store`, then fails creating its output folder before anything is built; `--resume` refuses a finished Gate, a finished A/A run, a record under another omp version, and `--aa` beside it; a resumed record whose commit has no tree fails at the build, leaving `gate.json` unchanged.

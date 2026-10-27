@@ -3,20 +3,31 @@ import { describe, expect, test } from "bun:test";
 import {
 	type Batch,
 	changesSource,
+	type ConnectionState,
+	connectionRefusal,
 	decide,
 	gatherPairs,
 	type GateKey,
+	type GateRecord,
 	gateLapses,
 	isComplete,
 	keyOf,
 	LOOKS,
+	lookPairs,
 	MARGIN,
+	mayStart,
+	nextIndex,
 	offModel,
+	ownDatabases,
 	type PairFigures,
 	type PairRun,
 	PairStop,
+	pairEstimate,
 	pooledBatches,
 	REFERENCE_MODEL,
+	resumeRefusal,
+	runLooks,
+	staleDatabases,
 } from "../scripts/gate.ts";
 import type { Banded, RevisitScore, RunMeasures, RunRecord } from "../scripts/measures.ts";
 import { studentQuantile } from "../scripts/stats.ts";
@@ -217,19 +228,19 @@ describe("decide", () => {
 	});
 });
 
-describe("gatherPairs", () => {
-	/** A finished pair: each Run costs `cost`; the base Run completes unless `void`. */
-	const finished = (index: number, cost: number, isVoid = false): PairRun => ({
-		index,
-		base: { cost, lapses: 20, complete: !isVoid },
-		candidate: { cost, lapses: 20, complete: true },
-	});
-	const completeCount = (pairs: PairRun[]) => pairs.filter(isComplete).length;
+/** A finished pair: each Run costs `cost`; the base Run completes unless `void`. */
+const finished = (index: number, cost: number, isVoid = false): PairRun => ({
+	index,
+	base: { cost, lapses: 20, complete: !isVoid },
+	candidate: { cost, lapses: 20, complete: true },
+});
+const completeCount = (pairs: PairRun[]) => pairs.filter(isComplete).length;
 
+describe("gatherPairs", () => {
 	test("a void pair is replaced and its Runs count as spend", async () => {
 		const gathered = await gatherPairs({
 			want: 5,
-			cap: 45,
+			cap: 55,
 			width: 2,
 			runPair: async (index) => finished(index, 1, index === 2),
 		});
@@ -240,27 +251,27 @@ describe("gatherPairs", () => {
 		expect(gathered.capped).toBe(false);
 	});
 
-	test("voids that bring spend to $45.20 at 4 complete pairs stop the look", async () => {
+	test("voids that bring spend to $55.20 at 4 complete pairs stop the look", async () => {
 		const started: number[] = [];
 		const gathered = await gatherPairs({
 			want: 5,
-			cap: 45,
+			cap: 55,
 			width: 1,
 			runPair: async (index) => {
 				started.push(index);
-				return finished(index, 4.52, index >= 4);
+				return finished(index, 5.52, index >= 4);
 			},
 		});
 
 		expect(started).toEqual([0, 1, 2, 3, 4]);
 		expect(completeCount(gathered.pairs)).toBe(4);
-		expect(gathered.spent).toBeCloseTo(45.2, 10);
+		expect(gathered.spent).toBeCloseTo(55.2, 10);
 		expect(gathered.capped).toBe(true);
 	});
 
 	test("the second look carries the first look's pairs and spend", async () => {
-		const first = await gatherPairs({ want: 5, cap: 45, width: 2, runPair: async (index) => finished(index, 1) });
-		const second = await gatherPairs({ ...first, want: 10, cap: 90, width: 2, runPair: async (index) => finished(index, 1) });
+		const first = await gatherPairs({ want: 5, cap: 55, width: 2, runPair: async (index) => finished(index, 1) });
+		const second = await gatherPairs({ ...first, want: 10, cap: 110, width: 2, runPair: async (index) => finished(index, 1) });
 
 		expect(second.pairs.map((pair) => pair.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 		expect(second.spent).toBe(20);
@@ -276,7 +287,7 @@ describe("gatherPairs", () => {
 		let finishedAll = false;
 		const gathering = gatherPairs({
 			want: 6,
-			cap: 90,
+			cap: 110,
 			width: 2,
 			runPair: async (index) => {
 				most = Math.max(most, ++inFlight);
@@ -308,7 +319,7 @@ describe("gatherPairs", () => {
 		let settled = false;
 		const gathering = gatherPairs({
 			want: 5,
-			cap: 45,
+			cap: 55,
 			width: 2,
 			runPair: async (index) => {
 				started.push(index);
@@ -332,6 +343,359 @@ describe("gatherPairs", () => {
 		// Pair 0's two Runs at $1, and the $3 the stopping pair's Runs cost.
 		expect(gathered.spent).toBe(5);
 		expect(gathered.capped).toBe(false);
+	});
+
+	test("a pair projected to cross the cap does not start", async () => {
+		const started: number[] = [];
+		const gathered = await gatherPairs({
+			want: 10,
+			cap: 55,
+			width: 2,
+			estimate: () => 9.6,
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 4.8);
+			},
+		});
+
+		// Five $9.60 pairs project to $48.00; a sixth would make $57.60.
+		expect(started).toEqual([0, 1, 2, 3, 4]);
+		expect(gathered.spent).toBeCloseTo(48, 10);
+		expect(gathered.capped).toBe(true);
+	});
+
+	test("without an estimate a pair starts while spend is below the cap", async () => {
+		const started: number[] = [];
+		const gathered = await gatherPairs({
+			want: 10,
+			cap: 55,
+			width: 2,
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 4.8);
+			},
+		});
+
+		// The same $9.60 pairs run on past five, and spend passes the cap.
+		expect(started.length).toBeGreaterThan(5);
+		expect(gathered.spent).toBeGreaterThan(55);
+	});
+
+	test("an estimate that has none keeps the spend-only rule", async () => {
+		const started: number[] = [];
+		const gathered = await gatherPairs({
+			want: 10,
+			cap: 55,
+			width: 2,
+			estimate: () => undefined,
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 4.8);
+			},
+		});
+
+		expect(started.length).toBeGreaterThan(5);
+		expect(gathered.spent).toBeGreaterThan(55);
+	});
+
+	test("the pool's median is the estimate until the Gate's own first pair finishes", async () => {
+		// Pooled pairs cost $30, so a second pair ($60 projected) waits for the first; it costs $2.
+		const pool = [batch("aa", [0, 1, 2].map(() => ({ base: { cost: 15, lapses: 0 }, candidate: { cost: 15, lapses: 0 } })))];
+		const finishedAtStart: number[] = [];
+		let finishedCount = 0;
+		const gathered = await gatherPairs({
+			want: 5,
+			cap: 55,
+			width: 2,
+			estimate: (pairs) => pairEstimate(pairs, pool, KEY),
+			runPair: async (index) => {
+				finishedAtStart.push(finishedCount);
+				await Promise.resolve();
+				finishedCount++;
+				return finished(index, 1);
+			},
+		});
+
+		expect(finishedAtStart.slice(0, 2)).toEqual([0, 1]);
+		expect(completeCount(gathered.pairs)).toBe(5);
+		expect(gathered.spent).toBe(10);
+	});
+
+	test("each settled pair is reported before its slot refills, a stopping pair included", async () => {
+		const started: number[] = [];
+		const reports: { pairs: number[]; spent: number; next: number; stopped?: string; startedSoFar: number }[] = [];
+		const gathered = await gatherPairs({
+			want: 3,
+			cap: 110,
+			width: 1,
+			runPair: async (index) => {
+				started.push(index);
+				if (index === 1) throw new PairStop("base-1 could not export its Accounting", 3);
+				return finished(index, 1);
+			},
+			settled: async ({ pairs, spent, next, stopped }) => {
+				reports.push({
+					pairs: pairs.map((pair) => pair.index),
+					spent,
+					next,
+					...(stopped ? { stopped: (stopped as Error).message } : {}),
+					startedSoFar: started.length,
+				});
+			},
+		});
+
+		expect(reports).toEqual([
+			{ pairs: [0], spent: 2, next: 1, startedSoFar: 1 },
+			{ pairs: [0], spent: 5, next: 2, stopped: "base-1 could not export its Accounting", startedSoFar: 2 },
+		]);
+		expect(gathered.next).toBe(2);
+	});
+
+	test("a report that fails stops the gathering", async () => {
+		const started: number[] = [];
+		const gathered = await gatherPairs({
+			want: 3,
+			cap: 110,
+			width: 1,
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 1);
+			},
+			settled: async () => {
+				throw new Error("disk full");
+			},
+		});
+
+		expect(started).toEqual([0]);
+		expect((gathered.stopped as Error).message).toBe("disk full");
+		expect(gathered.pairs.map((pair) => pair.index)).toEqual([0]);
+	});
+
+	test("carried pairs, spend and next index seed the gathering", async () => {
+		const started: number[] = [];
+		const gathered = await gatherPairs({
+			want: 3,
+			cap: 110,
+			width: 1,
+			pairs: [finished(0, 1)],
+			spent: 5,
+			next: 5,
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 1);
+			},
+		});
+
+		expect(started).toEqual([5, 6]);
+		expect(gathered.pairs.map((pair) => pair.index)).toEqual([0, 5, 6]);
+		expect(gathered.spent).toBe(9);
+		expect(gathered.next).toBe(7);
+	});
+});
+
+describe("the projected cap", () => {
+	test("a pair starts only when spend and every pair in flight, at the estimate, stay within the cap", () => {
+		expect(mayStart({ spent: 38.4, inFlight: 1, cap: 55, estimate: 9.6 })).toBe(false);
+		expect(mayStart({ spent: 19.2, inFlight: 1, cap: 55, estimate: 9.6 })).toBe(true);
+		expect(mayStart({ spent: 35, inFlight: 1, cap: 55, estimate: 10 })).toBe(true);
+	});
+
+	test("without an estimate spend alone is checked", () => {
+		expect(mayStart({ spent: 54.9, inFlight: 5, cap: 55 })).toBe(true);
+		expect(mayStart({ spent: 55, inFlight: 0, cap: 55 })).toBe(false);
+	});
+
+	const figures = (base: number, candidate: number): PairFigures => ({ base: { cost: base, lapses: 0 }, candidate: { cost: candidate, lapses: 0 } });
+
+	test("the estimate is the median pair cost of the Gate's own finished pairs, void ones included", () => {
+		const pool = [batch("aa", [figures(50, 50)])];
+
+		expect(pairEstimate([finished(0, 4.8), finished(1, 5.25), finished(2, 2, true)], pool, KEY)).toBeCloseTo(9.6, 10);
+	});
+
+	test("before the Gate has a pair, the estimate is the median over the pool's pairs under its key", () => {
+		const pool = [
+			batch("aa", [figures(4.5, 4.5), figures(5, 5)]),
+			batch("gate", [figures(5.5, 5.5)]),
+			batch("aa", [figures(100, 100)], { ...KEY, omp: "omp/18.13.0" }),
+		];
+
+		expect(pairEstimate([], pool, KEY)).toBe(10);
+		expect(pairEstimate([], [], KEY)).toBeUndefined();
+	});
+});
+
+describe("resuming", () => {
+	const options = { workload: { name: "gate", version: 1, commit: "w" }, model: REFERENCE_MODEL, turns: 40, omp: KEY.omp };
+	const record = (over: Partial<GateRecord> = {}): GateRecord => ({
+		kind: "aa",
+		base: "b",
+		candidate: "b",
+		key: KEY,
+		options,
+		workload: "gate",
+		pool: "/tmp/pool.json",
+		parallel: 2,
+		turnTimeout: 600,
+		pairs: [finished(0, 4.8)],
+		spent: 19.2,
+		next: 2,
+		cap: 55,
+		capped: false,
+		looks: [],
+		...over,
+	});
+	const current = { omp: KEY.omp, workload: options.workload };
+
+	test("a stopped run, and one that crashed before it recorded why, resume", () => {
+		expect(resumeRefusal(record({ stopped: "base-1: too many clients" }), current)).toBeUndefined();
+		expect(resumeRefusal(record(), current)).toBeUndefined();
+	});
+
+	test("a run that ended is not resumed", () => {
+		expect(resumeRefusal(record({ ended: true, verdict: "pass" }), current)).toBeDefined();
+	});
+
+	test("a record from before resume existed ended unless it stopped", () => {
+		const { next: _next, ...legacy } = record();
+
+		expect(resumeRefusal(legacy, current)).toBeDefined();
+		expect(resumeRefusal({ ...legacy, stopped: "base-0: too many clients" }, current)).toBeUndefined();
+	});
+
+	test("a new omp or Workload version refuses, naming both", () => {
+		const omp = resumeRefusal(record({ stopped: "x" }), { ...current, omp: "omp/18.13.0" });
+		const workload = resumeRefusal(record({ stopped: "x" }), { ...current, workload: { ...options.workload, version: 2 } });
+
+		expect(omp).toContain(KEY.omp);
+		expect(omp).toContain("omp/18.13.0");
+		expect(workload).toContain("gate v1");
+		expect(workload).toContain("gate v2");
+	});
+
+	test("the next pair index is past every recorded pair, the recorded index and every runs/ folder", () => {
+		const pairs = [finished(0, 1), finished(1, 1)];
+
+		expect(nextIndex({ pairs, next: 3 }, ["base-0", "candidate-0", "base-4", "candidate-4", "notes.txt"])).toBe(5);
+		expect(nextIndex({ pairs: [finished(0, 1), finished(2, 1)] }, ["base-3"])).toBe(4);
+		expect(nextIndex({ pairs: [], next: 0 }, [])).toBe(0);
+	});
+
+	test("a look decides on the first complete pairs by index", () => {
+		const pairs = [finished(3, 1), finished(0, 1), finished(1, 9, true), finished(2, 2), finished(4, 3), finished(5, 4)];
+
+		expect(lookPairs(pairs, 3).map((pair) => pair.base.cost)).toEqual([1, 2, 1]);
+	});
+
+	/** An A/A batch wide enough that 5 even pairs neither fail nor pass. */
+	const history = [batch("aa", pairs([-0.3, 0.3, -0.3, 0.3, 0]))];
+
+	test("a resumed Gate carries its pairs, spend and next index, and recomputes its first look", async () => {
+		// Pair 3 was void and pair 8 stopped the Gate during its second look.
+		const carried = [0, 1, 2, 3, 4, 5, 6, 7].map((index) => finished(index, 4.8, index === 3));
+		const started: number[] = [];
+		const outcome = await runLooks({
+			aa: false,
+			history,
+			key: KEY,
+			width: 2,
+			carried: { pairs: carried, spent: 81.6, next: 9 },
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 4.8);
+			},
+		});
+
+		expect(started).toEqual([9, 10, 11]);
+		expect(outcome.spent).toBeCloseTo(81.6 + 3 * 9.6, 10);
+		expect(outcome.next).toBe(12);
+		expect(outcome.looks.map((look) => look.pairs)).toEqual([5, 10]);
+		expect(outcome.looks[0]).toEqual(decide({ look: 0, pairs: lookPairs(carried, 5), history, key: KEY, margin: MARGIN }));
+		expect(outcome.looks[0]?.verdict).toBe("continue");
+		expect(outcome.verdict).toBe(outcome.looks[1]?.verdict);
+	});
+
+	test("a resumed A/A run starts past its stopped pair and gathers its 5 complete pairs", async () => {
+		const started: number[] = [];
+		const outcome = await runLooks({
+			aa: true,
+			history: [],
+			key: KEY,
+			width: 1,
+			carried: { pairs: [finished(0, 4.8)], spent: 19.2, next: 2 },
+			runPair: async (index) => {
+				started.push(index);
+				return finished(index, 4.8);
+			},
+		});
+
+		expect(started).toEqual([2, 3, 4, 5]);
+		expect(completeCount(outcome.pairs)).toBe(5);
+		expect(outcome.spent).toBeCloseTo(19.2 + 4 * 9.6, 10);
+		expect(outcome.looks).toEqual([]);
+		expect(outcome.verdict).toBeUndefined();
+	});
+});
+
+describe("the server", () => {
+	const busy: ConnectionState = {
+		max: 100,
+		superuserReserved: 3,
+		reserved: 0,
+		clients: 51,
+		holders: [
+			{ application: "", user: "pi_chart", database: "thread_store", count: 50 },
+			{ application: "psql", user: "pi_chart", database: "thread_store", count: 1 },
+		],
+	};
+
+	test("a Gate the free connections cannot hold is refused, naming free, needed and the holders", () => {
+		const refusal = connectionRefusal(busy, 2);
+
+		expect(refusal).toContain("46 free");
+		expect(refusal).toContain("48 needed");
+		expect(refusal).toContain("50 by no application name as pi_chart on thread_store");
+		expect(refusal).toContain("1 by psql as pi_chart on thread_store");
+	});
+
+	test("a Gate the free connections hold may start", () => {
+		expect(connectionRefusal(busy, 1)).toBeUndefined();
+	});
+
+	test("reserved connections are not free", () => {
+		expect(connectionRefusal({ ...busy, reserved: 23 }, 1)).toContain("23 free");
+	});
+
+	test("only Run databases stamped more than 24 hours ago are stale", () => {
+		const now = Date.UTC(2026, 9, 27, 21, 20);
+		const day = 24 * 60 * 60 * 1000;
+		const names = [
+			"bench_1792117753912_pi_chart_0",
+			`bench_${now - 60 * 60 * 1000}_base_0`,
+			`bench_${now - day}_base_1`,
+			`bench_${now - day - 1}_base_2`,
+			"bench_1000000000000_smoke_0",
+			"thread_store",
+			"pcval_1793135880353",
+			"postgres",
+			"bench_179211775391_base_0",
+			"bench_1792117753912_Base-0",
+			"xbench_1792117753912_base_0",
+		];
+
+		expect(staleDatabases(names, now)).toEqual(["bench_1792117753912_pi_chart_0", `bench_${now - day - 1}_base_2`, "bench_1000000000000_smoke_0"]);
+	});
+
+	test("a Gate's own Run databases carry exactly its stamp", () => {
+		const names = [
+			"bench_1793135880353_base_0",
+			"bench_1793135880353_candidate_1",
+			"bench_1793135880354_base_0",
+			"bench_17931358803530_base_0",
+			"thread_store",
+		];
+
+		expect(ownDatabases(names, 1793135880353)).toEqual(["bench_1793135880353_base_0", "bench_1793135880353_candidate_1"]);
 	});
 });
 

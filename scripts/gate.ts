@@ -6,6 +6,7 @@
  *
  *     bun scripts/gate.ts --base <rev> [--candidate <rev>]   # a Gate; candidate defaults to HEAD
  *     bun scripts/gate.ts --aa [--commit <rev>]              # an A/A batch; commit defaults to HEAD
+ *     bun scripts/gate.ts --resume <dir>                     # continue a Gate or A/A run that stopped
  *     bun scripts/gate.ts --report <dir>                     # re-print from gate.json
  *       [--out <dir>] [--parallel <pairs>] [--pool <file>] [--workload <name|path>] [--turn-timeout <s>]
  *       [--ablate]
@@ -22,14 +23,20 @@
  * another stops the Gate without a verdict. Before any spend, the Gate stops
  * when the commits differ only outside `src/`, when the Workload is held out
  * (its name ends in `-holdout`; only `--aa` runs one), when the pool has no A/A
- * batch for the key, or when a tree does not build.
+ * batch for the key, when the Thread Store server has fewer free connections
+ * than `--parallel` pairs need (`CONNECTIONS_PER_RUN` per Run), or when a
+ * tree does not build. Once the connections are checked, it drops every Run
+ * database (`bench_<stamp>_<label>`) stamped more than 24 hours ago, and a
+ * Gate that ends with an error drops its own Runs' databases still there.
  *
  * Looks come at 5 and 10 complete pairs (`LOOKS`). Each tests the cost log
  * ratio and the Lapse difference for a rise, Holm-corrected, and passes
  * when nothing fails and Cost's upper ratio bound is below `MARGIN`. A pair
  * with an incomplete Run is void: its cost counts, and another replaces it.
- * No pair starts once spend reaches the look's cap; pairs in flight finish,
- * so spend can pass the cap by up to `--parallel` pairs (default 2).
+ * A pair starts only when spend plus it and the pairs in flight, each at the
+ * median pair cost so far (the pool's under the key before the Gate has
+ * one), stays within the look's cap; a pair dearer than that can still take
+ * spend past it.
  *
  * The pool, `bench/gate/pool.json` (`--pool` for a smoke run), keeps every
  * A/A, Gate and Budget sweep confirm batch's per-pair Costs per Run and Lapses per Run under its
@@ -39,12 +46,16 @@
  * a verdict is reached, or an A/A run ends, with at least 2 complete pairs.
  *
  * Each Run's record is in `<out>/runs/base-<i>/` or `candidate-<i>/`, and
- * `<out>/gate.json` holds the commits, key, pairs, spend, looks and verdict;
- * `--report <out>` re-prints from them with no Run and no pool write.
+ * `<out>/gate.json` holds the commits, key, pairs, spend, next pair index,
+ * looks and verdict, rewritten whole after every pair. `--resume <out>`
+ * continues a run that stopped from it, under the same key, with
+ * `--parallel` and `--turn-timeout` optionally given again; `--report <out>`
+ * re-prints from it with no Run and no pool write.
  */
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import { SQL } from "bun";
 
 import { type AblateOptions, AblationStop, ablateRun, readAblation } from "./ablate.ts";
 import { type AblationRecord, type CalibrationFile, estimateLabel, shareLabel, summarise } from "./ablation.ts";
@@ -54,6 +65,7 @@ import {
 	buildContext,
 	buildTree,
 	type Context,
+	dropDatabase,
 	flagsOf,
 	loadNamedWorkload,
 	log,
@@ -63,6 +75,7 @@ import {
 	resolveCommit,
 	runOne,
 	type RunSpec,
+	workloadFolder,
 } from "./runs.ts";
 import { holm, mean, pooledVariance, sampleVariance, studentCdf, studentQuantile } from "./stats.ts";
 import { PULL_TOOLS } from "./units.ts";
@@ -71,11 +84,11 @@ import { isHeldOut, REPO, turnsOf, type Workload, type WorkloadId } from "./work
 
 /**
  * The two looks: the pairs each needs, its one-sided level (O'Brien–Fleming,
- * overall one-sided α = 0.05), and the spend after which no pair starts.
+ * overall one-sided α = 0.05), and the cap a pair must start within.
  */
 export const LOOKS = [
-	{ pairs: 5, alpha: 0.0088, cap: 45 },
-	{ pairs: 10, alpha: 0.0467, cap: 90 },
+	{ pairs: 5, alpha: 0.0088, cap: 55 },
+	{ pairs: 10, alpha: 0.0467, cap: 110 },
 ] as const;
 /** Cost is non-inferior when the upper bound of its geometric-mean ratio is below this. */
 export const MARGIN = 1.1;
@@ -307,25 +320,61 @@ export class PairStop extends Error {
 	}
 }
 
-export interface Gathered {
+/** Both Runs' Cost per Run: what a pair spent. */
+function pairCost(pair: PairFigures): number {
+	return pair.base.cost + pair.candidate.cost;
+}
+
+/**
+ * Whether a pair may start under `cap`: with an `estimate` of a pair's cost,
+ * when `spent` plus it and the `inFlight` pairs, each at the estimate, stays
+ * within the cap; without one, while `spent` is below it.
+ */
+export function mayStart(input: { spent: number; inFlight: number; cap: number; estimate?: number }): boolean {
+	const { spent, inFlight, cap, estimate } = input;
+	return estimate === undefined ? spent < cap : spent + (inFlight + 1) * estimate <= cap;
+}
+
+/**
+ * A pair's projected cost: the median over the Gate's own finished `pairs`,
+ * void ones included, else over every pair of `history` under `key`, else
+ * none.
+ */
+export function pairEstimate(pairs: PairRun[], history: Batch[], key: GateKey): number | undefined {
+	const own = pairs.map(pairCost);
+	const costs = own.length > 0 ? own : history.filter((batch) => sameKey(batch.key, key)).flatMap((batch) => batch.pairs.map(pairCost));
+	return costs.length > 0 ? median(costs) : undefined;
+}
+
+/** Where a gathering stands each time a pair settles. */
+export interface Settled {
 	/** Every finished pair, void ones included, by index. */
 	pairs: PairRun[];
 	/** Cost per Run summed over every finished Run, a stopping pair's included. */
 	spent: number;
-	/** Whether the cap stopped the look short of `want` complete pairs. */
-	capped: boolean;
+	/** The index the next pair takes: past every pair started, a stopping one's included. */
+	next: number;
 	/** The first error a pair threw, which stops the Gate. */
 	stopped?: unknown;
+}
+
+export interface Gathered extends Settled {
+	/** Whether the cap stopped the look short of `want` complete pairs. */
+	capped: boolean;
 }
 
 /**
  * Runs pairs, up to `width` at once, until `want` of them are complete. A
  * pair starts only while complete and in-flight pairs number fewer than
- * `want` and `spent` is below `cap`; each finished pair adds both Runs' cost
- * to `spent`, and a void one frees its slot for a replacement. `pairs` and
- * `spent` carry an earlier look's pairs. After `runPair` throws, no pair
- * starts and the ones in flight finish; the error comes back as `stopped`
- * beside every pair that finished, and a `PairStop`'s spend is counted.
+ * `want` and `mayStart` allows it under `cap`, at the `estimate` from the
+ * pairs finished so far; each finished pair adds both Runs' cost to
+ * `spent`, and a void one frees its slot for a replacement. `pairs`,
+ * `spent` and `next` carry an earlier look's, or a stopped Gate's, pairs.
+ * After `runPair` throws, no pair starts and the ones in flight finish; the
+ * error comes back as `stopped` beside every pair that finished, and a
+ * `PairStop`'s spend is counted. `settled` is awaited after each pair
+ * settles, one at a time and before its slot refills; a throw from it stops
+ * the gathering as a pair's would.
  */
 export async function gatherPairs(input: {
 	want: number;
@@ -334,30 +383,49 @@ export async function gatherPairs(input: {
 	runPair: (index: number) => Promise<PairRun>;
 	pairs?: PairRun[];
 	spent?: number;
+	next?: number;
+	estimate?: (pairs: PairRun[]) => number | undefined;
+	settled?: (state: Settled) => Promise<void>;
 }): Promise<Gathered> {
-	const { want, cap, width, runPair } = input;
+	const { want, cap, width, runPair, estimate, settled } = input;
 	const pairs = [...(input.pairs ?? [])];
 	let spent = input.spent ?? 0;
-	let next = pairs.reduce((top, pair) => Math.max(top, pair.index + 1), 0);
+	let next = pairs.reduce((top, pair) => Math.max(top, pair.index + 1), input.next ?? 0);
 	let inFlight = 0;
 	let stopped: { error: unknown } | undefined;
+	let reported = Promise.resolve();
 	const complete = () => pairs.filter(isComplete).length;
 
 	await new Promise<void>((resolve) => {
 		const fill = () => {
-			while (!stopped && inFlight < width && complete() + inFlight < want && spent < cap) {
+			while (
+				!stopped &&
+				inFlight < width &&
+				complete() + inFlight < want &&
+				mayStart({ spent, inFlight, cap, estimate: estimate?.(pairs) })
+			) {
 				inFlight++;
 				runPair(next++)
 					.then(
 						(pair) => {
 							pairs.push(pair);
-							spent += pair.base.cost + pair.candidate.cost;
+							spent += pairCost(pair);
 						},
 						(error: unknown) => {
 							if (error instanceof PairStop) spent += error.spent;
 							stopped ??= { error };
 						},
 					)
+					.then(() => {
+						if (!settled) return;
+						const byIndex = [...pairs].sort((a, b) => a.index - b.index);
+						const state: Settled = { pairs: byIndex, spent, next, ...(stopped ? { stopped: stopped.error } : {}) };
+						reported = reported.then(() => settled(state));
+						return reported;
+					})
+					.catch((error: unknown) => {
+						stopped ??= { error };
+					})
 					.finally(() => {
 						inFlight--;
 						fill();
@@ -368,7 +436,7 @@ export async function gatherPairs(input: {
 		fill();
 	});
 	pairs.sort((a, b) => a.index - b.index);
-	return { pairs, spent, capped: !stopped && complete() < want, ...(stopped ? { stopped: stopped.error } : {}) };
+	return { pairs, spent, next, capped: !stopped && complete() < want, ...(stopped ? { stopped: stopped.error } : {}) };
 }
 
 /**
@@ -452,9 +520,15 @@ export interface GateRecord {
 	options: Options;
 	pool: string;
 	parallel: number;
+	/** The folder of the Workload `--workload` named (`workloadFolder`). Absent before resume existed. */
+	workload?: string;
+	/** Seconds a Turn may take. Absent before resume existed. */
+	turnTimeout?: number;
 	/** Every pair the Gate ran, void ones included, by index. */
 	pairs: PairRun[];
 	spent: number;
+	/** The index the next pair takes, past a stopping pair's. Absent before resume existed. */
+	next?: number;
 	/** The cap of the last look gathered. */
 	cap: number;
 	/** Whether the cap stopped the last look short of its pairs. */
@@ -465,6 +539,10 @@ export interface GateRecord {
 	verdict?: Verdict;
 	/** Why the Gate stopped without a verdict. */
 	stopped?: string;
+	/** Set by the last write of a run that did not stop: there is nothing to resume. */
+	ended?: boolean;
+	/** Why each earlier attempt of a resumed run stopped, in order. */
+	resumed?: string[];
 }
 
 export const POOL = join(REPO, "bench", "gate", "pool.json");
@@ -478,14 +556,19 @@ export async function readPool(file: string): Promise<Pool> {
 	}
 }
 
-/** Adds `batch` to the pool at `file`, replacing the file whole so a crash never leaves half of one. */
+/** Writes `value` to `file` as JSON, replacing the file whole so a crash never leaves half of one. */
+async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
+	await mkdir(dirname(file), { recursive: true });
+	const temporary = `${file}.${process.pid}.tmp`;
+	await writeFile(temporary, `${JSON.stringify(value, null, "\t")}\n`);
+	await rename(temporary, file);
+}
+
+/** Adds `batch` to the pool at `file`. */
 export async function appendToPool(file: string, batch: Batch): Promise<void> {
 	const pool = await readPool(file);
 	pool.batches.push(batch);
-	await mkdir(dirname(file), { recursive: true });
-	const temporary = `${file}.${process.pid}.tmp`;
-	await writeFile(temporary, `${JSON.stringify(pool, null, "\t")}\n`);
-	await rename(temporary, file);
+	await writeJsonAtomic(file, pool);
 }
 
 export function completePairs(pairs: PairRun[]): PairFigures[] {
@@ -493,6 +576,209 @@ export function completePairs(pairs: PairRun[]): PairFigures[] {
 		base: { cost: base.cost, lapses: base.lapses },
 		candidate: { cost: candidate.cost, lapses: candidate.lapses },
 	}));
+}
+
+/** The first `want` complete pairs by index: what a look decides on. */
+export function lookPairs(pairs: PairRun[], want: number): PairFigures[] {
+	return completePairs([...pairs].sort((a, b) => a.index - b.index)).slice(0, want);
+}
+
+/** What a Gate's or A/A run's looks came to. */
+export interface LooksOutcome extends Gathered {
+	/** The cap of the last look gathered. */
+	cap: number;
+	looks: Decision[];
+	/** Absent for an A/A run, and for a Gate that stopped. */
+	verdict?: Verdict;
+}
+
+/**
+ * Gathers and decides each look in turn: a Gate's, or with `aa` an A/A
+ * run's `AA_PAIRS` complete pairs under the first look's cap, with no
+ * decision. `carried` seeds a resumed run. Each look decides on its first
+ * complete pairs by index, which in a fresh run are exactly the pairs it
+ * has then, so a resumed Gate reaches the looks a fresh one would.
+ * `settled` hears of each settled pair with the cap of its look.
+ */
+export async function runLooks(input: {
+	aa: boolean;
+	history: Batch[];
+	key: GateKey;
+	width: number;
+	runPair: (index: number) => Promise<PairRun>;
+	estimate?: (pairs: PairRun[]) => number | undefined;
+	settled?: (state: Settled & { cap: number }) => Promise<void>;
+	carried?: Omit<Settled, "stopped">;
+}): Promise<LooksOutcome> {
+	const { aa, history, key, width, runPair, estimate, settled } = input;
+	const looks: Decision[] = [];
+	let gathered: Gathered = { pairs: [], spent: 0, next: 0, capped: false, ...input.carried };
+	for (const [look, { pairs, cap }] of LOOKS.entries()) {
+		const want = aa ? AA_PAIRS : pairs;
+		gathered = await gatherPairs({
+			want,
+			cap,
+			width,
+			runPair,
+			estimate,
+			pairs: gathered.pairs,
+			spent: gathered.spent,
+			next: gathered.next,
+			settled: settled && ((state) => settled({ ...state, cap })),
+		});
+		if (gathered.stopped !== undefined || aa) return { ...gathered, cap, looks };
+		const current = lookPairs(gathered.pairs, want);
+		if (gathered.capped) {
+			if (current.length > 0) looks.push({ ...decide({ look, pairs: current, history, key, margin: MARGIN }), verdict: "inconclusive" });
+			return { ...gathered, cap, looks, verdict: "inconclusive" };
+		}
+		const decision = decide({ look, pairs: current, history, key, margin: MARGIN });
+		looks.push(decision);
+		if (decision.verdict !== "continue") return { ...gathered, cap, looks, verdict: decision.verdict };
+	}
+	throw new Error("the last look continued: it can only pass, fail or be inconclusive");
+}
+
+// ---------------------------------------------------------------- resume --
+
+/** The first pair index a resumed run may use: past its recorded `next`, every recorded pair, and every pair with a folder under `runs/`. */
+export function nextIndex(record: { pairs: PairRun[]; next?: number }, folders: string[]): number {
+	const used = folders.flatMap((name) => {
+		const match = /^(?:base|candidate)-(\d+)$/.exec(name);
+		return match ? [Number(match[1]) + 1] : [];
+	});
+	return Math.max(record.next ?? 0, ...record.pairs.map((pair) => pair.index + 1), ...used);
+}
+
+/**
+ * Why the run `record` describes cannot be resumed under the installed
+ * `omp` and the Workload as now loaded, or nothing when it can. A run ended
+ * when its last write says so; a record from before resume existed (no
+ * `next`) was written once, at the end, so it ended unless it stopped.
+ */
+export function resumeRefusal(record: GateRecord, current: { omp: string; workload: WorkloadId }): string | undefined {
+	const { key } = record;
+	if (record.ended === true || (record.next === undefined && record.stopped === undefined)) {
+		const verdict = record.verdict ? ` with a verdict of ${record.verdict}` : "";
+		return `the ${record.kind === "aa" ? "A/A run" : "Gate"} already ended${verdict}: there is nothing to resume`;
+	}
+	if (current.omp !== key.omp) {
+		return `it ran under ${key.omp} and the installed omp is ${current.omp}; its pairs pool only under their own key, so start a new run`;
+	}
+	if (current.workload.name !== key.workload.name || current.workload.version !== key.workload.version) {
+		const was = `${key.workload.name} v${key.workload.version}`;
+		return `it ran ${was} and the Workload is now ${current.workload.name} v${current.workload.version}; start a new run`;
+	}
+	return undefined;
+}
+
+// ---------------------------------------------------------------- server --
+
+/**
+ * A Run's connections at most: 10 for its omp process's pool on a tree from
+ * before the extension bounded its pool (a base tree may predate that bound),
+ * and 2 to create, export and drop its database.
+ */
+export const CONNECTIONS_PER_RUN = 12;
+
+/** The Thread Store server's connection slots, and who holds them. */
+export interface ConnectionState {
+	max: number;
+	superuserReserved: number;
+	reserved: number;
+	/** Client connections open now, other than the one that asked. */
+	clients: number;
+	/** The largest holders of client connections, most first. */
+	holders: { application: string; user: string; database: string; count: number }[];
+}
+
+/** Why `parallel` pairs, 2 Runs each, cannot start on a server in `state`, or nothing when they can. */
+export function connectionRefusal(state: ConnectionState, parallel: number): string | undefined {
+	const free = state.max - state.superuserReserved - state.reserved - state.clients;
+	const needed = parallel * 2 * CONNECTIONS_PER_RUN;
+	if (free >= needed) return undefined;
+	const holders = state.holders.map(
+		({ application, user, database, count }) => `${count} by ${application || "no application name"} as ${user} on ${database}`,
+	);
+	const fits = Math.floor(free / (2 * CONNECTIONS_PER_RUN));
+	return (
+		`the Thread Store server has ${free} free connections against ${needed} needed for ${parallel} pair${parallel === 1 ? "" : "s"} at once ` +
+		`(${CONNECTIONS_PER_RUN} per Run): ${state.max} allowed, ${state.superuserReserved + state.reserved} reserved, ${state.clients} in use` +
+		(holders.length > 0 ? ` (${holders.join("; ")})` : "") +
+		(fits > 0 ? `. Close some, or run with --parallel ${fits}` : ". Close some first")
+	);
+}
+
+/** The connection slots and holders on `server`, read in one statement so the count and the holders agree; the asking connection is not counted. */
+async function connectionState(server: string): Promise<ConnectionState> {
+	const sql = new SQL(server);
+	try {
+		const [row] = (await sql`
+			WITH clients AS (
+				SELECT coalesce(application_name, '') AS application, coalesce(usename::text, '') AS "user", coalesce(datname::text, '') AS database
+				FROM pg_stat_activity
+				WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()
+			)
+			SELECT current_setting('max_connections')::int AS max,
+				current_setting('superuser_reserved_connections')::int AS superuser_reserved,
+				coalesce(current_setting('reserved_connections', true), '0')::int AS reserved,
+				(SELECT count(*)::int FROM clients) AS clients,
+				(SELECT coalesce(json_agg(top), '[]')::text FROM (
+					SELECT application, "user", database, count(*)::int AS count FROM clients
+					GROUP BY 1, 2, 3 ORDER BY 4 DESC, 1, 2, 3 LIMIT 5
+				) AS top) AS holders
+		`) as { max: number; superuser_reserved: number; reserved: number; clients: number; holders: string }[];
+		if (!row) throw new Error("the Thread Store server returned no connection settings");
+		return {
+			max: row.max,
+			superuserReserved: row.superuser_reserved,
+			reserved: row.reserved,
+			clients: row.clients,
+			holders: JSON.parse(row.holders) as ConnectionState["holders"],
+		};
+	} finally {
+		await sql.end();
+	}
+}
+
+/** A Run database's name: `bench_`, its Gate's or benchmark's 13-digit millisecond stamp, `_`, and its Run's label. */
+const RUN_DATABASE = /^bench_(\d{13})_[a-z0-9_]+$/;
+/** How long before a Run database's stamp is older than any Gate or benchmark still running. */
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/** The Run databases among `names` stamped more than 24 hours before `now`. */
+export function staleDatabases(names: string[], now: number): string[] {
+	return names.filter((name) => {
+		const stamp = RUN_DATABASE.exec(name)?.[1];
+		return stamp !== undefined && Number(stamp) < now - STALE_AFTER_MS;
+	});
+}
+
+/** The Run databases among `names` of the Gate stamped `stamp`. */
+export function ownDatabases(names: string[], stamp: number): string[] {
+	return names.filter((name) => RUN_DATABASE.exec(name)?.[1] === String(stamp));
+}
+
+/** Every database on `server`. */
+async function databasesOn(server: string): Promise<string[]> {
+	const sql = new SQL(server);
+	try {
+		return ((await sql`SELECT datname::text AS name FROM pg_database ORDER BY 1`) as { name: string }[]).map((row) => row.name);
+	} finally {
+		await sql.end();
+	}
+}
+
+/** Drops each of `names` from `server`, logging each drop and each failure; a failed drop stops nothing. */
+async function dropEach(server: string, names: string[], what: string): Promise<void> {
+	for (const name of names) {
+		try {
+			await dropDatabase(server, name);
+			log(`dropped ${what} ${name}`);
+		} catch (error) {
+			log(`could not drop ${what} ${name}: ${error instanceof Error ? error.message : error}`);
+		}
+	}
 }
 
 // ---------------------------------------------------------------- report --
@@ -573,7 +859,12 @@ export function report(gate: GateRecord, sides: Sides, ablation: Record<Side, Ab
 
 	console.log(
 		`\nSpend ${usd(gate.spent)} of a ${usd(gate.cap)} cap, over ${gate.pairs.length * 2} Runs. ` +
-			`Spend may exceed the cap by the pairs already running when it was reached (up to ${gate.parallel} at once).`,
+			// A record without `next` ran before the projected rule: no pair started once spend reached the cap.
+			(gate.next === undefined
+				? `Spend may exceed the cap by the pairs already running when it was reached (up to ${gate.parallel} at once).`
+				: "A pair started only when spend plus it and the pairs running, each at the median pair cost so far, stayed within the cap; " +
+					"a pair dearer than that can take spend past it.") +
+			(gate.resumed?.length ? ` Resumed after: ${gate.resumed.join("; ")}.` : ""),
 	);
 
 	// Reported, not gated: each side over its complete Runs.
@@ -708,8 +999,131 @@ function neededCell(records: AblationRecord[]): string {
 
 // ------------------------------------------------------------------ main --
 
-async function main(argv: string[]): Promise<void> {
+/** What a Gate or A/A run starts from, fresh or resumed: its record so far, its Workload, the pool's batches, and its output folder. */
+interface Plan {
+	record: GateRecord;
+	workload: Workload;
+	history: Batch[];
+	out: string;
+	turnTimeout: number;
+}
+
+/** A fresh Gate's or A/A run's plan from its flags, or nothing when the commits need no Gate. */
+async function freshPlan(argv: string[], stamp: number): Promise<Plan | undefined> {
 	const { flag, positive } = flagsOf(argv);
+	const aa = argv.includes("--aa");
+	let base: string;
+	let candidate: string;
+	if (aa) {
+		base = candidate = await resolveCommit(flag("--commit") ?? "HEAD");
+	} else {
+		const baseRevision = flag("--base");
+		if (!baseRevision) throw new Error("a Gate needs --base <the commit before the change>; or --aa, --resume <dir> or --report <dir>");
+		base = await resolveCommit(baseRevision);
+		candidate = await resolveCommit(flag("--candidate") ?? "HEAD");
+		if (!(await changesSource(base, candidate))) {
+			console.log(`${base.slice(0, 7)} → ${candidate.slice(0, 7)} does not touch src/: no Gate is needed.`);
+			return undefined;
+		}
+	}
+
+	const named = flag("--workload") ?? "gate";
+	const workload = await loadNamedWorkload(named);
+	if (!aa && isHeldOut(workload.name)) {
+		throw new Error(`${workload.name} is a held-out Workload: it is run only by A/A (--aa) and a Budget sweep's confirm, never by a Gate`);
+	}
+	const options = referenceOptions(workload, await ompVersion());
+	const key = keyOf(options.workload, options.omp);
+	const pool = resolve(flag("--pool") ?? POOL);
+	const history = (await readPool(pool)).batches;
+	if (!aa) pooledBatches(history, key);
+	const turnTimeout = positive("--turn-timeout", 600);
+	return {
+		workload,
+		history,
+		out: resolve(flag("--out") ?? join(tmpdir(), `pichart-gate-${stamp}`)),
+		turnTimeout,
+		record: {
+			kind: aa ? "aa" : "gate",
+			base,
+			candidate,
+			key,
+			options,
+			pool,
+			parallel: positive("--parallel", 2),
+			workload: workloadFolder(named),
+			turnTimeout,
+			pairs: [],
+			spent: 0,
+			next: 0,
+			cap: 0,
+			capped: false,
+			looks: [],
+		},
+	};
+}
+
+/** The flags `gate.json` decides for a resumed run. */
+const RECORDED_FLAGS = ["--base", "--candidate", "--aa", "--commit", "--workload", "--pool", "--out"];
+
+/**
+ * The plan that continues the run recorded in `dir`: its kind, commits, key,
+ * Options, Workload and pool from `gate.json`, its pairs and spend carried,
+ * and its next pair past every index already used. `--parallel` and
+ * `--turn-timeout` may override the record's.
+ */
+async function resumedPlan(dir: string, argv: string[]): Promise<Plan> {
+	const { positive } = flagsOf(argv);
+	const given = RECORDED_FLAGS.filter((name) => argv.includes(name));
+	if (given.length > 0) {
+		throw new Error(`--resume takes ${given.join(", ")} from ${join(dir, "gate.json")}; only --parallel, --turn-timeout and --ablate go beside it`);
+	}
+	let earlier: GateRecord;
+	try {
+		earlier = JSON.parse(await readFile(join(dir, "gate.json"), "utf8")) as GateRecord;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error(`refusing to resume: ${dir} holds no gate.json`);
+		throw error;
+	}
+	const named = earlier.workload ?? earlier.key.workload.name;
+	const workload = await loadNamedWorkload(named);
+	const refusal = resumeRefusal(earlier, { omp: await ompVersion(), workload });
+	if (refusal) throw new Error(`refusing to resume ${dir}: ${refusal}`);
+	const history = (await readPool(earlier.pool)).batches;
+	if (earlier.kind === "gate") pooledBatches(history, earlier.key);
+	const folders = await readdir(join(dir, "runs")).catch((error: NodeJS.ErrnoException) => {
+		if (error.code === "ENOENT") return [];
+		throw error;
+	});
+	const turnTimeout = positive("--turn-timeout", earlier.turnTimeout ?? 600);
+	return {
+		workload,
+		history,
+		out: dir,
+		turnTimeout,
+		record: {
+			kind: earlier.kind,
+			base: earlier.base,
+			candidate: earlier.candidate,
+			key: earlier.key,
+			options: earlier.options,
+			pool: earlier.pool,
+			parallel: positive("--parallel", earlier.parallel),
+			workload: workloadFolder(named),
+			turnTimeout,
+			pairs: earlier.pairs,
+			spent: earlier.spent,
+			next: nextIndex(earlier, folders),
+			cap: 0,
+			capped: false,
+			looks: [],
+			resumed: [...(earlier.resumed ?? []), earlier.stopped ?? "interrupted before it recorded why"],
+		},
+	};
+}
+
+async function main(argv: string[]): Promise<void> {
+	const { flag } = flagsOf(argv);
 
 	const reportFrom = flag("--report");
 	if (reportFrom) {
@@ -718,36 +1132,24 @@ async function main(argv: string[]): Promise<void> {
 		return;
 	}
 
-	const aa = argv.includes("--aa");
-	let base: string;
-	let candidate: string;
-	if (aa) {
-		base = candidate = await resolveCommit(flag("--commit") ?? "HEAD");
-	} else {
-		const baseRevision = flag("--base");
-		if (!baseRevision) throw new Error("a Gate needs --base <the commit before the change>; or --aa, or --report <dir>");
-		base = await resolveCommit(baseRevision);
-		candidate = await resolveCommit(flag("--candidate") ?? "HEAD");
-		if (!(await changesSource(base, candidate))) {
-			console.log(`${base.slice(0, 7)} → ${candidate.slice(0, 7)} does not touch src/: no Gate is needed.`);
-			return;
-		}
-	}
-
-	const workload = await loadNamedWorkload(flag("--workload") ?? "gate");
-	if (!aa && isHeldOut(workload.name)) {
-		throw new Error(`${workload.name} is a held-out Workload: it is run only by A/A (--aa) and a Budget sweep's confirm, never by a Gate`);
-	}
-	const options = referenceOptions(workload, await ompVersion());
-	const key = keyOf(options.workload, options.omp);
-	const poolFile = resolve(flag("--pool") ?? POOL);
-	const history = (await readPool(poolFile)).batches;
-	if (!aa) pooledBatches(history, key);
-	const server = requireThreadStore("Gate Runs");
-	const parallel = positive("--parallel", 2);
+	// Names this run's Run databases; a resumed run takes a new one.
 	const stamp = Date.now();
-	const out = resolve(flag("--out") ?? join(tmpdir(), `pichart-gate-${stamp}`));
+	const resumeFrom = flag("--resume");
+	const plan = resumeFrom ? await resumedPlan(resolve(resumeFrom), argv) : await freshPlan(argv, stamp);
+	if (!plan) return;
+	const { record: gate, workload, history, out, turnTimeout } = plan;
+	const { base, candidate, key } = gate;
+	const server = requireThreadStore("Gate Runs");
+	const refusal = connectionRefusal(await connectionState(server), gate.parallel);
+	if (refusal) throw new Error(`refusing to start: ${refusal}`);
+	await dropEach(server, staleDatabases(await databasesOn(server), Date.now()), "stale Run database");
 	await mkdir(join(out, "runs"), { recursive: true });
+	/** Takes `state` into the record, a stop as its message, and rewrites `gate.json` whole. */
+	const record = async ({ stopped, ...state }: Partial<Omit<GateRecord, "stopped">> & { stopped?: unknown }) => {
+		Object.assign(gate, state);
+		if (stopped !== undefined) gate.stopped = stopped instanceof Error ? stopped.message : String(stopped);
+		await writeJsonAtomic(join(out, "gate.json"), gate);
+	};
 
 	const temporary: string[] = [];
 	try {
@@ -756,8 +1158,8 @@ async function main(argv: string[]): Promise<void> {
 		const ctx = await buildContext(workload, turnsOf(workload), {
 			server,
 			out,
-			options,
-			timeoutMs: positive("--turn-timeout", 600) * 1000,
+			options: gate.options,
+			timeoutMs: turnTimeout * 1000,
 			stamp,
 		});
 		temporary.push(ctx.template);
@@ -774,55 +1176,27 @@ async function main(argv: string[]): Promise<void> {
 			return { arm: "pi-chart", index, label: `${side}-${index}`, source: trees.get(sha) as string, commit: sha };
 		});
 
-		const gate: GateRecord = {
-			kind: aa ? "aa" : "gate",
-			base,
-			candidate,
+		await record({});
+		const outcome = await runLooks({
+			aa: gate.kind === "aa",
+			history,
 			key,
-			options,
-			pool: poolFile,
-			parallel,
-			pairs: [],
-			spent: 0,
-			cap: 0,
-			capped: false,
-			looks: [],
-		};
-		let stop: { error: unknown } | undefined;
-		try {
-			let gathered: Gathered | undefined;
-			for (const [look, { pairs, cap }] of LOOKS.entries()) {
-				const want = aa ? AA_PAIRS : pairs;
-				gate.cap = cap;
-				gathered = await gatherPairs({ want, cap, width: parallel, runPair, ...gathered });
-				Object.assign(gate, { pairs: gathered.pairs, spent: gathered.spent, capped: gathered.capped });
-				if (gathered.stopped !== undefined) throw gathered.stopped;
-				if (aa) break;
-				const current = completePairs(gathered.pairs);
-				if (gathered.capped) {
-					if (current.length > 0) {
-						gate.looks.push({ ...decide({ look, pairs: current, history, key, margin: MARGIN }), verdict: "inconclusive" });
-					}
-					gate.verdict = "inconclusive";
-					break;
-				}
-				const decision = decide({ look, pairs: current, history, key, margin: MARGIN });
-				gate.looks.push(decision);
-				if (decision.verdict !== "continue") {
-					gate.verdict = decision.verdict;
-					break;
-				}
-			}
-		} catch (error) {
-			gate.stopped = error instanceof Error ? error.message : String(error);
-			stop = { error };
+			width: gate.parallel,
+			runPair,
+			estimate: (pairs) => pairEstimate(pairs, history, key),
+			carried: { pairs: gate.pairs, spent: gate.spent, next: gate.next ?? 0 },
+			settled: record,
+		});
+		const { verdict, stopped, ...gathered } = outcome;
+		await record({ ...gathered, ...(verdict ? { verdict } : {}), ...(stopped === undefined ? { ended: true } : { stopped }) });
+		if (stopped !== undefined) {
+			log(`record: ${out}; continue it with \`bun scripts/gate.ts --resume ${out}\``);
+			throw stopped;
 		}
-		await writeFile(join(out, "gate.json"), JSON.stringify(gate, null, "\t"));
-		if (stop) throw stop.error;
 
 		const batch = completePairs(gate.pairs);
 		if (batch.length >= 2) {
-			await appendToPool(poolFile, {
+			await appendToPool(gate.pool, {
 				kind: gate.kind,
 				key,
 				date: new Date().toISOString(),
@@ -831,7 +1205,7 @@ async function main(argv: string[]): Promise<void> {
 				out,
 				pairs: batch,
 			});
-			log(`added ${batch.length} pairs to ${poolFile}`);
+			log(`added ${batch.length} pairs to ${gate.pool}`);
 		} else {
 			log(`${batch.length} complete pair${batch.length === 1 ? "" : "s"}: nothing added to the pool`);
 		}
@@ -844,6 +1218,13 @@ async function main(argv: string[]): Promise<void> {
 		}
 		log(`record: ${out}`);
 		report(gate, await measureSides(out, gate.pairs), await ablationSides(out, gate.pairs), await readCalibration());
+	} catch (error) {
+		// Every pair in flight has finished by now, so no Run of this Gate still uses its database.
+		await databasesOn(server).then(
+			(names) => dropEach(server, ownDatabases(names, stamp), "this Gate's Run database"),
+			(listing: unknown) => log(`could not list databases to drop this Gate's: ${listing instanceof Error ? listing.message : listing}`),
+		);
+		throw error;
 	} finally {
 		for (const dir of temporary) await rm(dir, { recursive: true, force: true });
 	}
