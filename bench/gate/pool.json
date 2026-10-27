@@ -66,6 +66,190 @@
 					}
 				}
 			]
+		},
+		{
+			"kind": "aa",
+			"key": {
+				"workload": {
+					"name": "gate",
+					"version": 1
+				},
+				"model": "anthropic/claude-opus-5-5",
+				"omp": "omp/18.12.6"
+			},
+			"date": "2026-10-27T19:25:26.762Z",
+			"base": "cc93ced1d4992b831c685a935e5131a81327039e",
+			"candidate": "cc93ced1d4992b831c685a935e5131a81327039e",
+			"out": "/tmp/pichart-gate-1793126709775",
+			"pairs": [
+				{
+					"base": {
+						"cost": 4.0682176,
+						"lapses": 24
+					},
+					"candidate": {
+						"cost": 3.2151864000000008,
+						"lapses": 19
+					}
+				},
+				{
+					"base": {
+						"cost": 4.442559799999997,
+						"lapses": 26
+					},
+					"candidate": {
+						"cost": 4.445074599999999,
+						"lapses": 23
+					}
+				},
+				{
+					"base": {
+						"cost": 3.6954359999999995,
+						"lapses": 22
+					},
+					"candidate": {
+						"cost": 3.1030114,
+						"lapses": 19
+					}
+				},
+				{
+					"base": {
+						"cost": 3.7996024,
+						"lapses": 20
+					},
+					"candidate": {
+						"cost": 4.982463999999999,
+						"lapses": 24
+					}
+				},
+				{
+					"base": {
+						"cost": 3.709429600000001,
+						"lapses": 21
+					},
+					"candidate": {
+						"cost": 5.5037727999999975,
+						"lapses": 26
+					}
+				}
+			]
+		},
+		{
+			"kind": "gate",
+			"key": {
+				"workload": {
+					"name": "gate",
+					"version": 1
+				},
+				"model": "anthropic/claude-opus-5-5",
+				"omp": "omp/18.12.6"
+			},
+			"date": "2026-10-27T20:48:15.645Z",
+			"base": "0cbec9858face639edcf49bae53efad1cdd543a0",
+			"candidate": "cc93ced1d4992b831c685a935e5131a81327039e",
+			"out": "/tmp/pichart-gate-1793129127895",
+			"pairs": [
+				{
+					"base": {
+						"cost": 4.8741092,
+						"lapses": 27
+					},
+					"candidate": {
+						"cost": 3.2041925999999994,
+						"lapses": 22
+					}
+				},
+				{
+					"base": {
+						"cost": 4.2511692,
+						"lapses": 27
+					},
+					"candidate": {
+						"cost": 4.2861786,
+						"lapses": 24
+					}
+				},
+				{
+					"base": {
+						"cost": 3.852639800000001,
+						"lapses": 29
+					},
+					"candidate": {
+						"cost": 4.252313400000002,
+						"lapses": 22
+					}
+				},
+				{
+					"base": {
+						"cost": 5.5594836,
+						"lapses": 31
+					},
+					"candidate": {
+						"cost": 4.313364400000001,
+						"lapses": 21
+					}
+				},
+				{
+					"base": {
+						"cost": 5.387428,
+						"lapses": 28
+					},
+					"candidate": {
+						"cost": 5.115310399999998,
+						"lapses": 27
+					}
+				},
+				{
+					"base": {
+						"cost": 6.366029200000001,
+						"lapses": 32
+					},
+					"candidate": {
+						"cost": 3.7239753999999987,
+						"lapses": 22
+					}
+				},
+				{
+					"base": {
+						"cost": 3.7312276000000004,
+						"lapses": 25
+					},
+					"candidate": {
+						"cost": 5.7585576,
+						"lapses": 30
+					}
+				},
+				{
+					"base": {
+						"cost": 4.881164999999999,
+						"lapses": 23
+					},
+					"candidate": {
+						"cost": 5.381663599999998,
+						"lapses": 23
+					}
+				},
+				{
+					"base": {
+						"cost": 5.709945800000003,
+						"lapses": 25
+					},
+					"candidate": {
+						"cost": 4.0181189999999996,
+						"lapses": 24
+					}
+				},
+				{
+					"base": {
+						"cost": 6.209398399999996,
+						"lapses": 29
+					},
+					"candidate": {
+						"cost": 3.9172774,
+						"lapses": 21
+					}
+				}
+			]
 		}
 	]
 }
