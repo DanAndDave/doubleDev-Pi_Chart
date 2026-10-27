@@ -2498,10 +2498,11 @@ export default function piChart(pi: ExtensionAPI): void {
 		vectorModels: () => store.vectorModels(),
 		retire: (olderThanDays) => store.retire(olderThanDays),
 		close: async () => {
-			// Both are attempted, whichever fails: the Store's pool is the
-			// resource a long session exhausts, so it goes back first, and
+			// Both are attempted, whichever fails: the session's share of
+			// the process's Store pool goes back first, since a share never
+			// returned keeps that pool open for every later session, and
 			// the embedder's worker is a process that must not outlive the
-			// session either way.
+			// session either way. The pool itself ends with the last share.
 			try {
 				await ready;
 				// A store that never opened was reported at start; its close

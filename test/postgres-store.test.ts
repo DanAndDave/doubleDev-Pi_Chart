@@ -9,10 +9,16 @@ import { loadConfig } from "../src/config.ts";
 import { StubEmbedder } from "../src/embedder.ts";
 import { readJournal } from "../src/journal.ts";
 import { MIGRATION_VERSIONS, PostgresStore } from "../src/postgres-store.ts";
-import { bunSql, type Sql } from "../src/sql.ts";
+import { bunSql, type Sql, STORE_POOL_MAX } from "../src/sql.ts";
 import { reconstructTurns } from "../src/turns.ts";
 import { budgets } from "./fixtures.ts";
-import { storeLocation } from "./store-support.ts";
+import {
+	describeServer,
+	SAMPLE_MS,
+	scratchDatabase,
+	serverUrl,
+	storeLocation,
+} from "./store-support.ts";
 import { JOURNAL_FIXTURE, turnSourceContract } from "./turn-source-contract.ts";
 
 const describeStore = describe;
@@ -502,30 +508,29 @@ describe("choosing a store backend", () => {
 		expect(PostgresStore.open(loadConfig({}))).toBeUndefined();
 	});
 
-	test("a supplied and a saved url each yield a store", () => {
-		expect(
-			PostgresStore.open(loadConfig({ PICHART_DATABASE_URL: "postgres://x/y" })),
-		).toBeInstanceOf(PostgresStore);
-		expect(PostgresStore.open(loadConfig({}, "postgres://x/y"))).toBeInstanceOf(
-			PostgresStore,
-		);
+	test("a supplied and a saved url each yield a store", async () => {
+		const supplied = PostgresStore.open(loadConfig({ PICHART_DATABASE_URL: "postgres://x/y" }));
+		const saved = PostgresStore.open(loadConfig({}, "postgres://x/y"));
+		// Each holds a share of the process's pool for that url until closed.
+		await supplied?.close();
+		await saved?.close();
+
+		expect(supplied).toBeInstanceOf(PostgresStore);
+		expect(saved).toBeInstanceOf(PostgresStore);
 	});
 });
 
 // Two sessions are two processes, each with its own connection; only a
 // server can stand for that, so these need PICHART_DATABASE_URL.
-const server = process.env.PICHART_DATABASE_URL;
-const describeServer = server ? describe : describe.skip;
-
 describeServer("sessions sharing one server", () => {
 	const scratch = `pi_chart_sessions_${process.pid}`;
 	let fresh: string;
 	let admin: Sql;
 
 	beforeAll(async () => {
-		admin = bunSql(server as string);
+		admin = bunSql(serverUrl as string);
 		await admin.unsafe(`CREATE DATABASE ${scratch}`);
-		const url = new URL(server as string);
+		const url = new URL(serverUrl as string);
 		url.pathname = `/${scratch}`;
 		fresh = url.toString();
 	});
@@ -600,5 +605,66 @@ describeServer("sessions sharing one server", () => {
 		} finally {
 			await store.close();
 		}
+	});
+});
+
+// What the pool opens is only visible as a server's backends, so these
+// count `pg_stat_activity` on a database of their own.
+describeServer("stores opened in one process", () => {
+	const scratch = scratchDatabase("pi_chart_pool");
+
+	test("two stores on one url share a pool that holds its bound", async () => {
+		expect(await scratch.settlesAt(0)).toBe(0);
+		const config = loadConfig({ PICHART_DATABASE_URL: scratch.url });
+		const main = PostgresStore.open(config) as PostgresStore;
+		const subagent = PostgresStore.open(config) as PostgresStore;
+		try {
+			// More at once than the bound, through both stores; while they
+			// run and after, the process holds no more than the bound. The
+			// watcher samples the server while the reads are in flight, at
+			// the cadence a settling count is read at.
+			let most = 0;
+			let running = true;
+			const watching = (async () => {
+				while (running) {
+					most = Math.max(most, await scratch.connections());
+					await Bun.sleep(SAMPLE_MS);
+				}
+			})();
+			const reads = await Promise.all(
+				Array.from({ length: 24 }, (_, index) =>
+					(index % 2 === 0 ? main : subagent).recentTurns(`conv-${index}`, 10),
+				),
+			);
+			running = false;
+			await watching;
+
+			expect(reads.every((turns) => turns.length === 0)).toBe(true);
+			// A pool keeps what it opened, so this is what the burst opened.
+			most = Math.max(most, await scratch.connections());
+			expect(most).toBeGreaterThan(0);
+			expect(most).toBeLessThanOrEqual(STORE_POOL_MAX);
+		} finally {
+			await main.close();
+			await subagent.close();
+		}
+		expect(await scratch.settlesAt(0)).toBe(0);
+	});
+
+	test("a store closed twice leaves the other answering, and the last close ends the pool", async () => {
+		const config = loadConfig({ PICHART_DATABASE_URL: scratch.url });
+		const main = PostgresStore.open(config) as PostgresStore;
+		const subagent = PostgresStore.open(config) as PostgresStore;
+		await Promise.all([main.recentTurns("main", 1), subagent.recentTurns("subagent", 1)]);
+
+		await subagent.close();
+		await subagent.close();
+		expect(await main.recentTurns("main", 1)).toEqual([]);
+		expect(await scratch.connections()).toBeGreaterThan(0);
+		// The closed store does not run on the pool it gave back.
+		await expect(subagent.recentTurns("subagent", 1)).rejects.toThrow("closed");
+
+		await main.close();
+		expect(await scratch.settlesAt(0)).toBe(0);
 	});
 });

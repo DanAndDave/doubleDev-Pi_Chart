@@ -60,7 +60,8 @@ import {
 	journalOf,
 	settings,
 } from "./fixtures.ts";
-import { storeLocation } from "./store-support.ts";
+import { describeServer, scratchDatabase, storeLocation } from "./store-support.ts";
+import { STORE_POOL_MAX } from "../src/sql.ts";
 import { PIN_ENTRY, PINS_FRAMING } from "../src/pins.ts";
 
 interface Recorded extends CallAddress {
@@ -2857,36 +2858,47 @@ describe("the graph store in a session", () => {
 	});
 });
 
-describe("wiring a session without a usable thread store", () => {
-	/** The extension as the harness loads it, with `url` as the store setting. */
-	function loaded(url: string): {
-		commands: Record<string, CommandDefinition>;
-		handlers: Record<string, LifecycleHandler>;
-		warned: string[];
-	} {
-		const commands: Record<string, CommandDefinition> = {};
-		const handlers: Record<string, LifecycleHandler> = {};
-		const warned: string[] = [];
-		const before = process.env.PICHART_DATABASE_URL;
-		process.env.PICHART_DATABASE_URL = url;
-		try {
-			piChart({
-				on: (event: string, handler: LifecycleHandler) => {
-					handlers[event] = handler;
-				},
-				registerCommand: (name: string, command: CommandDefinition) => {
-					commands[name] = command;
-				},
-				registerTool: () => {},
-				logger: { info() {}, warn: (message: string) => warned.push(message) },
-			} as unknown as ExtensionAPI);
-		} finally {
-			if (before === undefined) delete process.env.PICHART_DATABASE_URL;
-			else process.env.PICHART_DATABASE_URL = before;
+/**
+ * The extension as the harness loads it, with `url` as the store setting
+ * and `environment` as the rest of its settings for the load.
+ */
+function loaded(
+	url: string,
+	environment: Record<string, string> = {},
+): {
+	commands: Record<string, CommandDefinition>;
+	handlers: Record<string, LifecycleHandler>;
+	warned: string[];
+} {
+	const commands: Record<string, CommandDefinition> = {};
+	const handlers: Record<string, LifecycleHandler> = {};
+	const warned: string[] = [];
+	const overrides = { ...environment, PICHART_DATABASE_URL: url };
+	const before = Object.fromEntries(
+		Object.keys(overrides).map((name) => [name, process.env[name]]),
+	);
+	Object.assign(process.env, overrides);
+	try {
+		piChart({
+			on: (event: string, handler: LifecycleHandler) => {
+				handlers[event] = handler;
+			},
+			registerCommand: (name: string, command: CommandDefinition) => {
+				commands[name] = command;
+			},
+			registerTool: () => {},
+			logger: { info() {}, warn: (message: string) => warned.push(message) },
+		} as unknown as ExtensionAPI);
+	} finally {
+		for (const [name, value] of Object.entries(before)) {
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
 		}
-		return { commands, handlers, warned };
 	}
+	return { commands, handlers, warned };
+}
 
+describe("wiring a session without a usable thread store", () => {
 	/** What a command wrote, which without a UI is this process's stdout. */
 	async function said(run: Promise<unknown>): Promise<string> {
 		const written: string[] = [];
@@ -2973,6 +2985,70 @@ describe("wiring a session without a usable thread store", () => {
 		expect(setup[0]).toContain("not set up");
 		// Nothing was dialled, so nothing failed to connect.
 		expect(warned.filter((message) => message.includes("unavailable"))).toEqual([]);
+	});
+});
+
+// A session and its subagent's are two loads of the extension in one
+// process. What they open is only visible as a server's backends, so this
+// needs PICHART_DATABASE_URL and counts `pg_stat_activity` on a database
+// of its own.
+describeServer("sessions in one process sharing the store's pool", () => {
+	const scratch = scratchDatabase("pi_chart_sessions_pool");
+	let noBundle: string;
+
+	/** A session's `/pack`, read through its store, as the UI would show it. */
+	async function pack(commands: Record<string, CommandDefinition>): Promise<string> {
+		const shown: string[] = [];
+		const ui = { notify: (text: string) => shown.push(text) };
+		await commands.pack?.handler("", { ui } as unknown as CommandContext);
+		return shown.join("\n");
+	}
+
+	/** Twelve `/pack`s at once, three times the pool's bound. */
+	async function burst(commands: Record<string, CommandDefinition>): Promise<void> {
+		await Promise.all(Array.from({ length: 12 }, () => pack(commands)));
+	}
+
+	beforeAll(async () => {
+		// No bundle, so starting a session indexes nothing and starts no
+		// embedder.
+		noBundle = join(await mkdtemp(join(tmpdir(), "pi-no-bundle-")), "absent");
+	});
+
+	test("a subagent's session reuses the pool, which closes with the last session", async () => {
+		expect(await scratch.settlesAt(0)).toBe(0);
+		const environment = { PICHART_DOC_BUNDLE: noBundle };
+		const sessionOf = (id: string) =>
+			({ sessionManager: { getSessionId: () => id } }) as unknown as HandlerContext;
+
+		// The main session alone fills the pool to its bound, so any
+		// connection the subagent's session opened would be one more.
+		const main = loaded(scratch.url, environment);
+		await main.handlers.session_start?.({}, sessionOf("main"));
+		let mainAlone = 0;
+		for (let tries = 0; mainAlone < STORE_POOL_MAX && tries < 5; tries++) {
+			await burst(main.commands);
+			mainAlone = await scratch.connections();
+		}
+		expect(mainAlone).toBe(STORE_POOL_MAX);
+
+		const subagent = loaded(scratch.url, environment);
+		await subagent.handlers.session_start?.({}, sessionOf("subagent"));
+		await burst(subagent.commands);
+		expect(await scratch.connections()).toBe(mainAlone);
+
+		// The main session ends first; its subagent's goes on reading.
+		await main.handlers.session_shutdown?.({}, sessionOf("main"));
+		expect(await pack(subagent.commands)).toContain("Nothing recorded");
+		expect(await scratch.connections()).toBeGreaterThan(0);
+
+		await subagent.handlers.session_shutdown?.({}, sessionOf("subagent"));
+		expect(await scratch.settlesAt(0)).toBe(0);
+		// Neither session found its store closed under it.
+		const failures = [...main.warned, ...subagent.warned].filter(
+			(message) => message.includes("unavailable") || message.includes("failed"),
+		);
+		expect(failures).toEqual([]);
 	});
 });
 

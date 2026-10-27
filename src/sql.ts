@@ -85,7 +85,8 @@ export function connectionOptions(url: string): string | SocketOptions {
 /**
  * A server-backed handle: Bun's `SQL` already implements every member of
  * `Sql` at runtime, so the one cast lives here rather than at each call.
- * `limits` are Bun's own connection options, for a caller that only probes.
+ * `limits` are Bun's own connection options: a probe's short timeout, a
+ * shared pool's bound.
  */
 export function bunSql(
 	url: string,
@@ -95,4 +96,66 @@ export function bunSql(
 	return new SQL(
 		typeof options === "string" ? { url: options, ...limits } : { ...options, ...limits },
 	) as unknown as Sql;
+}
+
+/**
+ * The most connections one process opens to one Thread Store. One session
+ * peaks at four: the tail's two reads, an Accounting write, and an ingest
+ * or embedding sweep, which run one at a time per Conversation. Sessions
+ * in one process, subagents included, share them; a query past the bound
+ * waits for a free connection rather than opening another.
+ */
+export const STORE_POOL_MAX = 4;
+
+/**
+ * The process's pools, by URL. On `globalThis` under a registered symbol
+ * rather than in this module's scope, because omp imports the extension
+ * afresh for every session it runs, and each import is a new copy of this
+ * module: measured, a process held a further pool for every subagent.
+ */
+const POOLS = Symbol.for("pi-chart.store-pools");
+
+interface SharedPool {
+	readonly sql: Sql;
+	holders: number;
+}
+
+/**
+ * A share of the process's one pool for `url`, opened by `open` when no
+ * share of it is held. Ending the share gives it back, once however often
+ * it is ended, and the last share given back ends the pool. A share given
+ * back refuses further queries, as a handle whose pool ended would, so a
+ * closed store cannot run on a pool other sessions still hold.
+ */
+export function sharedSql(
+	url: string,
+	open: (url: string) => Sql = (at) => bunSql(at, { max: STORE_POOL_MAX }),
+): Sql {
+	const scope = globalThis as { [POOLS]?: Map<string, SharedPool> };
+	const registry = (scope[POOLS] ??= new Map<string, SharedPool>());
+	const pool = registry.get(url) ?? { sql: open(url), holders: 0 };
+	registry.set(url, pool);
+	pool.holders += 1;
+
+	let released = false;
+	const live = (): Sql => {
+		if (released) throw new Error("Thread Store handle closed: its share of the pool was given back");
+		return pool.sql;
+	};
+	// Both call shapes of `Sql`, a tagged query and an insert fragment, go
+	// to the pool as they came; the overloads cannot be spelled as one
+	// signature, so the cast is to the interface the pool already meets.
+	const share = ((...args: unknown[]) =>
+		Reflect.apply(live(), undefined, args)) as unknown as Sql;
+	share.unsafe = async (text) => live().unsafe(text);
+	share.begin = async (fn) => live().begin(fn);
+	share.end = async () => {
+		if (released) return;
+		released = true;
+		pool.holders -= 1;
+		if (pool.holders > 0) return;
+		if (registry.get(url) === pool) registry.delete(url);
+		await pool.sql.end();
+	};
+	return share;
 }

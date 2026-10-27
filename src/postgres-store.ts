@@ -1,6 +1,6 @@
 import type { Config } from "./config.ts";
 
-import { bunSql, type Sql } from "./sql.ts";
+import { bunSql, type Sql, sharedSql } from "./sql.ts";
 
 import {
 	groupByTurn,
@@ -411,6 +411,7 @@ export class PostgresStore implements
 		private readonly embedder?: Embedder,
 	) {}
 
+	/** A store that owns its pool, for a script or test that connects. */
 	static connect(url: string, embedder?: Embedder): PostgresStore {
 		return new PostgresStore(bunSql(url), embedder);
 	}
@@ -420,10 +421,15 @@ export class PostgresStore implements
 	 * server the operator named and `saved` the one setup settled on; a
 	 * `declined` store and one not yet set up return undefined, leaving the
 	 * caller on the harness's own history rather than on a guessed server.
+	 *
+	 * The store holds a share of the process's one bounded pool for that
+	 * server, because every session in the process opens it: omp loads the
+	 * extension again for each subagent, and a pool apiece grew a process
+	 * by 10 connections per subagent it had ever run.
 	 */
 	static open(config: Config, embedder?: Embedder): PostgresStore | undefined {
 		if (config.storeOrigin === "declined" || config.storeOrigin === "unset") return undefined;
-		return new PostgresStore(bunSql(config.databaseUrl ?? ""), embedder);
+		return new PostgresStore(sharedSql(config.databaseUrl ?? ""), embedder);
 	}
 
 	/**
@@ -455,6 +461,11 @@ export class PostgresStore implements
 		});
 	}
 
+	/**
+	 * Releases the store's handle: an opened store gives back its share of
+	 * the process's pool, which ends with the last share; a connected store
+	 * ends the pool it owns. Closing again releases nothing more.
+	 */
 	async close(): Promise<void> {
 		await this.sql.end();
 	}
