@@ -17,14 +17,15 @@ import type { HarnessMessage } from "./messages.ts";
  * estimated for the signatures and 13,000 for the thinking text. So the
  * signature is excluded and the text is counted.
  *
- * Measured against the harness's reported window, less its non-message
- * figure, over 624 Calls of those Journals, the window runs 1.57× this
- * estimate at the median and 1.84× at the p90, which is why the ceiling's
- * default carries 1.85 as headroom.
+ * It under-counts the harness's reported window. How far, and the headroom
+ * the ceiling carries for it, is measured once, on `DEFAULT_PACK_TOKENS`
+ * in `src/config.ts`.
  */
 export function approximateTokens(messages: HarnessMessage[]): number {
 	let characters = 0;
-	for (const message of messages) characters += serialized(message).length;
+	for (const message of messages) {
+		characters += JSON.stringify(copyWithout(message, UNSENT, sentField)).length;
+	}
 	return Math.ceil(characters / 4);
 }
 
@@ -67,15 +68,29 @@ const UNSENT_IN_BLOCK: Record<string, true> = {
 	intent: true,
 };
 
-function serialized(message: HarnessMessage): string {
-	const sent: Record<string, unknown> = {};
-	// Key order follows the message's own, so the estimate is a function of
-	// the message and not of insertion history.
-	for (const [key, value] of Object.entries(message)) {
-		if (UNSENT[key] === true || value === undefined) continue;
-		sent[key] = key === "content" ? sentContent(value) : value;
+/** A message's field as sent: its content without unsent block keys, anything else as it is. */
+const sentField = (key: string, value: unknown): unknown =>
+	key === "content" ? sentContent(value) : value;
+
+const asIs = (_key: string, value: unknown): unknown => value;
+
+/**
+ * A copy of `source` without the keys `unsent` marks or values that are
+ * `undefined`, each kept value passed through `sent`. Key order follows the
+ * source's own, so the estimate is a function of the message and not of
+ * insertion history.
+ */
+function copyWithout(
+	source: object,
+	unsent: Record<string, true>,
+	sent: (key: string, value: unknown) => unknown = asIs,
+): Record<string, unknown> {
+	const copy: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(source)) {
+		if (unsent[key] === true || value === undefined) continue;
+		copy[key] = sent(key, value);
 	}
-	return JSON.stringify(sent);
+	return copy;
 }
 
 /**
@@ -90,7 +105,7 @@ function sentContent(content: unknown): unknown {
 		const block: unknown = content[index];
 		if (!carriesUnsent(block)) continue;
 		rebuilt ??= content.slice();
-		rebuilt[index] = withoutUnsent(block);
+		rebuilt[index] = copyWithout(block, UNSENT_IN_BLOCK);
 	}
 	return rebuilt ?? content;
 }
@@ -99,12 +114,4 @@ function carriesUnsent(block: unknown): block is Record<string, unknown> {
 	if (typeof block !== "object" || block === null) return false;
 	for (const key in block) if (UNSENT_IN_BLOCK[key] === true) return true;
 	return false;
-}
-
-function withoutUnsent(block: Record<string, unknown>): Record<string, unknown> {
-	const sent: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(block)) {
-		if (UNSENT_IN_BLOCK[key] !== true) sent[key] = value;
-	}
-	return sent;
 }

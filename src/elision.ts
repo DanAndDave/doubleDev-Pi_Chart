@@ -36,16 +36,6 @@ const ELISION = (tokens: number) =>
 const ELIDED_WHOLE = (tokens: number) =>
 	`… [pi-chart elided ~${tokens} tokens here]`;
 
-/** How far an elision may go. */
-interface Elision {
-	/**
-	 * The fewest characters worth keeping on each side. Below it there is
-	 * no head and tail worth reading, and the caller is told so rather than
-	 * handed two fragments.
-	 */
-	floor?: number;
-}
-
 /**
  * Head, marker, tail — a payload elided to the characters it may spend,
  * or nothing when it cannot be spent on a head and a tail worth reading.
@@ -53,11 +43,15 @@ interface Elision {
  * The arithmetic lives here because it is the marker's: how much room a
  * head and a tail have left depends on how long the marker is, and what
  * the middle cost is what the marker reports.
+ *
+ * `floor` is the fewest characters worth keeping on each side. Below it
+ * there is no head and tail worth reading, and the caller is told so rather
+ * than handed two fragments.
  */
 export function elide(
 	text: string,
 	characters: number,
-	{ floor = 1 }: Elision = {},
+	floor = 1,
 ): string | undefined {
 	const half = Math.floor((characters - ELISION(0).length) / 2);
 	if (half < floor) return undefined;
@@ -161,7 +155,7 @@ function shortenText(
 	let room = characters;
 	let best: { message: HarnessMessage; tokens: number } | undefined;
 	while (true) {
-		const content = elide(text, room, { floor: SHORTEST_HALF_CHARACTERS });
+		const content = elide(text, room, SHORTEST_HALF_CHARACTERS);
 		if (content === undefined) break;
 		const candidate: HarnessMessage = {
 			...message,
@@ -282,7 +276,7 @@ function elideArguments(passed: unknown, room: number): unknown {
 		// object costs around it.
 		const rest = JSON.stringify({ ...shortened, [key]: "" }).length;
 		const allowance = room - rest;
-		const cut = elide(value, allowance, { floor: SHORTEST_HALF_CHARACTERS });
+		const cut = elide(value, allowance, SHORTEST_HALF_CHARACTERS);
 		if (cut === undefined || cut.length >= value.length) continue;
 		shortened[key] = cut;
 		elided = true;
@@ -585,7 +579,7 @@ export function elideLine(text: string, allowed: number): string {
 	// No room for a head and a tail worth reading: the line says only that
 	// it had output and how much of it went.
 	return (
-		elide(text, allowed, { floor: SHORTEST_HALF_CHARACTERS / 2 }) ??
+		elide(text, allowed, SHORTEST_HALF_CHARACTERS / 2) ??
 		elidedWhole(text)
 	);
 }
