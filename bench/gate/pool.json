@@ -250,6 +250,123 @@
 					}
 				}
 			]
+		},
+		{
+			"kind": "gate",
+			"key": {
+				"workload": {
+					"name": "gate",
+					"version": 1
+				},
+				"model": "anthropic/claude-opus-5-5",
+				"omp": "omp/18.12.6"
+			},
+			"date": "2026-10-27T22:59:24.082Z",
+			"base": "84e650a4a08866c9eba93afdcd68132935f9bc7b",
+			"candidate": "db2cd77118057897de431c95a8b6d03e1010d127",
+			"out": "/tmp/pichart-gate-1793137242749",
+			"pairs": [
+				{
+					"base": {
+						"cost": 4.489755199999999,
+						"lapses": 23
+					},
+					"candidate": {
+						"cost": 4.490600800000001,
+						"lapses": 24
+					}
+				},
+				{
+					"base": {
+						"cost": 4.258080199999999,
+						"lapses": 24
+					},
+					"candidate": {
+						"cost": 3.5055542000000015,
+						"lapses": 23
+					}
+				},
+				{
+					"base": {
+						"cost": 4.0819697999999995,
+						"lapses": 23
+					},
+					"candidate": {
+						"cost": 4.2903084,
+						"lapses": 25
+					}
+				},
+				{
+					"base": {
+						"cost": 3.2446684,
+						"lapses": 21
+					},
+					"candidate": {
+						"cost": 5.1839011999999975,
+						"lapses": 25
+					}
+				},
+				{
+					"base": {
+						"cost": 3.3887639999999997,
+						"lapses": 22
+					},
+					"candidate": {
+						"cost": 4.601122599999998,
+						"lapses": 26
+					}
+				},
+				{
+					"base": {
+						"cost": 3.8097583999999998,
+						"lapses": 23
+					},
+					"candidate": {
+						"cost": 4.369954,
+						"lapses": 22
+					}
+				},
+				{
+					"base": {
+						"cost": 3.231691999999999,
+						"lapses": 21
+					},
+					"candidate": {
+						"cost": 4.079770400000001,
+						"lapses": 23
+					}
+				},
+				{
+					"base": {
+						"cost": 3.6392186,
+						"lapses": 20
+					},
+					"candidate": {
+						"cost": 3.3228811999999994,
+						"lapses": 21
+					}
+				},
+				{
+					"base": {
+						"cost": 5.037811599999997,
+						"lapses": 26
+					},
+					"candidate": {
+						"cost": 3.6874293999999996,
+						"lapses": 23
+					}
+				},
+				{
+					"base": {
+						"cost": 3.8433717999999994,
+						"lapses": 24
+					},
+					"candidate": {
+						"cost": 3.987726000000001,
+						"lapses": 21
+					}
+				}
+			]
 		}
 	]
 }
