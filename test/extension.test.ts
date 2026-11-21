@@ -766,7 +766,7 @@ describe("the pack gauge on the footer", () => {
 
 		await cm.context({ messages: [prompt(100)] }, cm.session());
 
-		expect(gauge(cm)).toMatch(/^pack ▕.{8}▏ 1\d% 1\d\d\/1k$/);
+		expect(gauge(cm)).toMatch(/^pack ▕.{24}▏ 1\d% 1\d\d\/1k$/);
 	});
 
 	test("follows each call, so an overrun does not outlive the call that had it", async () => {
@@ -777,7 +777,7 @@ describe("the pack gauge on the footer", () => {
 		await cm.context({ messages: [prompt(100)] }, cm.session());
 
 		expect(over).toEndWith(" · over ceiling");
-		expect(gauge(cm)).toMatch(/^pack ▕.{8}▏ 1\d% 1\d\d\/1k$/);
+		expect(gauge(cm)).toMatch(/^pack ▕.{24}▏ 1\d% 1\d\d\/1k$/);
 	});
 
 	test("a call that went out unassembled replaces the earlier pack", async () => {

@@ -604,33 +604,45 @@ describe("the live pack's view", () => {
 describe("the pack gauge", () => {
 	const gauge = (fields: Partial<Omit<Pack, "parts">>) =>
 		renderGauge(viewPack(livePack({ ceiling: 300_000, ...fields }), 0.9));
+	const full = (cells: number) => "█".repeat(cells);
+	const empty = (cells: number) => "\u00a0".repeat(cells);
 
 	test("a pack that fits shows its size against the ceiling, unmarked", () => {
 		expect(gauge({ approximateTokens: 123_000, beforeCeiling: 123_000 })).toBe(
-			"pack ▕███▎    ▏ 41% ~123k/300k",
+			`pack ▕${full(9)}▊${empty(14)}▏ 41% ~123k/300k`,
 		);
 	});
 
 	test("a pack past the share is near the ceiling", () => {
 		expect(gauge({ approximateTokens: 294_000, beforeCeiling: 294_000 })).toBe(
-			"pack ▕███████▊▏ 98% ~294k/300k · near ceiling",
+			`pack ▕${full(23)}▌▏ 98% ~294k/300k · near ceiling`,
 		);
 	});
 
 	test("a reduced pack says what it was reduced from", () => {
 		expect(gauge({ approximateTokens: 298_000, beforeCeiling: 410_000 })).toBe(
-			"pack ▕███████▉▏ 99% ~298k/300k · reduced from ~410k",
+			`pack ▕${full(23)}▊▏ 99% ~298k/300k · reduced from ~410k`,
 		);
 	});
 
 	test("a pack over the ceiling fills the bar and goes no further", () => {
 		expect(gauge({ approximateTokens: 804_839, beforeCeiling: 900_000 })).toBe(
-			"pack ▕████████▏ 268% ~805k/300k · over ceiling",
+			`pack ▕${full(24)}▏ 268% ~805k/300k · over ceiling`,
 		);
 	});
 
 	test("an empty pack draws an empty bar", () => {
-		expect(gauge({ approximateTokens: 0, beforeCeiling: 0 })).toBe("pack ▕        ▏ 0% 0/300k");
+		expect(gauge({ approximateTokens: 0, beforeCeiling: 0 })).toBe(
+			`pack ▕${empty(24)}▏ 0% 0/300k`,
+		);
+	});
+
+	test("the bar keeps its width and its share through pi's footer, which collapses runs of spaces", () => {
+		const shown = gauge({ approximateTokens: 24_000, beforeCeiling: 24_000 })
+			?.replace(/ +/g, " ")
+			.trim();
+
+		expect(shown).toBe(`pack ▕█▉${empty(22)}▏ 8% ~24k/300k`);
 	});
 
 	test("with no ceiling in force it shows the size alone", () => {

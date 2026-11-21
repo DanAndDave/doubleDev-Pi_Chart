@@ -393,7 +393,7 @@ Part sizes are the local approximation and are labelled as such. Pack-versus-Flo
 The footer carries a gauge for the last Call's pack, updated on every Call:
 
 ```
-pack ▕████████▏ 268% ~805k/300k · over ceiling
+pack ▕████████████████████████▏ 268% ~805k/300k · over ceiling
 ```
 
 It carries at most one mark, worst first: `over ceiling` where the pack went out larger than `PICHART_PACK_TOKENS`, `reduced from ~<n>` where the ceiling cut it to fit, `near ceiling` past `PICHART_PACK_WARN_SHARE`. A Call that went out as the harness's own history reads `pack: not assembled`; a session switch or branch clears the gauge until the next Call. Neither condition is posted into the conversation: the log records every overrun, and the approach once per Conversation.

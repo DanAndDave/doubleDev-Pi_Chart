@@ -275,15 +275,26 @@ export function renderCall(view: CallView): string {
 const EIGHTHS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
 /**
- * `share` of `cells` in block characters, never longer than `cells`. Floored,
- * so a bar reads full only when the share is; anything above nothing shows
- * at least an eighth, so a part that carried something never reads as empty.
+ * The empty cells of a bar. A no-break space, not a space: pi's footer
+ * collapses runs of spaces to one, which would shrink the bar to its drawn
+ * part and make a small share read as half full.
+ */
+const EMPTY_CELL = "\u00a0";
+
+/** Cells in the footer gauge's bar. */
+const GAUGE_CELLS = 24;
+
+/**
+ * `share` of `cells` in block characters, always exactly `cells` long.
+ * Floored, so a bar reads full only when the share is; anything above
+ * nothing shows at least an eighth, so a part that carried something never
+ * reads as empty.
  */
 function bar(share: number, cells: number): string {
 	const eighths =
 		share <= 0 ? 0 : Math.max(1, Math.floor(Math.min(share, 1) * cells * 8));
 	const drawn = "█".repeat(Math.floor(eighths / 8)) + EIGHTHS[eighths % 8];
-	return drawn.padEnd(cells);
+	return drawn.padEnd(cells, EMPTY_CELL);
 }
 
 /**
@@ -324,7 +335,7 @@ export function renderGauge(state: PackState): string | undefined {
 	const size = tokenFigure(state.approximateTokens);
 	if (state.ceiling <= 0) return `pack ${size}`;
 	return (
-		`pack ▕${bar(state.approximateTokens / state.ceiling, 8)}▏ ${percentOf(state)}% ` +
+		`pack ▕${bar(state.approximateTokens / state.ceiling, GAUGE_CELLS)}▏ ${percentOf(state)}% ` +
 		`${size}/${limitFigure(state.ceiling)}${markOf(state)}`
 	);
 }
